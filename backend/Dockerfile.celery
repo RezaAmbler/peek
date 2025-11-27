@@ -1,0 +1,39 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies for scanning tools
+RUN apt-get update && apt-get install -y \
+    gcc \
+    sudo \
+    masscan \
+    nmap \
+    wget \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Nuclei
+RUN wget -q https://github.com/projectdiscovery/nuclei/releases/download/v3.1.0/nuclei_3.1.0_linux_amd64.zip && \
+    unzip nuclei_3.1.0_linux_amd64.zip && \
+    mv nuclei /usr/local/bin/ && \
+    chmod +x /usr/local/bin/nuclei && \
+    rm nuclei_3.1.0_linux_amd64.zip
+
+# Update Nuclei templates
+RUN nuclei -update-templates
+
+# Copy requirements and install
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install ssh-audit via pip
+RUN pip install ssh-audit
+
+# Copy application
+COPY . .
+
+# Create sudoers entry for masscan and nmap (passwordless sudo)
+RUN echo "root ALL=(ALL) NOPASSWD: /usr/bin/masscan" >> /etc/sudoers && \
+    echo "root ALL=(ALL) NOPASSWD: /usr/bin/nmap" >> /etc/sudoers
+
+CMD ["celery", "-A", "app.celery_app", "worker", "--loglevel=info", "--concurrency=2"]

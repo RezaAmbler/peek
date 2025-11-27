@@ -1,0 +1,145 @@
+import { SSHAudit } from '../api/scans';
+
+interface SSHAuditCardProps {
+  audit: SSHAudit;
+}
+
+export function SSHAuditCard({ audit }: SSHAuditCardProps) {
+  if (audit.connection_failed) {
+    return (
+      <div className="bg-white shadow rounded-lg p-6 border-l-4 border-red-500">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">
+            {audit.ip_address}:{audit.port}
+          </h3>
+          <span className="px-2 py-1 text-xs font-semibold rounded bg-red-100 text-red-800">
+            Connection Failed
+          </span>
+        </div>
+        <p className="text-sm text-gray-600">{audit.failure_reason}</p>
+      </div>
+    );
+  }
+
+  const hasVulnerabilities = audit.vulnerabilities && audit.vulnerabilities.length > 0;
+  const hasRecommendations = audit.recommendations && audit.recommendations.length > 0;
+
+  return (
+    <div className={`bg-white shadow rounded-lg p-6 border-l-4 ${
+      hasVulnerabilities ? 'border-red-500' : 'border-green-500'
+    }`}>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-lg font-semibold text-gray-900">
+            {audit.ip_address}:{audit.port}
+          </h3>
+          {audit.device_name && (
+            <p className="text-sm text-gray-500">{audit.device_name}</p>
+          )}
+        </div>
+        <span className={`px-2 py-1 text-xs font-semibold rounded ${
+          hasVulnerabilities
+            ? 'bg-red-100 text-red-800'
+            : 'bg-green-100 text-green-800'
+        }`}>
+          {hasVulnerabilities ? 'Issues Found' : 'Secure'}
+        </span>
+      </div>
+
+      {/* Banner & Version */}
+      {audit.banner && (
+        <div className="mb-4 bg-gray-50 p-3 rounded">
+          <p className="text-xs font-mono text-gray-700">{audit.banner}</p>
+          {audit.ssh_version && (
+            <p className="text-xs text-gray-500 mt-1">Protocol: SSH-{audit.ssh_version}</p>
+          )}
+        </div>
+      )}
+
+      {/* Vulnerabilities */}
+      {hasVulnerabilities && (
+        <div className="mb-4">
+          <h4 className="text-sm font-semibold text-red-800 mb-2">
+            ⚠️ Security Issues ({audit.vulnerabilities!.length})
+          </h4>
+          <ul className="space-y-2">
+            {audit.vulnerabilities!.map((vuln, idx) => (
+              <li key={idx} className="bg-red-50 p-2 rounded text-sm">
+                <span className="font-semibold">{vuln.cve || 'Issue'}:</span>{' '}
+                {vuln.description}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Recommendations */}
+      {hasRecommendations && (
+        <div className="mb-4">
+          <h4 className="text-sm font-semibold text-yellow-800 mb-2">
+            💡 Recommendations ({audit.recommendations!.length})
+          </h4>
+          <ul className="space-y-1">
+            {audit.recommendations!.slice(0, 5).map((rec, idx) => (
+              <li key={idx} className="bg-yellow-50 p-2 rounded text-sm">
+                <span className="font-semibold capitalize">{rec.action}:</span>{' '}
+                {rec.item}
+              </li>
+            ))}
+            {audit.recommendations!.length > 5 && (
+              <li className="text-xs text-gray-500 mt-1">
+                ... and {audit.recommendations!.length - 5} more
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
+
+      {/* Algorithms (collapsible) */}
+      <details className="mt-4">
+        <summary className="cursor-pointer text-sm font-semibold text-gray-700">
+          View Algorithms
+        </summary>
+        <div className="mt-2 space-y-2 text-xs">
+          {audit.key_exchange_algorithms && audit.key_exchange_algorithms.length > 0 && (
+            <div>
+              <span className="font-semibold">Key Exchange:</span>
+              <div className="flex flex-wrap gap-1 mt-1">
+                {audit.key_exchange_algorithms.map((algo, idx) => (
+                  <span key={idx} className="px-2 py-1 bg-gray-100 rounded">
+                    {algo}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {audit.encryption_algorithms && audit.encryption_algorithms.length > 0 && (
+            <div>
+              <span className="font-semibold">Encryption:</span>
+              <div className="flex flex-wrap gap-1 mt-1">
+                {audit.encryption_algorithms.map((algo, idx) => (
+                  <span key={idx} className="px-2 py-1 bg-gray-100 rounded">
+                    {algo}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {audit.mac_algorithms && audit.mac_algorithms.length > 0 && (
+            <div>
+              <span className="font-semibold">MAC:</span>
+              <div className="flex flex-wrap gap-1 mt-1">
+                {audit.mac_algorithms.map((algo, idx) => (
+                  <span key={idx} className="px-2 py-1 bg-gray-100 rounded">
+                    {algo}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </details>
+    </div>
+  );
+}

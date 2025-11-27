@@ -1,0 +1,196 @@
+import { useParams } from '@tanstack/react-router';
+import { useQuery } from '@tanstack/react-query';
+import { comparisonsApi } from '../api/comparisons';
+import { ChangeCard } from '../components/ChangeCard';
+import { Navigation } from '../components/Navigation';
+
+export function ComparisonView() {
+  const { comparisonId } = useParams({ from: '/comparisons/$comparisonId' });
+
+  const { data: comparison, isLoading } = useQuery({
+    queryKey: ['comparison', comparisonId],
+    queryFn: () => comparisonsApi.get(comparisonId!),
+  });
+
+  const handleExport = () => {
+    const token = localStorage.getItem('access_token');
+    const url = `http://localhost:8000/api/reports/comparison/${comparisonId}/pdf`;
+
+    fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    })
+    .then(response => response.blob())
+    .then(blob => {
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `comparison_report_${comparisonId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+    })
+    .catch(error => {
+      console.error('Export failed:', error);
+      alert('Failed to export comparison report. Please try again.');
+    });
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Navigation />
+        <div className="max-w-7xl mx-auto py-6 px-4">
+          <p>Loading comparison...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!comparison) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Navigation />
+        <div className="max-w-7xl mx-auto py-6 px-4">
+          <p>Comparison not found</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Group changes by category
+  const portChanges = comparison.changes.filter(c => c.category === 'port');
+  const serviceChanges = comparison.changes.filter(c => c.category === 'service');
+  const vulnChanges = comparison.changes.filter(c => c.category === 'vulnerability');
+  const sshChanges = comparison.changes.filter(c => c.category === 'ssh');
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <Navigation />
+      <main className="max-w-7xl mx-auto py-6 px-4">
+        {/* Header */}
+        <div className="bg-white shadow rounded-lg p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h1 className="text-2xl font-bold">Scan Comparison</h1>
+            <button
+              onClick={handleExport}
+              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm font-medium"
+            >
+              📄 Export PDF Report
+            </button>
+          </div>
+
+          {/* Summary Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
+            <div className="bg-red-50 p-4 rounded">
+              <p className="text-sm text-gray-600">New Ports</p>
+              <p className="text-2xl font-bold text-red-600">{comparison.new_ports}</p>
+            </div>
+            <div className="bg-green-50 p-4 rounded">
+              <p className="text-sm text-gray-600">Closed Ports</p>
+              <p className="text-2xl font-bold text-green-600">{comparison.closed_ports}</p>
+            </div>
+            <div className="bg-yellow-50 p-4 rounded">
+              <p className="text-sm text-gray-600">Version Changes</p>
+              <p className="text-2xl font-bold text-yellow-600">{comparison.version_changes}</p>
+            </div>
+            <div className="bg-red-50 p-4 rounded">
+              <p className="text-sm text-gray-600">New Vulnerabilities</p>
+              <p className="text-2xl font-bold text-red-600">{comparison.new_vulnerabilities}</p>
+            </div>
+            <div className="bg-green-50 p-4 rounded">
+              <p className="text-sm text-gray-600">Fixed Vulnerabilities</p>
+              <p className="text-2xl font-bold text-green-600">{comparison.fixed_vulnerabilities}</p>
+            </div>
+          </div>
+
+          {/* Severity Breakdown */}
+          <div className="flex gap-2 flex-wrap">
+            {comparison.critical_changes > 0 && (
+              <span className="px-3 py-1 bg-red-600 text-white text-sm font-bold rounded">
+                CRITICAL: {comparison.critical_changes}
+              </span>
+            )}
+            {comparison.high_changes > 0 && (
+              <span className="px-3 py-1 bg-orange-600 text-white text-sm font-bold rounded">
+                HIGH: {comparison.high_changes}
+              </span>
+            )}
+            {comparison.medium_changes > 0 && (
+              <span className="px-3 py-1 bg-yellow-600 text-white text-sm font-bold rounded">
+                MEDIUM: {comparison.medium_changes}
+              </span>
+            )}
+            {comparison.positive_changes > 0 && (
+              <span className="px-3 py-1 bg-green-600 text-white text-sm font-bold rounded">
+                IMPROVEMENTS: {comparison.positive_changes}
+              </span>
+            )}
+          </div>
+
+          {/* Summary Text */}
+          <div className="mt-4 bg-gray-50 p-4 rounded">
+            <pre className="text-sm whitespace-pre-wrap font-mono">
+              {comparison.summary}
+            </pre>
+          </div>
+        </div>
+
+        {/* Changes by Category */}
+        {portChanges.length > 0 && (
+          <div className="mb-6">
+            <h2 className="text-xl font-bold mb-4">Port Changes ({portChanges.length})</h2>
+            <div className="space-y-3">
+              {portChanges.map((change, idx) => (
+                <ChangeCard key={idx} change={change} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {serviceChanges.length > 0 && (
+          <div className="mb-6">
+            <h2 className="text-xl font-bold mb-4">Service Changes ({serviceChanges.length})</h2>
+            <div className="space-y-3">
+              {serviceChanges.map((change, idx) => (
+                <ChangeCard key={idx} change={change} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {vulnChanges.length > 0 && (
+          <div className="mb-6">
+            <h2 className="text-xl font-bold mb-4">Vulnerability Changes ({vulnChanges.length})</h2>
+            <div className="space-y-3">
+              {vulnChanges.map((change, idx) => (
+                <ChangeCard key={idx} change={change} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {sshChanges.length > 0 && (
+          <div className="mb-6">
+            <h2 className="text-xl font-bold mb-4">SSH Security Changes ({sshChanges.length})</h2>
+            <div className="space-y-3">
+              {sshChanges.map((change, idx) => (
+                <ChangeCard key={idx} change={change} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {comparison.total_changes === 0 && (
+          <div className="bg-white shadow rounded-lg p-6">
+            <p className="text-green-600 font-semibold text-center">
+              ✅ No changes detected between scans
+            </p>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}

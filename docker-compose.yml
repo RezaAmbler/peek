@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+    env_file:
+      - ./backend/.env
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./data/peek.db
+      - DEBUG=true
+      - ALLOWED_ORIGINS=["http://localhost:3000"]
+      - SECRET_KEY=peek_v2_development_secret_key_change_in_production_12345678901234567890
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+
+  celery:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.celery
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+    env_file:
+      - ./backend/.env
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./data/peek.db
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - DEBUG=true
+    depends_on:
+      - redis
+      - backend
+    # Run as root to allow sudo masscan
+    user: root
+
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.celery
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+    env_file:
+      - ./backend/.env
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./data/peek.db
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - DEBUG=true
+    command: celery -A app.celery_app beat --loglevel=info
+    depends_on:
+      - redis
+      - backend
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  data:

@@ -1,9 +1,72 @@
-venv/
+# Python
 __pycache__/
-*.pyc
-.env
-*.sqlite3
-data/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv
+*.egg-info/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
 .DS_Store
+
+# Database
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# IDEs
 .vscode/
 .idea/
+*.swp
+*.swo
+
+# Env
+.env
+.env.local
+
+# Claude / AI Agents
+.claude/
+.claude_history
+.anthropic/
+.cursor/
+.aider*
+.continue/
+CLAUDE.md
+
+# Python virtual environments
+venv/
+.venv/
+env/
+.env/
+ENV/
+virtualenv/
+.virtualenv/
+*.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+.pyre/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
