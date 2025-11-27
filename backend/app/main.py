@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from contextlib import asynccontextmanager
 from datetime import datetime
 from .core.config import settings
@@ -12,6 +13,68 @@ from .models.scan_config import ScanConfig
 from .models.scan import Scan, ScanStatus
 from sqlalchemy import select, or_
 from .services.config_service import ensure_user_has_default_config
+
+# OpenAPI tag descriptions for Swagger UI grouping
+OPENAPI_TAGS = [
+    {
+        "name": "auth",
+        "description": "Authentication endpoints. Login to get a JWT token for accessing protected endpoints."
+    },
+    {
+        "name": "users",
+        "description": "User management (admin only). Create, update, and manage user accounts."
+    },
+    {
+        "name": "configs",
+        "description": "Scan configuration profiles. Define scanning parameters, timeouts, and tool settings."
+    },
+    {
+        "name": "scans",
+        "description": "Create, run, and monitor security scans. View discovered ports, services, and vulnerabilities."
+    },
+    {
+        "name": "scheduled-scans",
+        "description": "Automated recurring scans. Schedule scans using cron expressions."
+    },
+    {
+        "name": "comparisons",
+        "description": "Compare scan results over time. Identify new ports, closed ports, and vulnerability changes."
+    },
+    {
+        "name": "reports",
+        "description": "Export reports in PDF, HTML, and CSV formats."
+    },
+]
+
+APP_DESCRIPTION = """
+## Network Security Scanner API
+
+PEEK V2 scans networks for open ports, services, and vulnerabilities using:
+- **Nmap** - Port discovery and service detection
+- **SSH-Audit** - SSH security analysis
+- **Nuclei** - Vulnerability scanning
+
+### Authentication
+Most endpoints require JWT authentication.
+1. Call `POST /api/auth/login` with username/password
+2. Copy the `access_token` from response
+3. Click the **Authorize** button above and enter: `Bearer <your_token>`
+
+### Quick Start
+1. **Login** to get token (default: admin/admin)
+2. **Create a scan configuration** (or use default)
+3. **Create and start a scan** with target IPs
+4. **Monitor progress** and view results
+
+### Scan Workflow
+```
+POST /api/scans          → Create scan (status: pending)
+POST /api/scans/{id}/start → Queue scan (status: queued → running)
+GET /api/scans/{id}      → Monitor progress
+GET /api/scans/{id}/ports → View discovered ports
+GET /api/scans/{id}/vulnerabilities → View vulnerabilities
+```
+"""
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -69,10 +132,37 @@ async def create_default_admin():
         await ensure_user_has_default_config(session, admin.id)
 
 app = FastAPI(
-    title=settings.APP_NAME,
-    version=settings.VERSION,
+    title="PEEK V2 API",
+    description=APP_DESCRIPTION,
+    version="2.0.0",
+    openapi_tags=OPENAPI_TAGS,
     lifespan=lifespan
 )
+
+def custom_openapi():
+    """Custom OpenAPI schema with JWT Bearer authentication."""
+    if app.openapi_schema:
+        return app.openapi_schema
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+        tags=OPENAPI_TAGS,
+    )
+    openapi_schema["components"]["securitySchemes"] = {
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+            "description": "Enter the JWT token obtained from POST /api/auth/login"
+        }
+    }
+    openapi_schema["security"] = [{"BearerAuth": []}]
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+app.openapi = custom_openapi
 
 # CORS
 app.add_middleware(

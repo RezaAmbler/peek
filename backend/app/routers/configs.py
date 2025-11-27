@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from typing import Optional
@@ -41,13 +41,13 @@ async def get_config_by_id(
 
     return config
 
-@router.get("", response_model=ScanConfigListResponse)
+@router.get("", response_model=ScanConfigListResponse, summary="List configurations")
 async def list_configs(
-    user_id: Optional[str] = None,
+    user_id: Optional[str] = Query(None, description="Filter by user ID (admin only)"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """List scan configurations"""
+    """List all scan configurations for the current user."""
     # Determine which user's configs to fetch
     if user_id:
         # Admin can view other users' configs
@@ -83,13 +83,17 @@ async def get_config(
     config = await get_config_by_id(config_id, current_user, db)
     return config
 
-@router.post("", response_model=ScanConfigResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ScanConfigResponse, status_code=status.HTTP_201_CREATED, summary="Create configuration")
 async def create_config(
     config_data: ScanConfigCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Create a new scan configuration"""
+    """
+    Create a new scan configuration profile.
+
+    Configurations define scan parameters like masscan rate, nmap arguments, and Nuclei settings.
+    """
     # Check if user has any configs (if not, make this the default)
     result = await db.execute(
         select(ScanConfig).where(ScanConfig.user_id == current_user.id)

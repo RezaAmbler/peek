@@ -41,11 +41,19 @@ async def get_current_user(
 
     return user
 
-@router.post("/login", response_model=Token)
+@router.post("/login", response_model=Token, summary="Login and get JWT token")
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db)
 ):
+    """
+    Authenticate user and return a JWT access token.
+
+    **Default credentials**: admin / admin
+
+    Use the returned `access_token` in the Authorization header:
+    `Authorization: Bearer <token>`
+    """
     result = await db.execute(select(User).where(User.username == form_data.username))
     user = result.scalar_one_or_none()
 
@@ -69,6 +77,7 @@ async def login(
         "user": UserResponse.from_orm(user)
     }
 
-@router.get("/me", response_model=UserResponse)
+@router.get("/me", response_model=UserResponse, summary="Get current user info")
 async def get_current_user_info(current_user: User = Depends(get_current_user)):
+    """Get the currently authenticated user's profile information."""
     return UserResponse.from_orm(current_user)

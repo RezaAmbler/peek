@@ -37,15 +37,15 @@ def parse_csv_targets(csv_content: str) -> list[TargetInput]:
 
     return targets
 
-@router.get("", response_model=ScanListResponse)
+@router.get("", response_model=ScanListResponse, summary="List all scans")
 async def list_scans(
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
-    status: Optional[str] = None,
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(20, ge=1, le=100, description="Items per page"),
+    status: Optional[str] = Query(None, description="Filter by status: pending, queued, running, completed, failed, cancelled"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """List scans for the current user"""
+    """List all scans for the current user with pagination and optional status filter."""
     # Base query - user sees their own scans
     # NOTE: Phase 5+ will add organization_id filtering here
     query = select(Scan).where(Scan.user_id == current_user.id)
@@ -74,13 +74,13 @@ async def list_scans(
         pages=(total + limit - 1) // limit
     )
 
-@router.get("/{scan_id}", response_model=ScanDetailResponse)
+@router.get("/{scan_id}", response_model=ScanDetailResponse, summary="Get scan details")
 async def get_scan(
     scan_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get scan details including targets"""
+    """Get detailed information about a specific scan including its targets."""
     result = await db.execute(
         select(Scan).where(Scan.id == scan_id)
     )
@@ -106,13 +106,17 @@ async def get_scan(
         targets=targets
     )
 
-@router.post("", response_model=ScanResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ScanResponse, status_code=status.HTTP_201_CREATED, summary="Create a new scan")
 async def create_scan(
     scan_data: ScanCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Create a new scan with targets"""
+    """
+    Create a new scan with target IP addresses.
+
+    The scan is created in **pending** status. Call `POST /api/scans/{id}/start` to queue it for execution.
+    """
     # Verify config exists and user has access
     # Convert UUID to string for SQLite string column comparison
     config_id_str = str(scan_data.config_id)
@@ -310,13 +314,18 @@ async def cancel_scan(
 
     return scan
 
-@router.post("/{scan_id}/start", response_model=ScanResponse)
+@router.post("/{scan_id}/start", response_model=ScanResponse, summary="Start a scan")
 async def start_scan(
     scan_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Start a pending scan (queues it for execution)"""
+    """
+    Queue a pending scan for execution.
+
+    The scan will be picked up by the Celery worker and progress through:
+    **queued** → **running** → **completed** (or **failed**)
+    """
     result = await db.execute(
         select(Scan).where(Scan.id == scan_id)
     )
@@ -434,13 +443,13 @@ async def restart_scan(
 
     return new_scan
 
-@router.get("/{scan_id}/ports")
+@router.get("/{scan_id}/ports", summary="Get discovered ports")
 async def get_scan_ports(
     scan_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get all ports discovered in a scan"""
+    """Get all open ports discovered during the scan, including service and version info from nmap."""
     # Verify scan access
     result = await db.execute(select(Scan).where(Scan.id == scan_id))
     scan = result.scalar_one_or_none()
@@ -542,14 +551,14 @@ async def get_scan_ssh_audits(
 
     return result_list
 
-@router.get("/{scan_id}/vulnerabilities")
+@router.get("/{scan_id}/vulnerabilities", summary="Get vulnerabilities")
 async def get_scan_vulnerabilities(
     scan_id: str,
-    severity: Optional[str] = None,
+    severity: Optional[str] = Query(None, description="Filter by severity: critical,high,medium,low,info (comma-separated)"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get all vulnerabilities found in a scan"""
+    """Get all vulnerabilities found by Nuclei during the scan, sorted by severity."""
     # Verify scan access
     result = await db.execute(select(Scan).where(Scan.id == scan_id))
     scan = result.scalar_one_or_none()

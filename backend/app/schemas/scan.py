@@ -5,8 +5,9 @@ from typing import Optional, List
 import ipaddress
 
 class TargetInput(BaseModel):
-    ip_address: str
-    device_name: Optional[str] = None
+    """A single IP target to scan."""
+    ip_address: str = Field(..., description="IPv4 address to scan", json_schema_extra={"example": "192.168.1.1"})
+    device_name: Optional[str] = Field(None, description="Friendly device name", json_schema_extra={"example": "web-server-01"})
 
     @validator('ip_address')
     def validate_ip(cls, v):
@@ -17,11 +18,12 @@ class TargetInput(BaseModel):
         return v
 
 class ScanCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=200)
-    description: Optional[str] = Field(None, max_length=1000)
-    config_id: UUID
-    targets: List[TargetInput] = Field(..., min_items=1, max_items=1000)
-    baseline_scan_id: Optional[UUID] = None
+    """Create a new security scan with target IPs."""
+    name: str = Field(..., min_length=1, max_length=200, description="Scan name", json_schema_extra={"example": "Weekly Network Scan"})
+    description: Optional[str] = Field(None, max_length=1000, description="Scan description", json_schema_extra={"example": "Scanning production servers for vulnerabilities"})
+    config_id: UUID = Field(..., description="ID of the scan configuration to use")
+    targets: List[TargetInput] = Field(..., min_length=1, max_length=1000, description="List of IP targets to scan")
+    baseline_scan_id: Optional[UUID] = Field(None, description="Compare results against this previous scan")
 
 class ScanCreateFromCSV(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)

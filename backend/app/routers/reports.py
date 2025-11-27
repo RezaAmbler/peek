@@ -10,13 +10,13 @@ from ..db.sync_session import get_sync_db
 
 router = APIRouter()
 
-@router.get("/{scan_id}/pdf/executive")
+@router.get("/{scan_id}/pdf/executive", summary="Executive summary PDF")
 async def get_executive_summary_pdf(
     scan_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Generate executive summary PDF report"""
+    """Generate a high-level executive summary PDF suitable for management reporting."""
     # Verify scan access
     result = await db.execute(select(Scan).where(Scan.id == scan_id))
     scan = result.scalar_one_or_none()
@@ -40,13 +40,13 @@ async def get_executive_summary_pdf(
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
-@router.get("/{scan_id}/pdf/technical")
+@router.get("/{scan_id}/pdf/technical", summary="Technical report PDF")
 async def get_technical_report_pdf(
     scan_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Generate technical report PDF"""
+    """Generate a detailed technical PDF with all ports, services, and vulnerabilities."""
     result = await db.execute(select(Scan).where(Scan.id == scan_id))
     scan = result.scalar_one_or_none()
 
@@ -127,13 +127,13 @@ async def get_html_report(
         media_type="text/html"
     )
 
-@router.get("/{scan_id}/csv/vulnerabilities")
+@router.get("/{scan_id}/csv/vulnerabilities", summary="Export vulnerabilities CSV")
 async def export_vulnerabilities_csv(
     scan_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Export vulnerabilities to CSV"""
+    """Export all discovered vulnerabilities to a CSV file."""
     result = await db.execute(select(Scan).where(Scan.id == scan_id))
     scan = result.scalar_one_or_none()
 
@@ -155,13 +155,13 @@ async def export_vulnerabilities_csv(
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
-@router.get("/{scan_id}/csv/ports")
+@router.get("/{scan_id}/csv/ports", summary="Export ports CSV")
 async def export_ports_csv(
     scan_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Export ports to CSV"""
+    """Export all discovered ports and services to a CSV file."""
     result = await db.execute(select(Scan).where(Scan.id == scan_id))
     scan = result.scalar_one_or_none()
 

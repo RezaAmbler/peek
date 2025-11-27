@@ -3,14 +3,15 @@ from datetime import datetime
 from typing import Optional, List
 
 class ScanConfigBase(BaseModel):
-    name: str = Field(..., min_length=1, max_length=100)
-    description: Optional[str] = Field(None, max_length=500)
+    """Base schema for scan configuration profiles."""
+    name: str = Field(..., min_length=1, max_length=100, description="Configuration name", json_schema_extra={"example": "Production Scan Config"})
+    description: Optional[str] = Field(None, max_length=500, description="Configuration description", json_schema_extra={"example": "Careful scan settings for production servers"})
 
     # Scanning parameters
-    masscan_rate: int = Field(default=1000, ge=100, le=100000)
-    masscan_interface: Optional[str] = Field(None, max_length=50)
-    nmap_args: List[str] = Field(default=["-sS", "-sV", "-sC", "-T2", "-Pn"])
-    ssh_ports: List[int] = Field(default=[22, 830])
+    masscan_rate: int = Field(default=1000, ge=100, le=100000, description="Masscan packets per second", json_schema_extra={"example": 1000})
+    masscan_interface: Optional[str] = Field(None, max_length=50, description="Network interface for masscan", json_schema_extra={"example": "eth0"})
+    nmap_args: List[str] = Field(default=["-sS", "-sV", "-sC", "-T2", "-Pn"], description="Nmap command arguments", json_schema_extra={"example": ["-sS", "-sV", "-sC", "-T2", "-Pn"]})
+    ssh_ports: List[int] = Field(default=[22, 830], description="Ports to run ssh-audit on", json_schema_extra={"example": [22, 830]})
 
     # Concurrency & Timeouts
     max_concurrent_hosts: int = Field(default=10, ge=1, le=100)
@@ -20,11 +21,11 @@ class ScanConfigBase(BaseModel):
     nmap_timeout_percent: float = Field(default=0.70, ge=0.20, le=0.90)
 
     # Tool toggles
-    enable_ssh_audit: bool = True
-    enable_nuclei: bool = False
-    nuclei_severity: str = Field(default="critical,high,medium")
-    nuclei_templates: Optional[str] = None
-    nuclei_timeout: int = Field(default=300, ge=60, le=1800)
+    enable_ssh_audit: bool = Field(default=True, description="Run ssh-audit on SSH ports")
+    enable_nuclei: bool = Field(default=False, description="Run Nuclei vulnerability scanner")
+    nuclei_severity: str = Field(default="critical,high,medium", description="Nuclei severity filter", json_schema_extra={"example": "critical,high,medium,low,info"})
+    nuclei_templates: Optional[str] = Field(None, description="Custom Nuclei template paths")
+    nuclei_timeout: int = Field(default=300, ge=60, le=1800, description="Nuclei timeout per target (seconds)")
 
     # Advanced timeouts
     global_tool_timeout_seconds: Optional[int] = Field(None, ge=60, le=7200)
