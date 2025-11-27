@@ -28,12 +28,12 @@ export function ChangeCard({ change }: ChangeCardProps) {
   const colorClass = severityColors[change.severity] || severityColors.INFO;
 
   return (
-    <div className={`p-4 rounded-lg border-l-4 ${colorClass}`}>
+    <div className={`p-4 rounded-lg border-l-4 ${colorClass}`} data-component="ChangeCard" data-testid="change-card">
       <div className="flex items-start justify-between">
         <div className="flex items-start space-x-3 flex-1">
           <span className="text-2xl">{icon}</span>
           <div className="flex-1">
-            <p className="font-semibold">{change.description}</p>
+            <p className="font-semibold" data-testid="change-description">{change.description}</p>
             <p className="text-sm mt-1">
               {change.device_name && `${change.device_name} - `}
               {change.ip_address}

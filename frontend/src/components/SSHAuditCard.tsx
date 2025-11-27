@@ -7,7 +7,7 @@ interface SSHAuditCardProps {
 export function SSHAuditCard({ audit }: SSHAuditCardProps) {
   if (audit.connection_failed) {
     return (
-      <div className="bg-white shadow rounded-lg p-6 border-l-4 border-red-500">
+      <div className="bg-white shadow rounded-lg p-6 border-l-4 border-red-500" data-component="SSHAuditCard" data-testid="ssh-audit-card-failed">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-900">
             {audit.ip_address}:{audit.port}
@@ -27,7 +27,7 @@ export function SSHAuditCard({ audit }: SSHAuditCardProps) {
   return (
     <div className={`bg-white shadow rounded-lg p-6 border-l-4 ${
       hasVulnerabilities ? 'border-red-500' : 'border-green-500'
-    }`}>
+    }`} data-component="SSHAuditCard" data-testid="ssh-audit-card">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>

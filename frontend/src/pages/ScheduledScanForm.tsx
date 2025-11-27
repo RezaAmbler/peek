@@ -127,7 +127,7 @@ export function ScheduledScanForm() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50" data-component="ScheduledScanFormPage">
       <Navigation />
 
       <main className="max-w-4xl mx-auto py-6 px-4">
@@ -135,7 +135,7 @@ export function ScheduledScanForm() {
           {isNew ? 'New Scheduled Scan' : 'Edit Scheduled Scan'}
         </h1>
 
-        <form onSubmit={handleSubmit} className="bg-white shadow rounded-lg p-6 space-y-6">
+        <form onSubmit={handleSubmit} className="bg-white shadow rounded-lg p-6 space-y-6" data-component="ScheduledScanForm">
           {/* Basic Info */}
           <div>
             <h2 className="text-lg font-semibold mb-4">Basic Information</h2>
@@ -148,6 +148,7 @@ export function ScheduledScanForm() {
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                  data-testid="input-schedule-name"
                 />
               </div>
 
@@ -158,6 +159,7 @@ export function ScheduledScanForm() {
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   rows={2}
                   className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                  data-testid="input-schedule-description"
                 />
               </div>
             </div>
@@ -176,6 +178,7 @@ export function ScheduledScanForm() {
                   onChange={(e) => setFormData({ ...formData, cron_expression: e.target.value })}
                   className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md font-mono"
                   placeholder="0 2 * * 1"
+                  data-testid="input-cron-expression"
                 />
                 <p className="mt-1 text-xs text-gray-500">
                   Format: minute hour day month weekday (e.g., "0 2 * * 1" = Every Monday at 2 AM)
@@ -188,6 +191,7 @@ export function ScheduledScanForm() {
                       type="button"
                       onClick={() => setFormData({ ...formData, cron_expression: cron })}
                       className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+                      data-testid={`cron-preset-${label.toLowerCase().replace(/\s+/g, '-')}`}
                     >
                       {label}
                     </button>
@@ -203,6 +207,7 @@ export function ScheduledScanForm() {
                   onChange={(e) => setFormData({ ...formData, timezone: e.target.value })}
                   className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
                   placeholder="UTC, America/Los_Angeles, etc."
+                  data-testid="select-timezone"
                 />
               </div>
             </div>
@@ -219,6 +224,7 @@ export function ScheduledScanForm() {
                   value={formData.config_id}
                   onChange={(e) => setFormData({ ...formData, config_id: e.target.value })}
                   className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                  data-testid="select-schedule-config"
                 >
                   <option value="">Select configuration...</option>
                   {configs?.configs.map(config => (
@@ -238,6 +244,7 @@ export function ScheduledScanForm() {
                   rows={6}
                   className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm"
                   placeholder="192.168.1.1&#10;Router,192.168.1.254&#10;Server,10.0.0.5"
+                  data-testid="textarea-schedule-targets"
                 />
                 <p className="mt-1 text-xs text-gray-500">
                   One target per line. Format: "ip_address" or "device_name,ip_address"
@@ -256,6 +263,7 @@ export function ScheduledScanForm() {
                   checked={formData.auto_compare}
                   onChange={(e) => setFormData({ ...formData, auto_compare: e.target.checked })}
                   className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                  data-testid="checkbox-auto-compare"
                 />
                 <span className="ml-2 text-sm text-gray-900">Auto-compare with previous scans</span>
               </label>
@@ -267,6 +275,7 @@ export function ScheduledScanForm() {
                     checked={formData.compare_with_previous}
                     onChange={(e) => setFormData({ ...formData, compare_with_previous: e.target.checked })}
                     className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                    data-testid="checkbox-compare-previous"
                   />
                   <span className="ml-2 text-sm text-gray-900">Compare with most recent run</span>
                 </label>
@@ -284,6 +293,7 @@ export function ScheduledScanForm() {
                   checked={formData.email_on_completion}
                   onChange={(e) => setFormData({ ...formData, email_on_completion: e.target.checked })}
                   className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                  data-testid="checkbox-email-completion"
                 />
                 <span className="ml-2 text-sm text-gray-900">Send email on completion</span>
               </label>
@@ -294,6 +304,7 @@ export function ScheduledScanForm() {
                   checked={formData.email_on_changes_only}
                   onChange={(e) => setFormData({ ...formData, email_on_changes_only: e.target.checked })}
                   className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                  data-testid="checkbox-email-changes"
                 />
                 <span className="ml-2 text-sm text-gray-900">Email only when changes detected</span>
               </label>
@@ -326,6 +337,7 @@ export function ScheduledScanForm() {
                   onChange={(e) => setEmailsText(e.target.value)}
                   className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
                   placeholder="email1@example.com, email2@example.com"
+                  data-testid="input-email-recipients"
                 />
                 <p className="mt-1 text-xs text-gray-500">Comma-separated email addresses</p>
               </div>
@@ -340,6 +352,7 @@ export function ScheduledScanForm() {
                 checked={formData.is_active}
                 onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
                 className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                data-testid="checkbox-schedule-active"
               />
               <span className="ml-2 text-sm text-gray-900">Active (scan will run on schedule)</span>
             </label>
@@ -351,6 +364,7 @@ export function ScheduledScanForm() {
               type="submit"
               disabled={createMutation.isPending || updateMutation.isPending}
               className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+              data-testid="schedule-save-button"
             >
               {createMutation.isPending || updateMutation.isPending ? 'Saving...' : 'Save'}
             </button>
@@ -358,6 +372,7 @@ export function ScheduledScanForm() {
               type="button"
               onClick={() => navigate({ to: '/scheduled-scans' })}
               className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+              data-testid="schedule-cancel-button"
             >
               Cancel
             </button>

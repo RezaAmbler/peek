@@ -1,13 +1,26 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from '@tanstack/react-router';
-import { scansApi } from '../api/scans';
+import { scansApi, SSHAudit, Vulnerability } from '../api/scans';
 import { comparisonsApi } from '../api/comparisons';
 import { formatDistanceToNow, format } from 'date-fns';
 import { SSHAuditCard } from '../components/SSHAuditCard';
 import { VulnerabilityCard } from '../components/VulnerabilityCard';
-import { useState, Fragment } from 'react';
+import { useState, Fragment, useMemo } from 'react';
 import { Menu, Transition } from '@headlessui/react';
 import { Navigation } from '../components/Navigation';
+
+// Port type for sorting
+interface PortData {
+  id: string;
+  ip_address: string;
+  device_name?: string;
+  port: number;
+  protocol: string;
+  service_name?: string;
+  version?: string;
+  state: string;
+  discovered_by: string;
+}
 
 const statusColors: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-800',
@@ -35,6 +48,14 @@ export function ScanDetail() {
   const [showPorts, setShowPorts] = useState(true);
   const [showSSHAudits, setShowSSHAudits] = useState(true);
   const [showVulnerabilities, setShowVulnerabilities] = useState(true);
+  const [showInfoFindings, setShowInfoFindings] = useState(true);
+
+  // State for sorting ports table
+  const [sortColumn, setSortColumn] = useState<string>('ip_address');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  // State for host filter
+  const [hostFilter, setHostFilter] = useState<string | null>(null);
 
   const { data: scan, isLoading } = useQuery({
     queryKey: ['scan', scanId],
@@ -108,6 +129,136 @@ export function ScanDetail() {
       navigate({ to: `/scans/${newScan.id}` });
     },
   });
+
+  // Get unique hosts from targets for filter dropdown
+  const uniqueHosts = useMemo(() => {
+    if (!scan?.targets) return [];
+    return scan.targets.map(t => ({
+      ip: t.ip_address,
+      device: t.device_name
+    }));
+  }, [scan?.targets]);
+
+  // Sort handler for ports table
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
+  // Filter and sort ports
+  const filteredAndSortedPorts = useMemo(() => {
+    if (!ports) return [];
+
+    // Filter by host
+    let filtered = hostFilter
+      ? ports.filter((p: PortData) => p.ip_address === hostFilter)
+      : ports;
+
+    // Sort
+    const sorted = [...filtered].sort((a: PortData, b: PortData) => {
+      let aVal: string | number = '';
+      let bVal: string | number = '';
+
+      switch (sortColumn) {
+        case 'ip_address':
+          // Sort IPs numerically
+          aVal = a.ip_address.split('.').map(n => n.padStart(3, '0')).join('.');
+          bVal = b.ip_address.split('.').map(n => n.padStart(3, '0')).join('.');
+          break;
+        case 'device_name':
+          aVal = (a.device_name || '').toLowerCase();
+          bVal = (b.device_name || '').toLowerCase();
+          break;
+        case 'port':
+          aVal = a.port;
+          bVal = b.port;
+          break;
+        case 'protocol':
+          aVal = a.protocol.toLowerCase();
+          bVal = b.protocol.toLowerCase();
+          break;
+        case 'service_name':
+          aVal = (a.service_name || '').toLowerCase();
+          bVal = (b.service_name || '').toLowerCase();
+          break;
+        case 'version':
+          aVal = (a.version || '').toLowerCase();
+          bVal = (b.version || '').toLowerCase();
+          break;
+        case 'state':
+          aVal = a.state.toLowerCase();
+          bVal = b.state.toLowerCase();
+          break;
+        case 'discovered_by':
+          aVal = a.discovered_by.toLowerCase();
+          bVal = b.discovered_by.toLowerCase();
+          break;
+        default:
+          aVal = a.ip_address;
+          bVal = b.ip_address;
+      }
+
+      if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
+
+      // Secondary sort by port when primary values are equal
+      if (sortColumn !== 'port') {
+        if (a.port < b.port) return 1;
+        if (a.port > b.port) return -1;
+      }
+      return 0;
+    });
+
+    return sorted;
+  }, [ports, hostFilter, sortColumn, sortDirection]);
+
+  // Filter SSH audits by host
+  const filteredSSHAudits = useMemo(() => {
+    if (!sshAudits) return [];
+    if (!hostFilter) return sshAudits;
+    return sshAudits.filter((audit: { ip_address?: string }) => audit.ip_address === hostFilter);
+  }, [sshAudits, hostFilter]);
+
+  // Separate vulnerabilities from info findings
+  const { actualVulnerabilities, infoFindings, vulnCounts } = useMemo(() => {
+    const allFindings = vulnerabilities || [];
+
+    const vulns = allFindings.filter((v: { severity?: string }) =>
+      ['critical', 'high', 'medium', 'low'].includes(v.severity?.toLowerCase() || '')
+    );
+
+    const infos = allFindings.filter((v: { severity?: string }) =>
+      v.severity?.toLowerCase() === 'info'
+    );
+
+    const counts = {
+      critical: vulns.filter((v: { severity?: string }) => v.severity?.toLowerCase() === 'critical').length,
+      high: vulns.filter((v: { severity?: string }) => v.severity?.toLowerCase() === 'high').length,
+      medium: vulns.filter((v: { severity?: string }) => v.severity?.toLowerCase() === 'medium').length,
+      low: vulns.filter((v: { severity?: string }) => v.severity?.toLowerCase() === 'low').length,
+    };
+
+    return { actualVulnerabilities: vulns, infoFindings: infos, vulnCounts: counts };
+  }, [vulnerabilities]);
+
+  // Filter vulnerabilities and info findings by host
+  const filteredVulnerabilities = useMemo(() => {
+    if (!hostFilter) return actualVulnerabilities;
+    return actualVulnerabilities.filter((v: { host?: string; matched_at?: string }) =>
+      v.host?.includes(hostFilter) || v.matched_at?.includes(hostFilter)
+    );
+  }, [actualVulnerabilities, hostFilter]);
+
+  const filteredInfoFindings = useMemo(() => {
+    if (!hostFilter) return infoFindings;
+    return infoFindings.filter((v: { host?: string; matched_at?: string }) =>
+      v.host?.includes(hostFilter) || v.matched_at?.includes(hostFilter)
+    );
+  }, [infoFindings, hostFilter]);
 
   const handleDelete = () => {
     if (!scan) return;
@@ -197,11 +348,11 @@ export function ScanDetail() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50" data-component="ScanDetailPage">
       <Navigation />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
-      <div className="mb-6">
+      <div className="mb-6" data-component="ScanHeader">
         <div className="flex items-center justify-between mb-4">
           <div className="flex-1">
             <div className="flex items-center space-x-3">
@@ -224,13 +375,14 @@ export function ScanDetail() {
                 <button
                   onClick={() => setShowCompareModal(true)}
                   className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700"
+                  data-testid="compare-scan-button"
                 >
                   Compare with Previous Scan
                 </button>
 
                 <Menu as="div" className="relative inline-block text-left">
                   <div>
-                    <Menu.Button className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700">
+                    <Menu.Button className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700" data-testid="export-report-button">
                       Export Report ▼
                     </Menu.Button>
                   </div>
@@ -346,6 +498,7 @@ export function ScanDetail() {
               <button
                 onClick={handleCancel}
                 className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-yellow-600 hover:bg-yellow-700"
+                data-testid="cancel-scan-button"
               >
                 Cancel
               </button>
@@ -363,6 +516,7 @@ export function ScanDetail() {
               <button
                 onClick={handleDelete}
                 className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                data-testid="delete-scan-button"
               >
                 Delete
               </button>
@@ -370,12 +524,69 @@ export function ScanDetail() {
           </div>
         </div>
 
-        {/* Progress Bar */}
+        {/* Progress Bar and Phase Indicator */}
         {(scan.status === 'running' || scan.status === 'queued') && (
           <div className="mb-4">
+            {/* Phase Stepper */}
+            <div className="flex items-center justify-between mb-4">
+              {['nmap_discovery', 'nmap', 'ssh_audit', 'nuclei'].map((phase, index, arr) => {
+                const phaseLabels: Record<string, string> = {
+                  nmap_discovery: 'Port Discovery',
+                  nmap: 'Service Detection',
+                  ssh_audit: 'SSH Audit',
+                  nuclei: 'Vulnerability Scan',
+                };
+                const phaseOrder = ['pending', 'nmap_discovery', 'nmap', 'ssh_audit', 'nuclei', 'completed'];
+                const currentIndex = phaseOrder.indexOf(scan.current_phase);
+                const thisIndex = phaseOrder.indexOf(phase);
+
+                const isComplete = thisIndex < currentIndex;
+                const isCurrent = phase === scan.current_phase;
+
+                return (
+                  <div key={phase} className="flex items-center flex-1">
+                    <div className="flex flex-col items-center">
+                      <div
+                        className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${
+                          isComplete
+                            ? 'bg-green-500 text-white'
+                            : isCurrent
+                            ? 'bg-blue-600 text-white animate-pulse'
+                            : 'bg-gray-200 text-gray-500'
+                        }`}
+                      >
+                        {isComplete ? (
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                        ) : (
+                          index + 1
+                        )}
+                      </div>
+                      <span
+                        className={`mt-1 text-xs font-medium ${
+                          isCurrent ? 'text-blue-600' : isComplete ? 'text-green-600' : 'text-gray-500'
+                        }`}
+                      >
+                        {phaseLabels[phase]}
+                      </span>
+                    </div>
+                    {index < arr.length - 1 && (
+                      <div
+                        className={`flex-1 h-1 mx-2 rounded ${
+                          thisIndex < currentIndex ? 'bg-green-500' : 'bg-gray-200'
+                        }`}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Progress Bar */}
             <div className="flex justify-between mb-1">
               <span className="text-sm font-medium text-gray-700">
-                Progress: {scan.current_phase}
+                {scan.completed_targets} of {scan.total_targets} targets completed
               </span>
               <span className="text-sm font-medium text-gray-700">
                 {Math.round(scan.progress_percent)}%
@@ -392,7 +603,7 @@ export function ScanDetail() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5 mb-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5 mb-6" data-component="ScanSummaryCards">
         <div className="bg-white overflow-hidden shadow rounded-lg">
           <div className="px-4 py-5 sm:p-6">
             <dt className="text-sm font-medium text-gray-500 truncate">Total Targets</dt>
@@ -470,7 +681,7 @@ export function ScanDetail() {
       </div>
 
       {/* Targets Table */}
-      <div className="bg-white shadow rounded-lg overflow-hidden">
+      <div className="bg-white shadow rounded-lg overflow-hidden" data-component="ScanTargetsSection">
         <button
           onClick={() => setShowTargets(!showTargets)}
           className="w-full px-6 py-4 border-b border-gray-200 flex items-center justify-between hover:bg-gray-50 transition-colors"
@@ -544,15 +755,51 @@ export function ScanDetail() {
         )}
       </div>
 
+      {/* Host Filter */}
+      {ports && ports.length > 0 && (
+        <div className="mt-6 flex items-center gap-3 flex-wrap" data-component="HostFilter">
+          <span className="text-sm font-medium text-gray-700">Filter by host:</span>
+          <select
+            value={hostFilter || ''}
+            onChange={(e) => setHostFilter(e.target.value || null)}
+            className="border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:ring-indigo-500 focus:border-indigo-500"
+            data-testid="host-filter-select"
+          >
+            <option value="">All Hosts ({uniqueHosts.length})</option>
+            {uniqueHosts.map(host => (
+              <option key={host.ip} value={host.ip}>
+                {host.ip} {host.device ? `(${host.device})` : ''}
+              </option>
+            ))}
+          </select>
+
+          {hostFilter && (
+            <button
+              onClick={() => setHostFilter(null)}
+              className="text-sm text-red-600 hover:text-red-800 flex items-center gap-1"
+              data-testid="clear-host-filter"
+            >
+              <span>✕</span> Clear filter
+            </button>
+          )}
+
+          {hostFilter && (
+            <span className="text-sm text-gray-500">
+              Showing {filteredAndSortedPorts.length} of {ports.length} ports
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Discovered Ports Table */}
       {ports && ports.length > 0 && (
-        <div className="mt-6 bg-white shadow rounded-lg overflow-hidden">
+        <div className="mt-4 bg-white shadow rounded-lg overflow-hidden" data-component="ScanPortsSection">
           <button
             onClick={() => setShowPorts(!showPorts)}
             className="w-full px-6 py-4 border-b border-gray-200 flex items-center justify-between hover:bg-gray-50 transition-colors"
           >
             <h2 className="text-lg font-medium text-gray-900">
-              Discovered Ports ({ports.length})
+              Discovered Ports ({hostFilter ? `${filteredAndSortedPorts.length} of ${ports.length}` : ports.length})
             </h2>
             <svg
               className={`w-5 h-5 text-gray-500 transform transition-transform ${showPorts ? 'rotate-180' : ''}`}
@@ -568,34 +815,106 @@ export function ScanDetail() {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      IP Address
+                    <th
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => handleSort('ip_address')}
+                      data-testid="sort-header-ip_address"
+                    >
+                      <div className="flex items-center gap-1">
+                        IP Address
+                        {sortColumn === 'ip_address' && (
+                          <span className="text-indigo-600">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                        )}
+                      </div>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Device
+                    <th
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => handleSort('device_name')}
+                      data-testid="sort-header-device_name"
+                    >
+                      <div className="flex items-center gap-1">
+                        Device
+                        {sortColumn === 'device_name' && (
+                          <span className="text-indigo-600">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                        )}
+                      </div>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Port
+                    <th
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => handleSort('port')}
+                      data-testid="sort-header-port"
+                    >
+                      <div className="flex items-center gap-1">
+                        Port
+                        {sortColumn === 'port' && (
+                          <span className="text-indigo-600">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                        )}
+                      </div>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Protocol
+                    <th
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => handleSort('protocol')}
+                      data-testid="sort-header-protocol"
+                    >
+                      <div className="flex items-center gap-1">
+                        Protocol
+                        {sortColumn === 'protocol' && (
+                          <span className="text-indigo-600">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                        )}
+                      </div>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Service
+                    <th
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => handleSort('service_name')}
+                      data-testid="sort-header-service_name"
+                    >
+                      <div className="flex items-center gap-1">
+                        Service
+                        {sortColumn === 'service_name' && (
+                          <span className="text-indigo-600">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                        )}
+                      </div>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Version
+                    <th
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => handleSort('version')}
+                      data-testid="sort-header-version"
+                    >
+                      <div className="flex items-center gap-1">
+                        Version
+                        {sortColumn === 'version' && (
+                          <span className="text-indigo-600">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                        )}
+                      </div>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      State
+                    <th
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => handleSort('state')}
+                      data-testid="sort-header-state"
+                    >
+                      <div className="flex items-center gap-1">
+                        State
+                        {sortColumn === 'state' && (
+                          <span className="text-indigo-600">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                        )}
+                      </div>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Source
+                    <th
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => handleSort('discovered_by')}
+                      data-testid="sort-header-discovered_by"
+                    >
+                      <div className="flex items-center gap-1">
+                        Source
+                        {sortColumn === 'discovered_by' && (
+                          <span className="text-indigo-600">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                        )}
+                      </div>
                     </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {ports.map((port) => (
+                  {filteredAndSortedPorts.map((port: PortData) => (
                     <tr key={port.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
                         {port.ip_address}
@@ -644,13 +963,13 @@ export function ScanDetail() {
 
       {/* SSH Audits Section */}
       {sshAudits && sshAudits.length > 0 && (
-        <div className="mt-6 bg-white shadow rounded-lg overflow-hidden">
+        <div className="mt-6 bg-white shadow rounded-lg overflow-hidden" data-component="ScanSSHAuditSection">
           <button
             onClick={() => setShowSSHAudits(!showSSHAudits)}
             className="w-full px-6 py-4 border-b border-gray-200 flex items-center justify-between hover:bg-gray-50 transition-colors"
           >
             <h2 className="text-lg font-medium text-gray-900">
-              SSH Security Audits ({sshAudits.length})
+              SSH Security Audits ({hostFilter ? `${filteredSSHAudits.length} of ${sshAudits.length}` : sshAudits.length})
             </h2>
             <svg
               className={`w-5 h-5 text-gray-500 transform transition-transform ${showSSHAudits ? 'rotate-180' : ''}`}
@@ -663,33 +982,112 @@ export function ScanDetail() {
           </button>
           {showSSHAudits && (
             <div className="p-6 space-y-4">
-              {sshAudits.map((audit) => (
-                <SSHAuditCard key={audit.id} audit={audit} />
-              ))}
+              {filteredSSHAudits.length > 0 ? (
+                filteredSSHAudits.map((audit: SSHAudit) => (
+                  <SSHAuditCard key={audit.id} audit={audit} />
+                ))
+              ) : (
+                <p className="text-gray-500 text-center py-4">No SSH audits for selected host</p>
+              )}
             </div>
           )}
         </div>
       )}
 
-      {/* Vulnerabilities Section */}
+      {/* Vulnerabilities Section (non-INFO only) */}
       {scan.status === 'completed' && vulnerabilities && (
-        <div className="mt-6 bg-white shadow rounded-lg overflow-hidden">
+        <div className="mt-6 bg-white shadow rounded-lg overflow-hidden" data-component="ScanVulnerabilitiesSection" data-testid="vulnerabilities-section">
           <button
             onClick={() => setShowVulnerabilities(!showVulnerabilities)}
             className="w-full px-6 py-4 border-b border-gray-200 flex items-center justify-between hover:bg-gray-50 transition-colors"
           >
             <div className="flex items-center gap-3">
               <h2 className="text-lg font-medium text-gray-900">
-                Vulnerabilities ({vulnerabilities.length})
+                Vulnerabilities ({hostFilter ? `${filteredVulnerabilities.length} of ${actualVulnerabilities.length}` : actualVulnerabilities.length})
               </h2>
-              {vulnerabilities.length === 0 && (
+              {actualVulnerabilities.length === 0 && (
                 <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
                   None found
                 </span>
               )}
             </div>
+            <div className="flex items-center gap-2">
+              {/* Severity badges */}
+              {vulnCounts.critical > 0 && (
+                <span className="px-2 py-0.5 text-xs font-semibold rounded bg-red-700 text-white">
+                  CRITICAL: {vulnCounts.critical}
+                </span>
+              )}
+              {vulnCounts.high > 0 && (
+                <span className="px-2 py-0.5 text-xs font-semibold rounded bg-orange-500 text-white">
+                  HIGH: {vulnCounts.high}
+                </span>
+              )}
+              {vulnCounts.medium > 0 && (
+                <span className="px-2 py-0.5 text-xs font-semibold rounded bg-yellow-500 text-white">
+                  MEDIUM: {vulnCounts.medium}
+                </span>
+              )}
+              {vulnCounts.low > 0 && (
+                <span className="px-2 py-0.5 text-xs font-semibold rounded bg-blue-500 text-white">
+                  LOW: {vulnCounts.low}
+                </span>
+              )}
+              <svg
+                className={`w-5 h-5 text-gray-500 transform transition-transform ${showVulnerabilities ? 'rotate-180' : ''}`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </div>
+          </button>
+          {showVulnerabilities && (
+            <div className="p-6">
+              {filteredVulnerabilities.length > 0 ? (
+                <div className="space-y-4">
+                  {filteredVulnerabilities.map((vuln: Vulnerability) => (
+                    <VulnerabilityCard key={vuln.id} vulnerability={vuln} />
+                  ))}
+                </div>
+              ) : actualVulnerabilities.length > 0 && hostFilter ? (
+                <p className="text-gray-500 text-center py-4">No vulnerabilities for selected host</p>
+              ) : (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                  <div className="flex items-center">
+                    <svg className="h-5 w-5 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span className="text-green-800 font-medium">No vulnerabilities found</span>
+                  </div>
+                  <p className="text-green-700 text-sm mt-1 ml-7">
+                    No critical, high, medium, or low severity vulnerabilities were detected.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Informational Findings Section (INFO severity only) */}
+      {scan.status === 'completed' && infoFindings.length > 0 && (
+        <div className="mt-6 bg-white shadow rounded-lg overflow-hidden border border-gray-200" data-component="ScanInfoFindingsSection" data-testid="info-findings-section">
+          <button
+            onClick={() => setShowInfoFindings(!showInfoFindings)}
+            className="w-full px-6 py-4 border-b border-gray-200 flex items-center justify-between hover:bg-gray-50 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <h2 className="text-lg font-medium text-gray-600">
+                Informational Findings ({hostFilter ? `${filteredInfoFindings.length} of ${infoFindings.length}` : infoFindings.length})
+              </h2>
+              <span className="text-sm text-gray-500">
+                Discovery and detection information
+              </span>
+            </div>
             <svg
-              className={`w-5 h-5 text-gray-500 transform transition-transform ${showVulnerabilities ? 'rotate-180' : ''}`}
+              className={`w-5 h-5 text-gray-500 transform transition-transform ${showInfoFindings ? 'rotate-180' : ''}`}
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -697,54 +1095,39 @@ export function ScanDetail() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
           </button>
-          {showVulnerabilities && (
+          {showInfoFindings && (
             <div className="p-6">
-              {vulnerabilities.length > 0 ? (
-                <>
-                  {/* Severity counts */}
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    {['critical', 'high', 'medium', 'low', 'info'].map((severity) => {
-                      const count = vulnerabilities.filter(
-                        (v) => v.severity.toLowerCase() === severity
-                      ).length;
-                      if (count === 0) return null;
-
-                      const severityColors: Record<string, string> = {
-                        critical: 'bg-red-700 text-white',
-                        high: 'bg-orange-500 text-white',
-                        medium: 'bg-yellow-500 text-white',
-                        low: 'bg-blue-500 text-white',
-                        info: 'bg-gray-400 text-white',
-                      };
-
-                      return (
-                        <span
-                          key={severity}
-                          className={`px-3 py-1 text-sm font-semibold rounded ${severityColors[severity]}`}
-                        >
-                          {severity.toUpperCase()}: {count}
-                        </span>
-                      );
-                    })}
-                  </div>
-                  <div className="space-y-4">
-                    {vulnerabilities.map((vuln) => (
-                      <VulnerabilityCard key={vuln.id} vulnerability={vuln} />
-                    ))}
-                  </div>
-                </>
-              ) : (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                  <div className="flex items-center">
-                    <svg className="h-5 w-5 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <span className="text-green-800 font-medium">No vulnerabilities detected</span>
-                  </div>
-                  <p className="text-green-700 text-sm mt-1 ml-7">
-                    Nuclei vulnerability scanner completed successfully and found no known vulnerabilities matching its templates.
-                  </p>
+              {filteredInfoFindings.length > 0 ? (
+                <div className="space-y-3">
+                  {filteredInfoFindings.length > 10 && (
+                    <p className="text-sm text-gray-500 mb-2">
+                      Showing {filteredInfoFindings.length} informational findings
+                    </p>
+                  )}
+                  {filteredInfoFindings.map((finding: { id: string; name?: string; template_id?: string; matched_at?: string; host?: string }) => (
+                    <div
+                      key={finding.id}
+                      className="border border-gray-200 rounded-lg p-4 bg-gray-50"
+                      data-component="InfoFindingCard"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 text-xs font-medium rounded bg-gray-200 text-gray-700">
+                              INFO
+                            </span>
+                            <h4 className="font-medium text-gray-800">{finding.name || finding.template_id}</h4>
+                          </div>
+                          {finding.matched_at && (
+                            <p className="text-sm text-gray-500 mt-1 font-mono">{finding.matched_at}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
+              ) : (
+                <p className="text-gray-500 text-center py-4">No informational findings for selected host</p>
               )}
             </div>
           )}

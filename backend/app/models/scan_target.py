@@ -39,3 +39,4 @@ class ScanTarget(Base):
     scan = relationship("Scan", back_populates="targets")
     tool_executions = relationship("ToolExecution", back_populates="target", cascade="all, delete-orphan")
     ports = relationship("Port", back_populates="target", cascade="all, delete-orphan")
+    vulnerabilities = relationship("Vulnerability", back_populates="target", cascade="all, delete-orphan")

@@ -92,7 +92,7 @@ export function Configs() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50" data-component="ConfigsPage">
       <Navigation />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
@@ -107,6 +107,7 @@ export function Configs() {
           <button
             onClick={() => setShowCreateForm(true)}
             className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+            data-testid="new-config-button"
           >
             New Configuration
           </button>
@@ -157,11 +158,13 @@ export function Configs() {
           <p className="text-gray-600">No configurations found. Create one to get started!</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" data-component="ConfigCardList">
           {data?.configs.map((config) => (
             <div
               key={config.id}
               className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow"
+              data-component="ConfigCard"
+              data-testid={`config-card-${config.id}`}
             >
               <div className="p-6">
                 <div className="flex items-start justify-between mb-4">
@@ -214,6 +217,7 @@ export function Configs() {
                   <button
                     onClick={() => setEditingConfig(config)}
                     className="flex-1 px-3 py-2 text-sm bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200"
+                    data-testid="config-edit-button"
                   >
                     Edit
                   </button>
@@ -222,6 +226,7 @@ export function Configs() {
                       onClick={() => setDefaultMutation.mutate(config.id)}
                       className="flex-1 px-3 py-2 text-sm bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
                       disabled={setDefaultMutation.isPending}
+                      data-testid="config-set-default-button"
                     >
                       Set Default
                     </button>
@@ -230,6 +235,7 @@ export function Configs() {
                     onClick={() => handleDelete(config)}
                     className="px-3 py-2 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200"
                     disabled={deleteMutation.isPending}
+                    data-testid="config-delete-button"
                   >
                     Delete
                   </button>
@@ -242,7 +248,7 @@ export function Configs() {
 
       {/* Edit Modal */}
       {editingConfig && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" data-component="ConfigEditModal">
           <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <h3 className="text-xl font-semibold mb-4">Edit Configuration: {editingConfig.name}</h3>
 
@@ -358,6 +364,7 @@ export function Configs() {
                   type="submit"
                   className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
                   disabled={updateMutation.isPending}
+                  data-testid="config-modal-save-button"
                 >
                   {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
                 </button>
@@ -365,6 +372,7 @@ export function Configs() {
                   type="button"
                   onClick={() => setEditingConfig(null)}
                   className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                  data-testid="config-modal-cancel-button"
                 >
                   Cancel
                 </button>

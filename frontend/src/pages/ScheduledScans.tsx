@@ -57,7 +57,7 @@ export function ScheduledScans() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50" data-component="ScheduledScansPage">
       <Navigation />
 
       <main className="max-w-7xl mx-auto py-6 px-4">
@@ -66,13 +66,14 @@ export function ScheduledScans() {
           <button
             onClick={() => navigate({ to: '/scheduled-scans/new' })}
             className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+            data-testid="new-scheduled-scan-button"
           >
             New Scheduled Scan
           </button>
         </div>
 
         <div className="bg-white shadow rounded-lg overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
+          <table className="min-w-full divide-y divide-gray-200" data-component="ScheduledScanTable">
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -100,7 +101,7 @@ export function ScheduledScans() {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {data?.scheduled_scans.map((schedule) => (
-                <tr key={schedule.id}>
+                <tr key={schedule.id} data-component="ScheduledScanRow" data-testid={`scheduled-scan-row-${schedule.id}`}>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">{schedule.name}</div>
                     <div className="text-sm text-gray-500">{schedule.description}</div>
@@ -110,7 +111,7 @@ export function ScheduledScans() {
                       {schedule.cron_expression}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900" data-testid="scheduled-scan-next-run">
                     {schedule.next_run_at ? (
                       <span title={new Date(schedule.next_run_at).toLocaleString()}>
                         {formatDistanceToNow(new Date(schedule.next_run_at), { addSuffix: true })}
@@ -133,11 +134,11 @@ export function ScheduledScans() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     {schedule.is_active ? (
-                      <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                      <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800" data-testid="scheduled-scan-status">
                         Active
                       </span>
                     ) : (
-                      <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
+                      <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800" data-testid="scheduled-scan-status">
                         Paused
                       </span>
                     )}
@@ -148,6 +149,7 @@ export function ScheduledScans() {
                         onClick={() => runNowMutation.mutate(schedule.id)}
                         className="text-indigo-600 hover:text-indigo-900"
                         title="Run now"
+                        data-testid="scheduled-scan-run-button"
                       >
                         ▶️
                       </button>
@@ -156,6 +158,7 @@ export function ScheduledScans() {
                           onClick={() => pauseMutation.mutate(schedule.id)}
                           className="text-yellow-600 hover:text-yellow-900"
                           title="Pause"
+                          data-testid="scheduled-scan-pause-button"
                         >
                           ⏸️
                         </button>
@@ -164,6 +167,7 @@ export function ScheduledScans() {
                           onClick={() => resumeMutation.mutate(schedule.id)}
                           className="text-green-600 hover:text-green-900"
                           title="Resume"
+                          data-testid="scheduled-scan-resume-button"
                         >
                           ▶️
                         </button>
@@ -172,6 +176,7 @@ export function ScheduledScans() {
                         onClick={() => navigate({ to: `/scheduled-scans/${schedule.id}` })}
                         className="text-blue-600 hover:text-blue-900"
                         title="Edit"
+                        data-testid="scheduled-scan-edit-button"
                       >
                         ✏️
                       </button>
@@ -183,6 +188,7 @@ export function ScheduledScans() {
                         }}
                         className="text-red-600 hover:text-red-900"
                         title="Delete"
+                        data-testid="scheduled-scan-delete-button"
                       >
                         🗑️
                       </button>

@@ -238,7 +238,7 @@ export function NewScan() {
   const targetCount = parsedResult.targets.length;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50" data-component="NewScanPage">
       <Navigation />
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
@@ -248,9 +248,9 @@ export function NewScan() {
         </p>
       </div>
 
-      <div className="bg-white shadow-md rounded-lg p-6">
+      <div className="bg-white shadow-md rounded-lg p-6" data-component="NewScanForm">
         {error && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md" data-testid="form-error-message">
             <p className="text-sm text-red-800">{error}</p>
           </div>
         )}
@@ -267,6 +267,7 @@ export function NewScan() {
             onChange={(e) => setName(e.target.value)}
             className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
             placeholder="e.g., Production Network Scan"
+            data-testid="input-scan-name"
           />
         </div>
 
@@ -282,6 +283,7 @@ export function NewScan() {
             rows={3}
             className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
             placeholder="Brief description of this scan..."
+            data-testid="input-scan-description"
           />
         </div>
 
@@ -296,6 +298,7 @@ export function NewScan() {
             onChange={(e) => setConfigId(e.target.value)}
             disabled={configsLoading}
             className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm disabled:opacity-50"
+            data-testid="select-config"
           >
             {configsLoading && <option value="">Loading configurations...</option>}
             {!configsLoading && (!configsData?.configs || configsData.configs.length === 0) && (
@@ -326,6 +329,7 @@ export function NewScan() {
                   ? 'bg-indigo-600 text-white'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
+              data-testid="target-mode-manual"
             >
               Manual Entry
             </button>
@@ -337,6 +341,7 @@ export function NewScan() {
                   ? 'bg-indigo-600 text-white'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
+              data-testid="target-mode-csv"
             >
               CSV Upload
             </button>
@@ -356,13 +361,14 @@ export function NewScan() {
               rows={10}
               className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm font-mono"
               placeholder="192.168.1.1&#10;Router,192.168.1.2&#10;Server,192.168.1.3"
+              data-testid="textarea-targets"
             />
             <p className="mt-2 text-sm text-gray-500">
               Enter one IP address per line. Supports CIDR notation (e.g., <code>192.168.1.0/24</code>).
               Optionally prefix with device name: <code>DeviceName,192.168.1.1</code>
             </p>
             {targetCount > 0 && (
-              <div className="mt-2">
+              <div className="mt-2" data-testid="target-count">
                 <p className="text-sm text-green-600">
                   Found {targetCount} valid target{targetCount !== 1 ? 's' : ''}
                   {parsedResult.hasCIDR && (
@@ -398,6 +404,7 @@ export function NewScan() {
                 file:text-sm file:font-semibold
                 file:bg-indigo-50 file:text-indigo-700
                 hover:file:bg-indigo-100"
+              data-testid="input-csv-upload"
             />
             {csvFile && (
               <p className="mt-2 text-sm text-green-600">
@@ -444,6 +451,7 @@ Database Server,10.0.0.20
             type="button"
             onClick={() => navigate({ to: '/scans' })}
             className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+            data-testid="new-scan-cancel-button"
           >
             Cancel
           </button>
@@ -452,6 +460,7 @@ Database Server,10.0.0.20
             onClick={() => handleSubmit(false)}
             disabled={createMutation.isPending || createAndStartMutation.isPending}
             className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
+            data-testid="create-scan-button"
           >
             Create Scan
           </button>
@@ -460,6 +469,7 @@ Database Server,10.0.0.20
             onClick={() => handleSubmit(true)}
             disabled={createMutation.isPending || createAndStartMutation.isPending}
             className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-50"
+            data-testid="create-start-scan-button"
           >
             Create and Start
           </button>

@@ -15,7 +15,7 @@ class ScanStatus(str, enum.Enum):
 
 class ScanPhase(str, enum.Enum):
     PENDING = "pending"
-    MASSCAN = "masscan"
+    NMAP_DISCOVERY = "nmap_discovery"
     NMAP = "nmap"
     SSH_AUDIT = "ssh_audit"
     NUCLEI = "nuclei"

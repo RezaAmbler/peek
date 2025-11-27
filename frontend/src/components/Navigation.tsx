@@ -11,16 +11,17 @@ export function Navigation() {
   };
 
   return (
-    <nav className="bg-white shadow">
+    <nav className="bg-white shadow" data-component="Navigation">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16">
           <div className="flex items-center space-x-8">
-            <h1 className="text-xl font-bold text-indigo-600">PEEK V2</h1>
+            <h1 className="text-xl font-bold text-indigo-600" data-testid="nav-logo">PEEK V2</h1>
             <div className="flex space-x-4">
               <Link
                 to="/dashboard"
                 className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
                 activeProps={{ className: 'bg-gray-100' }}
+                data-testid="nav-link-dashboard"
               >
                 Dashboard
               </Link>
@@ -29,6 +30,7 @@ export function Navigation() {
                   to="/admin/users"
                   className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
                   activeProps={{ className: 'bg-gray-100' }}
+                  data-testid="nav-link-users"
                 >
                   Users
                 </Link>
@@ -37,6 +39,7 @@ export function Navigation() {
                 to="/configs"
                 className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
                 activeProps={{ className: 'bg-gray-100' }}
+                data-testid="nav-link-configs"
               >
                 Configs
               </Link>
@@ -44,6 +47,7 @@ export function Navigation() {
                 to="/scans"
                 className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
                 activeProps={{ className: 'bg-gray-100' }}
+                data-testid="nav-link-scans"
               >
                 Scans
               </Link>
@@ -51,13 +55,14 @@ export function Navigation() {
                 to="/scheduled-scans"
                 className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
                 activeProps={{ className: 'bg-gray-100' }}
+                data-testid="nav-link-scheduled-scans"
               >
                 Scheduled Scans
               </Link>
             </div>
           </div>
           <div className="flex items-center space-x-4">
-            <span className="text-sm text-gray-700">
+            <span className="text-sm text-gray-700" data-testid="nav-username">
               {user?.username}
               {user?.is_admin && (
                 <span className="ml-2 px-2 py-1 text-xs rounded bg-blue-100 text-blue-800">
@@ -68,6 +73,7 @@ export function Navigation() {
             <button
               onClick={handleLogout}
               className="px-3 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-md"
+              data-testid="nav-logout-button"
             >
               Logout
             </button>

@@ -89,7 +89,7 @@ export function UserForm({ mode, user, onSubmit, onCancel, loading = false }: Us
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4" data-component="UserForm">
       {/* Email */}
       <div>
         <label htmlFor="email" className="block text-sm font-medium text-gray-700">
@@ -104,6 +104,7 @@ export function UserForm({ mode, user, onSubmit, onCancel, loading = false }: Us
             errors.email ? 'border-red-300' : 'border-gray-300'
           }`}
           disabled={loading}
+          data-testid="user-email-input"
         />
         {errors.email && (
           <p className="mt-1 text-sm text-red-600">{errors.email}</p>
@@ -125,6 +126,7 @@ export function UserForm({ mode, user, onSubmit, onCancel, loading = false }: Us
               errors.username ? 'border-red-300' : 'border-gray-300'
             }`}
             disabled={loading}
+            data-testid="user-username-input"
           />
           {errors.username && (
             <p className="mt-1 text-sm text-red-600">{errors.username}</p>
@@ -147,6 +149,7 @@ export function UserForm({ mode, user, onSubmit, onCancel, loading = false }: Us
               errors.password ? 'border-red-300' : 'border-gray-300'
             }`}
             disabled={loading}
+            data-testid="user-password-input"
           />
           {errors.password && (
             <p className="mt-1 text-sm text-red-600">{errors.password}</p>
@@ -163,6 +166,7 @@ export function UserForm({ mode, user, onSubmit, onCancel, loading = false }: Us
           onChange={(e) => handleChange('is_admin', e.target.checked)}
           className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
           disabled={loading}
+          data-testid="user-admin-checkbox"
         />
         <label htmlFor="is_admin" className="ml-2 block text-sm text-gray-900">
           Admin user
@@ -179,6 +183,7 @@ export function UserForm({ mode, user, onSubmit, onCancel, loading = false }: Us
             onChange={(e) => handleChange('is_active', e.target.checked)}
             className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
             disabled={loading}
+            data-testid="user-active-checkbox"
           />
           <label htmlFor="is_active" className="ml-2 block text-sm text-gray-900">
             Active user
@@ -193,6 +198,7 @@ export function UserForm({ mode, user, onSubmit, onCancel, loading = false }: Us
           onClick={onCancel}
           className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
           disabled={loading}
+          data-testid="user-form-cancel-button"
         >
           Cancel
         </button>
@@ -200,6 +206,7 @@ export function UserForm({ mode, user, onSubmit, onCancel, loading = false }: Us
           type="submit"
           className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
           disabled={loading}
+          data-testid="user-form-submit-button"
         >
           {loading ? 'Saving...' : mode === 'create' ? 'Create User' : 'Save Changes'}
         </button>

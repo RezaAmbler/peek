@@ -243,6 +243,13 @@ def parse_nmap_xml(raw_xml: str) -> List[Dict]:
 
                 if service_elem is not None:
                     service_name = service_elem.get('name')
+                    tunnel = service_elem.get('tunnel')  # Check for SSL/TLS tunnel
+
+                    # Prepend tunnel to service name (e.g., "ssl/http")
+                    # This matches nmap's display format and nuclei profile keys
+                    if tunnel and service_name:
+                        service_name = f"{tunnel}/{service_name}"
+
                     product = service_elem.get('product')
                     version_str = service_elem.get('version')
 

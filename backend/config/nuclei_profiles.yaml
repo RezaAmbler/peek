@@ -1,0 +1,162 @@
+# Nuclei Service Profile Configuration
+# =====================================
+#
+# Maps Nmap service detection to Nuclei scanning configuration.
+#
+# HOW TO ADD NEW SERVICES:
+# 1. Check if nuclei has templates: nuclei -tl -tags <service_name>
+# 2. If templates exist, add entry below
+# 3. Most network services use: target_format: host_port, tags: [<service>, network]
+# 4. HTTP-based services use: target_format: url, protocol: http/https
+#
+# TEMPLATE TAG DISCOVERY:
+#   docker exec peek-celery-1 nuclei -tl -tags <tag_name>
+#
+# Common nuclei tags: ssh, ftp, mysql, redis, mongodb, smtp, dns,
+#                     rdp, vnc, ldap, network, default-login, cve
+
+# ============================================
+# Service Profiles
+# ============================================
+#
+# target_format: 'url' (http://ip:port) or 'host_port' (ip:port)
+# protocol: 'http', 'https', or null (for non-HTTP)
+# tags: List of nuclei template tags to use
+# timeout_multiplier: Adjust scan timeout (1.0 = default)
+
+service_profiles:
+  # --- HTTP Services (require URL format) ---
+  # NOTE: Empty tags [] means run ALL templates (comprehensive scan)
+  # Nuclei will use -severity filtering only, no tag filtering
+  http:
+    target_format: url
+    protocol: http
+    tags: []  # Comprehensive - all templates
+
+  https:
+    target_format: url
+    protocol: https
+    tags: []  # Comprehensive - all templates
+
+  http-proxy:
+    target_format: url
+    protocol: http
+    tags: []  # Comprehensive - all templates
+
+  http-alt:
+    target_format: url
+    protocol: http
+    tags: []  # Comprehensive - all templates
+
+  ssl/http:
+    target_format: url
+    protocol: https
+    tags: []  # Comprehensive - all templates
+
+  # --- Network Services (use host:port format) ---
+  # These all follow the same pattern: tags match service name + 'network'
+
+  ssh:
+    target_format: host_port
+    tags: [ssh, network]
+    timeout_multiplier: 0.5
+
+  ftp:
+    target_format: host_port
+    tags: [ftp, network]
+    timeout_multiplier: 0.5
+
+  mysql:
+    target_format: host_port
+    tags: [mysql, network]
+    timeout_multiplier: 0.5
+
+  postgresql:
+    target_format: host_port
+    tags: [postgres, network]
+    timeout_multiplier: 0.5
+
+  redis:
+    target_format: host_port
+    tags: [redis, network]
+    timeout_multiplier: 0.5
+
+  mongodb:
+    target_format: host_port
+    tags: [mongodb, network]
+    timeout_multiplier: 0.5
+
+  smtp:
+    target_format: host_port
+    tags: [smtp, network]
+    timeout_multiplier: 0.5
+
+  rdp:
+    target_format: host_port
+    tags: [rdp, network]
+    timeout_multiplier: 0.5
+
+  ms-wbt-server:  # RDP alternate name
+    target_format: host_port
+    tags: [rdp, network]
+    timeout_multiplier: 0.5
+
+  vnc:
+    target_format: host_port
+    tags: [vnc, network]
+    timeout_multiplier: 0.5
+
+  telnet:
+    target_format: host_port
+    tags: [telnet, network]
+    timeout_multiplier: 0.5
+
+  ldap:
+    target_format: host_port
+    tags: [ldap, network]
+    timeout_multiplier: 0.5
+
+  dns:
+    target_format: host_port
+    tags: [dns, network]
+    timeout_multiplier: 0.5
+
+  domain:  # DNS alternate name
+    target_format: host_port
+    tags: [dns, network]
+    timeout_multiplier: 0.5
+
+# ============================================
+# Fallback for Unknown Services
+# ============================================
+# If a service isn't listed above, the mapper will:
+# 1. Try using service_name as a nuclei tag
+# 2. Add 'network' tag
+# 3. Use host:port format
+# Set to false to skip unknown services entirely
+scan_unknown_services: true
+
+# ============================================
+# Product Tag Additions
+# ============================================
+# When nmap detects a specific product, these tags are ADDED
+# to enhance scanning. Key = substring to match (lowercase).
+
+product_tags:
+  # Web servers
+  apache: [apache]
+  nginx: [nginx]
+  tomcat: [tomcat]
+  iis: [iis]
+
+  # CMS/Apps
+  wordpress: [wordpress, wp]
+  jenkins: [jenkins]
+  gitlab: [gitlab]
+  grafana: [grafana]
+
+  # Databases
+  mariadb: [mariadb]
+
+  # SSH
+  openssh: [openssh]

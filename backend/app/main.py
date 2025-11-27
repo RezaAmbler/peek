@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from datetime import datetime
 from .core.config import settings
 from .database import init_db, AsyncSessionLocal
 from .routers import auth, users, configs, scans, comparisons, scheduled_scans, reports
@@ -8,7 +9,8 @@ from .core.security import get_password_hash
 from .models.user import User
 from .models.organization import Organization
 from .models.scan_config import ScanConfig
-from sqlalchemy import select
+from .models.scan import Scan, ScanStatus
+from sqlalchemy import select, or_
 from .services.config_service import ensure_user_has_default_config
 
 @asynccontextmanager
@@ -16,8 +18,32 @@ async def lifespan(app: FastAPI):
     # Startup
     await init_db()
     await create_default_admin()
+    await cleanup_orphaned_scans()
     yield
     # Shutdown (if needed)
+
+async def cleanup_orphaned_scans():
+    """Mark any running/queued scans as cancelled on startup.
+
+    These are orphaned scans from a previous run where the worker was killed.
+    """
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Scan).where(
+                or_(
+                    Scan.status == ScanStatus.RUNNING.value,
+                    Scan.status == ScanStatus.QUEUED.value
+                )
+            )
+        )
+        orphaned_scans = result.scalars().all()
+
+        if orphaned_scans:
+            for scan in orphaned_scans:
+                scan.status = ScanStatus.CANCELLED.value
+                scan.finished_at = datetime.utcnow()
+            await session.commit()
+            print(f"⚠️  Marked {len(orphaned_scans)} orphaned scan(s) as cancelled")
 
 async def create_default_admin():
     """Create default admin user if it doesn't exist"""

@@ -14,8 +14,12 @@ from ..parsers.nmap_discovery_parser import create_ports_from_nmap_discovery
 from ..parsers.nmap_parser import update_ports_from_nmap
 from ..parsers.ssh_audit_parser import create_ssh_audit_from_output
 from ..parsers.nuclei_parser import create_vulnerabilities_from_nuclei
+from ..services.service_profile import get_nuclei_profile, build_nuclei_target
 from sqlalchemy import select
 import uuid
+import logging
+
+logger = logging.getLogger(__name__)
 import threading
 
 class DatabaseTask(Task):
@@ -55,7 +59,7 @@ def run_scan(self, scan_id: str):
         # Update scan status
         scan.status = ScanStatus.RUNNING.value
         scan.started_at = datetime.utcnow()
-        scan.current_phase = ScanPhase.MASSCAN.value
+        scan.current_phase = ScanPhase.NMAP_DISCOVERY.value
         db.commit()
 
         try:
@@ -64,9 +68,16 @@ def run_scan(self, scan_id: str):
                 ScanTarget.scan_id == scan_id
             ).order_by(ScanTarget.sequence).all()
 
-            # Phase 1: Masscan (0% -> 10%)
-            self.update_state(state='PROGRESS', meta={'phase': 'masscan', 'progress': 0})
+            # Phase 1: Port Discovery (0% -> 10%)
+            self.update_state(state='PROGRESS', meta={'phase': 'nmap_discovery', 'progress': 0})
             run_masscan_phase(db, scan, targets, config)
+
+            # Update total_open_ports after discovery phase completes
+            total_ports = db.query(Port).join(ScanTarget).filter(
+                ScanTarget.scan_id == scan_id
+            ).count()
+            scan.total_open_ports = total_ports
+            db.commit()
 
             # Phase 2: Nmap (10% -> 80%)
             scan.current_phase = ScanPhase.NMAP.value
@@ -655,85 +666,100 @@ def run_ssh_audit_phase(db, scan: Scan, targets: List[ScanTarget], config):
 
 def run_nuclei_phase(db, scan: Scan, targets: List[ScanTarget], config):
     """
-    Run Nuclei on all targets with HTTP/HTTPS services.
+    Run Nuclei with service-aware template selection.
 
-    Identifies ports running web services and scans them for vulnerabilities.
+    Scans ALL open ports using service-specific templates based on
+    nmap service detection. Uses nuclei_profiles.yaml for configuration.
     """
-    # Find all HTTP/HTTPS ports
-    http_ports = db.query(Port).join(ScanTarget).filter(
+    logger.info(f"Starting Nuclei phase for scan {scan.id}")
+
+    # Get ALL open ports (not just HTTP)
+    all_ports = db.query(Port).join(ScanTarget).filter(
         ScanTarget.scan_id == str(scan.id),
-        Port.service_name.in_(['http', 'https', 'http-proxy', 'http-alt', 'ssl/http'])
+        Port.state == 'open'
     ).all()
 
-    if not http_ports:
-        # No HTTP services found, skip phase
-        scan.progress_percent = 1.0  # Skip to 100%
+    if not all_ports:
+        logger.info("No open ports for Nuclei scanning")
+        scan.progress_percent = 1.0
         db.commit()
         return
 
-    total = len(http_ports)
-    completed = 0
+    # Filter ports that have scannable profiles
+    scannable_ports = []
+    for port_rec in all_ports:
+        profile = get_nuclei_profile(
+            service_name=port_rec.service_name,
+            product=port_rec.product,
+            version=port_rec.version
+        )
+        if profile.should_scan:
+            scannable_ports.append((port_rec, profile))
 
-    # Group ports by target to build URLs
-    target_urls = {}
-    for port_record in http_ports:
+    if not scannable_ports:
+        logger.info("No scannable services found for Nuclei")
+        scan.progress_percent = 1.0
+        db.commit()
+        return
+
+    total = len(scannable_ports)
+    scanned = 0
+    skipped = 0
+    vulns_found = 0
+
+    logger.info(f"Nuclei: {total} scannable ports from {len(all_ports)} total open ports")
+
+    for port_rec, profile in scannable_ports:
         target = db.query(ScanTarget).filter(
-            ScanTarget.id == port_record.scan_target_id
+            ScanTarget.id == port_rec.scan_target_id
         ).first()
 
         if not target:
+            skipped += 1
             continue
 
-        # Determine protocol
-        if port_record.service_name in ['https', 'ssl/http'] or port_record.port == 443:
-            protocol = 'https'
+        ip = target.ip_address
+        port = port_rec.port
+
+        # Build target string based on profile
+        nuclei_target = build_nuclei_target(ip, port, profile)
+        tags_info = f"tags={profile.tags}" if profile.tags else "tags=[] (comprehensive)"
+        logger.info(f"Nuclei: {nuclei_target} {tags_info} service={port_rec.service_name}")
+
+        # Create tool execution record - show actual command that will run
+        if profile.tags:
+            cmd_line = f"nuclei -u {nuclei_target} -tags {','.join(profile.tags)}"
         else:
-            protocol = 'http'
+            cmd_line = f"nuclei -u {nuclei_target} (comprehensive - no tag filter)"
+        tool_exec = ToolExecution(
+            id=str(uuid.uuid4()),
+            scan_target_id=str(target.id),
+            tool_name="nuclei",
+            command_line=cmd_line,
+            started_at=datetime.utcnow()
+        )
+        db.add(tool_exec)
+        db.flush()
 
-        # Build URL
-        url = f"{protocol}://{target.ip_address}:{port_record.port}"
-
-        if str(target.id) not in target_urls:
-            target_urls[str(target.id)] = []
-
-        target_urls[str(target.id)].append({
-            'url': url,
-            'target': target,
-            'port': port_record.port
-        })
-
-    # Run Nuclei on each target URL
-    for target_id, urls in target_urls.items():
-        for url_info in urls:
-            target = url_info['target']
-            url = url_info['url']
-
-            # Create tool execution record
-            tool_exec = ToolExecution(
-                id=str(uuid.uuid4()),
-                scan_target_id=str(target.id),
-                tool_name="nuclei",
-                started_at=datetime.utcnow()
-            )
-            db.add(tool_exec)
-            db.flush()
-
-            # Run Nuclei
-            timeout = config.nuclei_timeout or 300
+        try:
+            # Calculate timeout with profile multiplier
+            base_timeout = config.nuclei_timeout or 300
             if config.global_tool_timeout_seconds:
-                timeout = config.global_tool_timeout_seconds
+                base_timeout = config.global_tool_timeout_seconds
+            timeout = int(base_timeout * profile.timeout_multiplier)
 
             success, raw_jsonl, error = run_nuclei(
-                target_url=url,
+                target=nuclei_target,
                 severity=config.nuclei_severity or "critical,high,medium",
                 templates=config.nuclei_templates,
+                tags=profile.tags if profile.tags else None,  # None = comprehensive (no tag filter)
                 timeout=timeout
             )
 
             # Update tool execution
             tool_exec.finished_at = datetime.utcnow()
             tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
-            tool_exec.raw_output = raw_jsonl
+            tool_exec.raw_output = raw_jsonl[:50000] if raw_jsonl else None
             tool_exec.raw_format = "jsonl"
             tool_exec.error_message = error
             tool_exec.exit_code = 0 if success else 1
@@ -741,16 +767,26 @@ def run_nuclei_phase(db, scan: Scan, targets: List[ScanTarget], config):
             if success:
                 # Parse and create Vulnerability records
                 vulns = create_vulnerabilities_from_nuclei(db, tool_exec, target)
+                vulns_found += len(vulns)
 
                 # Update scan vulnerability count
                 scan.total_vulnerabilities += len(vulns)
 
             db.commit()
+            scanned += 1
 
-            completed += 1
-
-            # Update scan progress (nuclei is 10% of total, from 90% to 100%)
-            progress = 0.9 + (0.1 * completed / total)
-            scan.progress_percent = progress
-            scan.progress_updated_at = datetime.utcnow()
+        except Exception as e:
+            logger.error(f"Nuclei error for {nuclei_target}: {e}")
+            tool_exec.finished_at = datetime.utcnow()
+            tool_exec.error_message = str(e)
+            tool_exec.exit_code = 1
             db.commit()
+            skipped += 1
+
+        # Update scan progress (nuclei is 10% of total, from 90% to 100%)
+        progress = 0.9 + (0.1 * (scanned + skipped) / total)
+        scan.progress_percent = progress
+        scan.progress_updated_at = datetime.utcnow()
+        db.commit()
+
+    logger.info(f"Nuclei complete: {scanned} scanned, {skipped} skipped, {vulns_found} vulnerabilities found")

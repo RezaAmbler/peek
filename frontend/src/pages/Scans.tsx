@@ -23,11 +23,11 @@ export function Scans() {
     queryKey: ['scans', page, statusFilter],
     queryFn: () => scansApi.list(page, 20, statusFilter || undefined),
     refetchInterval: (query) => {
-      // Auto-refresh every 5 seconds if there are running/queued scans
+      // Auto-refresh every 3 seconds if there are running/queued scans
       const hasActiveScan = query.state.data?.scans.some(
         (scan) => scan.status === 'running' || scan.status === 'queued'
       );
-      return hasActiveScan ? 5000 : false;
+      return hasActiveScan ? 3000 : false;
     },
   });
 
@@ -67,7 +67,7 @@ export function Scans() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50" data-component="ScansPage">
       <Navigation />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
@@ -82,6 +82,7 @@ export function Scans() {
           <Link
             to="/scans/new"
             className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700"
+            data-testid="new-scan-button"
           >
             New Scan
           </Link>
@@ -101,6 +102,7 @@ export function Scans() {
             setPage(1);
           }}
           className="block w-full max-w-xs rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+          data-testid="scan-filter-select"
         >
           <option value="">All Scans</option>
           <option value="pending">Pending</option>
@@ -122,7 +124,7 @@ export function Scans() {
           </div>
         ) : (
           <>
-            <table className="min-w-full divide-y divide-gray-200">
+            <table className="min-w-full divide-y divide-gray-200" data-component="ScanTable">
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -150,7 +152,7 @@ export function Scans() {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {data.scans.map((scan) => (
-                  <tr key={scan.id} className="hover:bg-gray-50">
+                  <tr key={scan.id} className="hover:bg-gray-50" data-component="ScanTableRow" data-testid={`scan-row-${scan.id}`}>
                     <td className="px-6 py-4">
                       <Link
                         to={`/scans/${scan.id}`}
@@ -163,30 +165,66 @@ export function Scans() {
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          statusColors[scan.status] || 'bg-gray-100 text-gray-800'
-                        }`}
-                      >
-                        {scan.status}
+                      <div className="flex flex-col">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            statusColors[scan.status] || 'bg-gray-100 text-gray-800'
+                          }`}
+                          data-testid="scan-status-badge"
+                        >
+                          {scan.status === 'running' && (
+                            <span className="w-2 h-2 bg-blue-400 rounded-full mr-1.5 animate-pulse" />
+                          )}
+                          {scan.status}
+                        </span>
+                        {(scan.status === 'running' || scan.status === 'queued') && scan.current_phase && (
+                          <span className="text-xs text-gray-500 mt-1">
+                            {scan.current_phase === 'nmap_discovery' && 'Discovering ports...'}
+                            {scan.current_phase === 'nmap' && 'Detecting services...'}
+                            {scan.current_phase === 'ssh_audit' && 'Auditing SSH...'}
+                            {scan.current_phase === 'nuclei' && 'Scanning vulnerabilities...'}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <div className="flex flex-col">
+                        <span>
+                          {scan.completed_targets}/{scan.total_targets}
+                          {scan.failed_targets > 0 && (
+                            <span className="text-red-600 ml-1">({scan.failed_targets} failed)</span>
+                          )}
+                        </span>
+                        {(scan.status === 'running' || scan.status === 'queued') && (
+                          <div className="w-20 bg-gray-200 rounded-full h-1.5 mt-1">
+                            <div
+                              className="bg-green-500 h-1.5 rounded-full transition-all duration-300"
+                              style={{ width: `${(scan.completed_targets / scan.total_targets) * 100}%` }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <span className={scan.status === 'running' ? 'font-semibold text-blue-600' : ''}>
+                        {scan.total_open_ports}
                       </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {scan.completed_targets}/{scan.total_targets}
-                      {scan.failed_targets > 0 && (
-                        <span className="text-red-600 ml-1">({scan.failed_targets} failed)</span>
+                      {scan.status === 'running' && scan.total_open_ports > 0 && (
+                        <span className="text-xs text-gray-400 ml-1">found</span>
                       )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {scan.total_open_ports}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {(scan.status === 'running' || scan.status === 'queued') && (
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div
-                            className="bg-blue-600 h-2 rounded-full"
-                            style={{ width: `${scan.progress_percent}%` }}
-                          />
+                        <div className="flex flex-col">
+                          <div className="w-full bg-gray-200 rounded-full h-2">
+                            <div
+                              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                              style={{ width: `${scan.progress_percent}%` }}
+                            />
+                          </div>
+                          <span className="text-xs text-gray-500 mt-1">
+                            {Math.round(scan.progress_percent)}%
+                          </span>
                         </div>
                       )}
                     </td>
@@ -197,6 +235,7 @@ export function Scans() {
                       <Link
                         to={`/scans/${scan.id}`}
                         className="text-indigo-600 hover:text-indigo-900"
+                        data-testid="scan-view-link"
                       >
                         View
                       </Link>
@@ -204,6 +243,7 @@ export function Scans() {
                         <button
                           onClick={() => handleStart(scan.id)}
                           className="text-green-600 hover:text-green-900"
+                          data-testid="scan-start-button"
                         >
                           Start
                         </button>
@@ -212,6 +252,7 @@ export function Scans() {
                         <button
                           onClick={() => handleCancel(scan.id)}
                           className="text-yellow-600 hover:text-yellow-900"
+                          data-testid="scan-cancel-button"
                         >
                           Cancel
                         </button>
@@ -220,6 +261,7 @@ export function Scans() {
                         <button
                           onClick={() => handleDelete(scan.id, scan.name)}
                           className="text-red-600 hover:text-red-900"
+                          data-testid="scan-delete-button"
                         >
                           Delete
                         </button>

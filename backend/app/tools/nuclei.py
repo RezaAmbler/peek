@@ -6,23 +6,33 @@ from typing import Tuple, List, Optional
 from ..core.config import settings
 
 def run_nuclei(
-    target_url: str,
+    target_url: str = None,
+    target: str = None,
     severity: str = "critical,high,medium",
     templates: Optional[str] = None,
-    timeout: int = 300
+    tags: Optional[List[str]] = None,
+    timeout: int = 300,
+    rate_limit: int = 150
 ) -> Tuple[bool, str, Optional[str]]:
     """
     Execute Nuclei vulnerability scanner.
 
     Args:
-        target_url: Target URL (e.g., "http://example.com" or "https://192.168.1.1:8443")
+        target_url: Target URL (deprecated, use 'target')
+        target: Target URL or host:port for network services
         severity: Comma-separated severity levels (critical, high, medium, low, info)
         templates: Path to custom templates directory (optional)
+        tags: List of nuclei template tags to filter (e.g., ['ssh', 'network'])
         timeout: Max execution time in seconds
+        rate_limit: Max requests per second
 
     Returns:
         (success: bool, raw_jsonl: str, error: Optional[str])
     """
+    # Support both 'target' and legacy 'target_url' parameter
+    actual_target = target or target_url
+    if not actual_target:
+        return False, "", "No target specified"
     # Create temp file for output
     with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
         output_path = Path(f.name)
@@ -31,16 +41,20 @@ def run_nuclei(
         # Build command
         cmd = [
             settings.NUCLEI_PATH or 'nuclei',
-            '-target', target_url,
+            '-target', actual_target,
             '-severity', severity,
-            '-json',
-            '-output', str(output_path),
+            '-jsonl-export', str(output_path),  # Export results to JSONL file
             '-silent',  # Suppress banner
             '-no-color',
             '-no-interactsh',  # Disable interactsh for faster scans
+            '-rate-limit', str(rate_limit),
         ]
 
-        # Add custom templates if specified
+        # Add tags for service-specific scanning
+        if tags:
+            cmd.extend(['-tags', ','.join(tags)])
+
+        # Add custom templates if specified (templates override tags)
         if templates:
             cmd.extend(['-templates', templates])
 
@@ -76,6 +90,58 @@ def run_nuclei(
         # Cleanup temp file
         if output_path.exists():
             output_path.unlink()
+
+def extract_port_from_matched_at(matched_at: str) -> Optional[int]:
+    """
+    Extract port number from nuclei matched_at field.
+
+    Handles various formats:
+    - 64.255.200.231:22 (raw IP:port - network services)
+    - http://example.com:8080/path
+    - https://example.com:8443/path
+    - http://example.com/path (default 80)
+    - https://example.com/path (default 443)
+    - ssh://64.255.200.231:22
+    - tcp://192.168.1.1:3306
+    """
+    if not matched_at:
+        return None
+
+    import re
+
+    # Pattern 1: Raw IP:port (no protocol) - e.g., "64.255.200.231:22"
+    # This handles network service scans (SSH, MySQL, etc.)
+    raw_ip_port = re.match(r'^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d+)$', matched_at)
+    if raw_ip_port:
+        try:
+            return int(raw_ip_port.group(2))
+        except ValueError:
+            pass
+
+    # Pattern 2: Protocol with port - e.g., "ssh://host:22", "tcp://host:3306"
+    proto_port = re.match(r'^[a-z]+://[^:]+:(\d+)', matched_at)
+    if proto_port:
+        try:
+            return int(proto_port.group(1))
+        except ValueError:
+            pass
+
+    # Pattern 3: HTTP/HTTPS with explicit port
+    http_port = re.match(r'^https?://[^/:]+:(\d+)', matched_at)
+    if http_port:
+        try:
+            return int(http_port.group(1))
+        except ValueError:
+            pass
+
+    # Pattern 4: Default ports for HTTP/HTTPS
+    if matched_at.startswith('https://'):
+        return 443
+    elif matched_at.startswith('http://'):
+        return 80
+
+    return None
+
 
 def parse_nuclei_output(raw_jsonl: str) -> List[dict]:
     """
@@ -137,26 +203,8 @@ def parse_nuclei_output(raw_jsonl: str) -> List[dict]:
             matched_at = vuln.get('matched-at', '')
             host = vuln.get('host', '')
 
-            # Try to extract port from URL
-            port = None
-            if ':' in matched_at and not matched_at.startswith('https://'):
-                # Format: http://example.com:8080/path
-                try:
-                    port_part = matched_at.split(':')[2].split('/')[0]
-                    port = int(port_part)
-                except:
-                    pass
-            elif matched_at.startswith('https://') and ':' in matched_at:
-                # Format: https://example.com:8443/path
-                try:
-                    port_part = matched_at.split(':')[2].split('/')[0]
-                    port = int(port_part)
-                except:
-                    port = 443
-            elif matched_at.startswith('https://'):
-                port = 443
-            elif matched_at.startswith('http://'):
-                port = 80
+            # Try to extract port from URL using robust parsing
+            port = extract_port_from_matched_at(matched_at)
 
             parsed_vuln = {
                 'template_id': vuln.get('template-id', 'unknown'),
