@@ -30,7 +30,7 @@ class Port(Base):
 
     # Relationships
     target = relationship("ScanTarget", back_populates="ports")
-    tool_execution = relationship("ToolExecution")
+    tool_execution = relationship("ToolExecution", foreign_keys=[tool_execution_id])
 
     # Composite unique constraint
     __table_args__ = (

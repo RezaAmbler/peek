@@ -446,10 +446,15 @@ async def restart_scan(
 @router.get("/{scan_id}/ports", summary="Get discovered ports")
 async def get_scan_ports(
     scan_id: str,
+    state: Optional[str] = Query("open", description="Filter by port state: open, filtered, closed, or 'all' for no filter"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get all open ports discovered during the scan, including service and version info from nmap."""
+    """
+    Get ports discovered during the scan, including service and version info from nmap.
+
+    By default, only **open** ports are returned. Use `state=all` to see filtered/closed ports.
+    """
     # Verify scan access
     result = await db.execute(select(Scan).where(Scan.id == scan_id))
     scan = result.scalar_one_or_none()
@@ -460,10 +465,16 @@ async def get_scan_ports(
     if scan.user_id != current_user.id and not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    # Get all ports for this scan
+    # Build query with optional state filter
     ports_query = select(Port).join(ScanTarget).where(
         ScanTarget.scan_id == scan_id
-    ).order_by(ScanTarget.ip_address, Port.port)
+    )
+
+    # Filter by state (default: only open ports)
+    if state and state.lower() != "all":
+        ports_query = ports_query.where(Port.state == state.lower())
+
+    ports_query = ports_query.order_by(ScanTarget.ip_address, Port.port)
 
     ports_result = await db.execute(ports_query)
     ports = ports_result.scalars().all()

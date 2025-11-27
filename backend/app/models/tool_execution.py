@@ -22,6 +22,7 @@ class ToolExecution(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     scan_target_id = Column(String(36), ForeignKey("scan_targets.id", ondelete="CASCADE"), nullable=False, index=True)
+    port_id = Column(String(36), ForeignKey("ports.id", ondelete="SET NULL"), nullable=True, index=True)
 
     # Tool info
     tool_name = Column(String, nullable=False, index=True)  # masscan, nmap, ssh-audit, nuclei
@@ -51,3 +52,4 @@ class ToolExecution(Base):
 
     # Relationships
     target = relationship("ScanTarget", back_populates="tool_executions")
+    port_record = relationship("Port", foreign_keys=[port_id])

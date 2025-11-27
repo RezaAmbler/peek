@@ -1,5 +1,5 @@
-from typing import List
-from ..models import Vulnerability, ToolExecution, ScanTarget
+from typing import List, Optional
+from ..models import Vulnerability, ToolExecution, ScanTarget, Port
 from ..tools.nuclei import parse_nuclei_output
 from sqlalchemy.orm import Session
 import uuid
@@ -7,10 +7,17 @@ import uuid
 def create_vulnerabilities_from_nuclei(
     db: Session,
     tool_execution: ToolExecution,
-    target: ScanTarget
+    target: ScanTarget,
+    port_rec: Optional[Port] = None
 ) -> List[Vulnerability]:
     """
     Parse Nuclei raw output and create Vulnerability records.
+
+    Args:
+        db: Database session
+        tool_execution: The ToolExecution record for this nuclei run
+        target: The ScanTarget being scanned
+        port_rec: Optional Port record to link vulnerabilities directly to the port
     """
     if not tool_execution.raw_output:
         return []
@@ -40,6 +47,7 @@ def create_vulnerabilities_from_nuclei(
                 id=str(uuid.uuid4()),
                 scan_target_id=str(target.id),
                 tool_execution_id=str(tool_execution.id),
+                port_id=str(port_rec.id) if port_rec else None,
                 template_id=vuln_data['template_id'],
                 name=vuln_data['name'],
                 severity=vuln_data['severity'],

@@ -734,6 +734,7 @@ def run_nuclei_phase(db, scan: Scan, targets: List[ScanTarget], config):
         tool_exec = ToolExecution(
             id=str(uuid.uuid4()),
             scan_target_id=str(target.id),
+            port_id=str(port_rec.id),  # Link ToolExecution directly to Port
             tool_name="nuclei",
             command_line=cmd_line,
             started_at=datetime.utcnow()
@@ -765,8 +766,8 @@ def run_nuclei_phase(db, scan: Scan, targets: List[ScanTarget], config):
             tool_exec.exit_code = 0 if success else 1
 
             if success:
-                # Parse and create Vulnerability records
-                vulns = create_vulnerabilities_from_nuclei(db, tool_exec, target)
+                # Parse and create Vulnerability records (pass port_rec for direct linking)
+                vulns = create_vulnerabilities_from_nuclei(db, tool_exec, target, port_rec)
                 vulns_found += len(vulns)
 
                 # Update scan vulnerability count

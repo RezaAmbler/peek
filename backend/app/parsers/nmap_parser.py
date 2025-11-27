@@ -49,23 +49,25 @@ def update_ports_from_nmap(
 
                 updated_ports.append(port)
             else:
-                # Port found by nmap but not by masscan (rare, but possible)
-                # This can happen if masscan missed it or timing issues
-                new_port = Port(
-                    id=str(uuid.uuid4()),
-                    scan_target_id=str(target.id),
-                    tool_execution_id=str(tool_execution.id),
-                    port=port_data['port'],
-                    protocol=port_data['protocol'],
-                    state=port_data['state'],
-                    service_name=port_data.get('service_name'),
-                    product=port_data.get('product'),
-                    version=port_data.get('version'),
-                    extra_info=port_data.get('extra_info'),
-                    discovered_by='nmap'
-                )
-                db.add(new_port)
-                updated_ports.append(new_port)
+                # Port found by nmap but not by discovery phase
+                # Only create new port records for OPEN ports
+                # (filtered/closed ports are noise and shouldn't be stored)
+                if port_data.get('state') == 'open':
+                    new_port = Port(
+                        id=str(uuid.uuid4()),
+                        scan_target_id=str(target.id),
+                        tool_execution_id=str(tool_execution.id),
+                        port=port_data['port'],
+                        protocol=port_data['protocol'],
+                        state=port_data['state'],
+                        service_name=port_data.get('service_name'),
+                        product=port_data.get('product'),
+                        version=port_data.get('version'),
+                        extra_info=port_data.get('extra_info'),
+                        discovered_by='nmap'
+                    )
+                    db.add(new_port)
+                    updated_ports.append(new_port)
 
         db.flush()
         return updated_ports

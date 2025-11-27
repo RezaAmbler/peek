@@ -143,20 +143,162 @@ scan_unknown_services: true
 # to enhance scanning. Key = substring to match (lowercase).
 
 product_tags:
-  # Web servers
+  # ===========================================
+  # Web Servers / Proxies
+  # ===========================================
   apache: [apache]
   nginx: [nginx]
   tomcat: [tomcat]
   iis: [iis]
+  lighttpd: [lighttpd]
+  haproxy: [haproxy]
+  caddy: [caddy]
+  traefik: [traefik]
+  squid: [squid]
+  varnish: [varnish]
+  litespeed: [litespeed]
 
-  # CMS/Apps
+  # ===========================================
+  # CMS / Web Applications
+  # ===========================================
   wordpress: [wordpress, wp]
+  drupal: [drupal]
+  joomla: [joomla]
+  magento: [magento]
+  prestashop: [prestashop]
+  typo3: [typo3]
+  ghost: [ghost]
+  strapi: [strapi]
+
+  # ===========================================
+  # DevOps / CI/CD
+  # ===========================================
   jenkins: [jenkins]
   gitlab: [gitlab]
+  gitea: [gitea]
+  bamboo: [bamboo]
+  teamcity: [teamcity]
+  artifactory: [artifactory]
+  sonarqube: [sonarqube]
+  nexus: [nexus]
+  harbor: [harbor]
+  argocd: [argocd]
+  drone: [drone]
+
+  # ===========================================
+  # Monitoring / Observability
+  # ===========================================
   grafana: [grafana]
+  prometheus: [prometheus]
+  kibana: [kibana]
+  elasticsearch: [elasticsearch]
+  zabbix: [zabbix]
+  nagios: [nagios]
+  splunk: [splunk]
+  datadog: [datadog]
+  graylog: [graylog]
 
+  # ===========================================
   # Databases
+  # ===========================================
   mariadb: [mariadb]
+  mysql: [mysql]
+  postgres: [postgres]
+  mongodb: [mongodb]
+  couchdb: [couchdb]
+  cassandra: [cassandra]
+  oracle: [oracle]
+  mssql: [mssql]
+  cockroach: [cockroach]
 
-  # SSH
+  # ===========================================
+  # Message Queues / Caching
+  # ===========================================
+  rabbitmq: [rabbitmq]
+  kafka: [kafka]
+  activemq: [activemq]
+  redis: [redis]
+  memcached: [memcached]
+  nats: [nats]
+
+  # ===========================================
+  # Network / Infrastructure
+  # ===========================================
   openssh: [openssh]
+  dropbear: [dropbear]
+  mikrotik: [mikrotik]
+  cisco: [cisco]
+  fortinet: [fortinet]
+  pfsense: [pfsense]
+  opnsense: [opnsense]
+  sonicwall: [sonicwall]
+  paloalto: [paloalto]
+  ubiquiti: [ubiquiti]
+
+  # ===========================================
+  # File / Storage Services
+  # ===========================================
+  vsftpd: [vsftpd]
+  proftpd: [proftpd]
+  pureftpd: [pureftpd]
+  samba: [samba]
+  minio: [minio]
+  nextcloud: [nextcloud]
+  owncloud: [owncloud]
+  seafile: [seafile]
+
+  # ===========================================
+  # Mail Servers
+  # ===========================================
+  postfix: [postfix]
+  exim: [exim]
+  dovecot: [dovecot]
+  sendmail: [sendmail]
+  zimbra: [zimbra]
+  exchange: [exchange]
+  roundcube: [roundcube]
+
+  # ===========================================
+  # API / Application Servers
+  # ===========================================
+  spring: [spring]
+  weblogic: [weblogic]
+  websphere: [websphere]
+  jboss: [jboss]
+  wildfly: [wildfly]
+  glassfish: [glassfish]
+  flask: [flask]
+  django: [django]
+  rails: [rails]
+  express: [express]
+  node: [node]
+  php: [php]
+  laravel: [laravel]
+
+  # ===========================================
+  # Virtualization / Containers
+  # ===========================================
+  vmware: [vmware]
+  proxmox: [proxmox]
+  docker: [docker]
+  kubernetes: [kubernetes]
+  portainer: [portainer]
+  rancher: [rancher]
+
+  # ===========================================
+  # Security / Identity
+  # ===========================================
+  keycloak: [keycloak]
+  vault: [vault]
+  consul: [consul]
+
+  # ===========================================
+  # Panels / Management
+  # ===========================================
+  cpanel: [cpanel]
+  plesk: [plesk]
+  webmin: [webmin]
+  cockpit: [cockpit]
+  phpmyadmin: [phpmyadmin]
+  pgadmin: [pgadmin]
+  adminer: [adminer]
