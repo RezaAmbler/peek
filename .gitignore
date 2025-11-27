@@ -16,9 +16,7 @@ dist/
 .DS_Store
 
 # Database
-data/*.db
-data/*.db-wal
-data/*.db-shm
+data/
 
 # IDEs
 .vscode/
