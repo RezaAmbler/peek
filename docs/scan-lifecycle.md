@@ -59,3 +59,5 @@ flowchart TD
 ## Severity handling
 - Default severity filter: `critical,high,medium`. Set `nuclei_severity` to include `low,info` so those show in the UI tables.
 - Nuclei findings are stored with their reported severity; no post-filtering beyond what nuclei emits.
+
+See also: `usage-guide.md` for practical steps and `troubleshooting.md` for common issues.

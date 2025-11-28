@@ -1,0 +1,20 @@
+++ docs/mermaid/frontend-flow.mmd
+flowchart LR
+  User --> FE[Frontend UI]
+  FE -->|Create scan| API1[/POST /api/scans/]
+  API1 --> SCAN[Scan + Targets created]
+  SCAN --> QUEUE[POST /api/scans/{id}/start]
+  QUEUE --> Worker[Celery worker]
+  Worker --> Nmap[Nmap discovery + service detection]
+  Worker --> Nuclei[Nuclei per port\n(scan_mode, exclusions, tag validation)]
+  Nmap --> DB[(DB)]
+  Nuclei --> DB
+  FE <-->|GET /api/scans/{id}| API2
+  FE <-->|GET /api/scans/{id}/ports| API3
+  FE <-->|GET /api/scans/{id}/vulnerabilities| API4
+  DB --> API2
+  DB --> API3
+  DB --> API4
+  API2 --> FE
+  API3 --> FE
+  API4 --> FE

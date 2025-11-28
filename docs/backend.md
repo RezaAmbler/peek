@@ -67,3 +67,6 @@ After reading this you’ll understand:
 - Scan flow: `mermaid/scan-lifecycle.mmd`
 - Data model: `mermaid/data-model.mmd`
 - Detailed Nmap→Nuclei pipeline: `mermaid/nmap-nuclei-pipeline.mmd`
+- Frontend flow: `mermaid/frontend-flow.mmd`
+
+See also: `frontend.md` for UI integration and `tools-nmap-nuclei.md` for nuclei specifics.
