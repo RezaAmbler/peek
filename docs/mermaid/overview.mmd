@@ -1,0 +1,10 @@
+++ docs/mermaid/overview.mmd
+graph LR
+  User --> Frontend
+  Frontend --> Backend
+  Backend --> Worker
+  Worker -->|invokes| Nmap
+  Worker -->|invokes| Nuclei
+  Worker -->|invokes| "ssh-audit"
+  Worker --> DB
+  DB --> Backend --> Frontend --> User

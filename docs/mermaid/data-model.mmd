@@ -1,0 +1,9 @@
+++ docs/mermaid/data-model.mmd
+graph LR
+  Scan -->|has many| ScanTarget
+  ScanTarget -->|has many| Port
+  ScanTarget -->|has many| ToolExecution
+  Port -->|may be linked by| ToolExecution
+  ToolExecution -->|may create| Vulnerability
+  ScanTarget -->|has many| Vulnerability
+  Port -->|may have many| Vulnerability

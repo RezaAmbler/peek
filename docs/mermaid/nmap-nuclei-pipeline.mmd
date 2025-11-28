@@ -1,0 +1,18 @@
+flowchart TD
+  U[User/API] --> SC[Create Scan & Targets]
+  SC --> W[Worker run_scan]
+  W --> D1[Nmap discovery\n(open ports → Ports)]
+  D1 --> D2[Nmap service detection\n(update service_name/product/version/extra_info)]
+  D2 --> SP[service_profile\n(config: nuclei_profiles.yaml)]
+  SP --> TGT[Build nuclei target\n(url or host:port, scan_mode-aware)]
+  SP --> TAGS[Select tags/timeout/rate\n+ validate tags\n+ apply exclusions]
+  TGT --> NR[Run nuclei per port]
+  TAGS --> NR
+  NR -->|flags| CMD[-target -severity -jsonl-export -silent -no-color -no-interactsh -rate-limit <profile/default>\n+ optional -tags / -templates / -exclude-templates]
+  NR --> OUT[Nuclei JSONL output]
+  OUT --> P1[Parse nuclei output]
+  P1 --> TE[ToolExecution\n(linked to ScanTarget + Port)]
+  P1 --> VULN[Vulnerabilities\n(severity incl. low/info if emitted)]
+  VULN --> DB[(DB)]
+  DB --> API[Backend API]
+  API --> FE[Frontend shows ports + vulns\n(low/info included if configured)]

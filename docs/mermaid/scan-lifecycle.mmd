@@ -1,0 +1,16 @@
+++ docs/mermaid/scan-lifecycle.mmd
+flowchart TD
+  U[User] --> FE[Frontend]
+  FE --> API[Backend API]
+  API --> W[Worker (Celery)]
+  W --> D1[Nmap discovery]
+  D1 --> P1[Ports created (open)]
+  W --> D2[Nmap service detection]
+  D2 --> P2[Ports updated (service/product/version)]
+  P2 --> SP[service_profile + nuclei_profiles.yaml]
+  SP --> NQ[Build nuclei target + tags]
+  NQ --> NR[Run nuclei per port]
+  NR --> NP[Parse JSONL]
+  NP --> DB[(DB: Ports, ToolExecution, Vulnerability)]
+  DB --> API --> FE
+  FE --> U
