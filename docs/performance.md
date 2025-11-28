@@ -1,60 +1,92 @@
 # Performance & Scaling
 
-After reading this you’ll understand:
+After reading this you'll understand:
 - Bottlenecks in the PEEK pipeline and how to tune them.
 - DB considerations (SQLite vs Postgres).
-- Nmap and nuclei tuning knobs.
+- Nmap and Nuclei tuning knobs.
 - Celery and caching considerations.
 - Recommendations for larger scans.
 
-## Database considerations
-- **SQLite** (default):
-  - Single-writer: write locks can block concurrent writes (Celery worker vs API updates).
-  - Safer to keep scan orchestration mostly sequential or low-concurrency when writing heavily.
-  - Good for single-node dev/test; monitor for “database is locked” errors under load.
-- **When to consider Postgres**:
-  - Higher concurrency, multiple workers, larger datasets, or BI/reporting needs.
-  - Fewer lock issues; better for scaling read/write workload.
+## Database Considerations
 
-## Nmap tuning
-- Discovery vs service detection:
-  - Discovery: top ports (`--top-ports`) vs full port scans; adjust `masscan_rate`/timeouts if using masscan alternatives.
-  - Service detection: `nmap_args` (`-sS -sV -sC -T* -Pn`); tweak `-T` level (T2 conservative → T4 faster), port list, and timeout percentages (`nmap_timeout_percent`).
-- Parallelism:
-  - Current pipeline runs sequential per target (SQLite-friendly). More parallelism increases speed but adds DB contention and CPU/IO load.
-- Timeouts:
-  - `host_timeout_seconds` slices into phases; ensure realistic values for slow networks.
+### SQLite (Default)
 
-## Nuclei tuning
-- Scope:
-  - Tags/templates: fast mode uses targeted HTTP tags; deep mode (empty tags) is comprehensive.
-  - Exclusions: `excluded_templates` reduce noise and runtime.
-  - Tag validation skips runs with zero matching templates (saves time).
-- Rate-limit/concurrency:
-  - Per-profile `rate_limit` or default 150; lower for sensitive services (DB/LDAP) to reduce impact.
-  - Timeout multiplier per profile scales `nuclei_timeout`; adjust `global_tool_timeout_seconds` if needed.
-- Severity:
-  - `nuclei_severity` controls what’s emitted/stored; broader severities (including low/info) increase runtime/output size.
+| Consideration | Notes |
+|---------------|-------|
+| Single-writer | Write locks can block concurrent writes (Worker vs API) |
+| Concurrency | Keep scan orchestration mostly sequential or low-concurrency |
+| Use case | Single-node dev/test; monitor for "database is locked" errors |
 
-## Celery tuning
-- Concurrency: Adjust worker pool size if you move off SQLite; with SQLite, keep low to avoid lock contention.
-- Retries: Not heavily used today; consider retries for transient tool failures if needed.
-- Prefetch/acks: Default settings; tune if you have many small tasks or want stricter delivery semantics.
+### When to Consider Postgres
 
-## Caching strategies
-- Tag validation cache (`validate_tags_have_templates` lru_cache): Avoids repeated nuclei `-tl` invocations for the same tag sets; clear when templates update.
-- Template registry: Consider caching nuclei template lists if you extend validation; today only tag validation is cached.
+- Higher concurrency needs
+- Multiple Workers
+- Larger datasets
+- BI/reporting requirements
+- Fewer lock issues; better for scaling read/write workload
 
-## Bottlenecks & diagnostics
-- **Slow ports**: Certain services (DBs, LDAP) have reduced rate limits; watch worker logs for timeouts.
-- **Slow nuclei templates**: Use exclusions or targeted tags (fast mode); review nuclei logs/output size in ToolExecution.
-- **Long-running tools**: Adjust timeouts (`nuclei_timeout`, `global_tool_timeout_seconds`, `host_timeout_seconds`) and profile multipliers.
-- **DB lock contention**: With SQLite, avoid high parallelism; consider Postgres for heavier loads.
-- **Network/IO**: High `masscan_rate`/`nmap` parallelism can saturate network; tune cautiously.
+## Nmap Tuning
 
-## Recommendations for larger scans
-- Move to Postgres for concurrent workers and larger data.
-- Use `scan_mode=fast` for initial sweeps; reserve `deep` for narrower targets or follow-ups.
-- Tune `nuclei_severity` (e.g., drop info/low for speed, include when you need completeness).
-- Expand exclusions for noisy templates; keep tag validation enabled to skip empty sets.
-- Scale Celery workers gradually; monitor DB locks and CPU/IO.
+| Aspect | Tuning Options |
+|--------|----------------|
+| Discovery | `--top-ports` vs full port scans; adjust scan rate/timeouts |
+| Service detection | `nmap_args` (`-sT -sV -sC -T* -Pn`); tweak `-T` level (T2 conservative → T4 faster) |
+| Parallelism | Current pipeline runs sequential per target (SQLite-friendly) |
+| Timeouts | `host_timeout_seconds` slices into phases; ensure realistic values |
+
+**Note**: On Docker Desktop (macOS), use `-sT` instead of `-sS` due to VM network translation.
+
+## Nuclei Tuning
+
+| Aspect | Tuning Options |
+|--------|----------------|
+| **Scope** | Tags/templates: `fast` mode uses targeted HTTP tags; `deep` mode is comprehensive |
+| **Exclusions** | `excluded_templates` reduce noise and runtime |
+| **Tag validation** | Skips runs with zero matching templates (saves time) |
+| **Rate limit** | Per-profile `rate_limit` or default 150; lower for sensitive services (DB/LDAP) |
+| **Timeout multiplier** | Per-profile scales `nuclei_timeout`; adjust `global_tool_timeout_seconds` |
+| **Severity** | `nuclei_severity` controls what's emitted/stored; broader severities increase runtime |
+
+## Celery Tuning
+
+| Aspect | Notes |
+|--------|-------|
+| Concurrency | Adjust worker pool size if you move off SQLite; keep low with SQLite to avoid lock contention |
+| Retries | Not heavily used today; consider retries for transient tool failures |
+| Prefetch/acks | Default settings; tune for many small tasks or stricter delivery |
+
+## Caching Strategies
+
+| Cache | Purpose |
+|-------|---------|
+| Tag validation cache | `validate_tags_have_templates()` uses `lru_cache` to avoid repeated `nuclei -tl` calls |
+| Template registry | Consider caching Nuclei template lists if extending validation |
+
+**Clear cache**: Call `clear_tag_validation_cache()` when templates update.
+
+## Bottlenecks & Diagnostics
+
+| Issue | Cause | Mitigation |
+|-------|-------|------------|
+| Slow ports | DB/LDAP services have reduced rate limits | Watch Worker logs for timeouts |
+| Slow Nuclei templates | Comprehensive scan mode | Use `fast` mode, add exclusions |
+| Long-running tools | Insufficient timeouts | Adjust `nuclei_timeout`, `global_tool_timeout_seconds`, `host_timeout_seconds` |
+| DB lock contention | High parallelism with SQLite | Reduce parallelism or migrate to Postgres |
+| Network/IO saturation | High scan rate/parallelism | Tune cautiously |
+
+## Recommendations for Larger Scans
+
+| Recommendation | Description |
+|----------------|-------------|
+| Use Postgres | For concurrent Workers and larger data |
+| Use `scan_mode=fast` | For initial sweeps; reserve `deep` for narrower targets |
+| Tune `nuclei_severity` | Drop `info`/`low` for speed; include when completeness needed |
+| Expand exclusions | For noisy templates; keep tag validation enabled |
+| Scale Workers gradually | Monitor DB locks and CPU/IO |
+| Monitor Worker logs | Tag validation warnings, tool timeouts, exclusions applied |
+
+## Related Documentation
+
+- **Backend**: [`backend.md`](backend.md) — Celery tasks, tool wrappers
+- **NucleiProfile mapping**: [`tools-nmap-nuclei.md`](tools-nmap-nuclei.md) — Service profiles, scan modes
+- **Troubleshooting**: [`troubleshooting.md`](troubleshooting.md) — Common issues

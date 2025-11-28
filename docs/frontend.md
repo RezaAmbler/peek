@@ -1,48 +1,102 @@
 # Frontend
 
-After reading this you’ll understand:
+After reading this you'll understand:
 - Where the UI lives and the main libraries it uses.
 - The key pages (create/edit scan, list, detail) and what they show.
-- How the UI calls the backend APIs for scans, ports, and vulnerabilities.
-- Where to start if you need to change nuclei-related presentation.
+- How the UI calls the Backend APIs for scans, ports, and vulnerabilities.
+- Where to start if you need to change Nuclei-related presentation.
 
-## Stack & layout
-- Location: `frontend/`
-- Frameworks/libs: React + Vite, TypeScript, @tanstack/react-query (data fetching), @tanstack/react-router (routing), Tailwind/Headless UI for styling/components.
-- Key app code: `src/pages` (views), `src/api` (API clients), `src/components` (shared UI).
+## Stack & Layout
 
-## Key pages
-- **Scan creation (`src/pages/NewScan.tsx`)**
-  - Lets users provide name, description, config_id, targets (manual or CSV).
-  - Uses `scansApi.create` then immediately `scansApi.start` to queue the scan.
-  - Current UI does not expose `scan_mode` or nuclei-specific overrides; it relies on the selected ScanConfig.
-- **Scan edit (`src/pages/ScanEdit.tsx`)**
-  - Edit pending scans (name/description/targets/config).
-- **Scan list (`src/pages/Scans.tsx`)**
-  - Lists scans with status filter; actions: start, cancel, delete.
-  - Shows status/current_phase (including nuclei), counts of open ports/vulns.
-- **Scan detail (`src/pages/ScanDetail.tsx`)**
-  - Shows scan summary (targets, ports, vulnerabilities) and phase timeline (nmap_discovery, nmap, ssh_audit, nuclei).
-  - Ports table: IP, device, port, protocol, service_name, version, state, discovered_by.
-  - Vulnerabilities section renders all severities (critical/high/medium/low/info) if they exist.
-  - Info/low visibility: there’s a toggle for info findings in state; results show whatever severities the backend returned based on config/nuclei_severity.
-  - Links to restart/cancel/delete, compare with previous scan, export reports.
-- **Configs (`src/pages/Configs.tsx`)**
-  - Lists and edits ScanConfigs (enable_nuclei, nuclei_severity, nuclei_timeout, etc.).
-  - Note: current UI `configsApi` does not expose `scan_mode`; backend supports it, so adding it would require extending the API client/form.
+| Aspect | Details |
+|--------|---------|
+| Location | `frontend/` |
+| Frameworks | React + Vite, TypeScript |
+| Data fetching | @tanstack/react-query |
+| Routing | @tanstack/react-router |
+| Styling | Tailwind CSS, Headless UI |
 
-## API integration (scan-related)
-- API client: `src/api/scans.ts`:
-  - `create`, `createFromCSV`, `start`, `restart`, `cancel`, `delete`, `list`, `get`.
-  - Detail helpers: `getPorts`, `getSSHAudits`, `getVulnerabilities`.
-- API client: `src/api/configs.ts`:
-  - `list`, `get`, `create`, `update`, `delete`, `setDefault`.
-  - Fields include nuclei controls (enable_nuclei, nuclei_severity, nuclei_templates, nuclei_timeout); `scan_mode` is not currently modeled on the frontend.
-- Typical UI flow:
-  - Create/start scan → poll scan (`GET /api/scans/{id}`) → when running/completed, fetch ports (`/api/scans/{id}/ports`), ssh-audits, vulnerabilities.
-  - Vulnerabilities endpoint returns all severities emitted by nuclei (critical..info); UI displays them.
+**Key directories**:
+- `src/pages/` — Views
+- `src/api/` — API clients
+- `src/components/` — Shared UI components
 
-## Modifying nuclei-related UI
-- Start with `src/pages/ScanDetail.tsx` for vulnerability rendering and severity toggles.
-- Ports/services display: `ScanDetail` ports table.
-- Config exposure: extend `src/api/configs.ts` types and `Configs` form if you need to surface `scan_mode` or other nuclei settings.
+## Key Pages
+
+### Scan Creation (`src/pages/NewScan.tsx`)
+
+- Lets users provide name, description, `config_id`, targets (manual or CSV)
+- Uses `scansApi.create` then `scansApi.start` to queue the scan
+- Relies on selected `ScanConfig` for `scan_mode` and Nuclei settings
+
+### Scan Edit (`src/pages/ScanEdit.tsx`)
+
+- Edit pending scans (name/description/targets/config)
+
+### Scan List (`src/pages/Scans.tsx`)
+
+- Lists scans with status filter
+- Actions: start, cancel, delete
+- Shows `status`, `current_phase` (including `nuclei`), counts of open ports/vulns
+
+### Scan Detail (`src/pages/ScanDetail.tsx`)
+
+- **Summary**: `ScanTarget`s, `Port`s, `Vulnerability` counts
+- **Phase timeline**: `nmap_discovery`, `nmap`, `ssh_audit`, `nuclei`, `completed`
+- **Ports table**: IP, device, port, protocol, `service_name`, version, state, `discovered_by`
+- **Vulnerabilities section**: All severities (CRITICAL/HIGH/MEDIUM/LOW/INFO) if they exist
+- LOW/INFO visibility: Results show whatever severities the Backend returned based on `nuclei_severity`
+
+### Configs (`src/pages/Configs.tsx`)
+
+- Lists and edits `ScanConfig` records
+- Fields: `enable_nuclei`, `nuclei_severity`, `nuclei_timeout`, `nuclei_templates`
+- Note: `scan_mode` is supported by Backend; Frontend API client may need extension to expose it
+
+## API Integration
+
+### Scans API (`src/api/scans.ts`)
+
+| Function | Description |
+|----------|-------------|
+| `create`, `createFromCSV` | Create new scan |
+| `start`, `restart`, `cancel` | Control scan execution |
+| `list`, `get` | Retrieve scans |
+| `getPorts` | Get `Port` records for a scan |
+| `getSSHAudits` | Get SSH audit results |
+| `getVulnerabilities` | Get `Vulnerability` records |
+
+### Configs API (`src/api/configs.ts`)
+
+| Function | Description |
+|----------|-------------|
+| `list`, `get`, `create`, `update`, `delete` | CRUD for `ScanConfig` |
+| `setDefault` | Set default config |
+
+**Fields include**: `enable_nuclei`, `nuclei_severity`, `nuclei_templates`, `nuclei_timeout`
+
+### Typical UI Flow
+
+1. Create scan → call `POST /api/scans`
+2. Start scan → call `POST /api/scans/{id}/start`
+3. Poll scan status → `GET /api/scans/{id}`
+4. When running/completed:
+   - Fetch ports → `GET /api/scans/{id}/ports`
+   - Fetch vulnerabilities → `GET /api/scans/{id}/vulnerabilities`
+5. Display results including LOW/INFO severities
+
+## Modifying Nuclei-Related UI
+
+| Change | Where to Look |
+|--------|---------------|
+| Vulnerability rendering | `src/pages/ScanDetail.tsx` |
+| Severity toggles | `src/pages/ScanDetail.tsx` |
+| Ports/services display | `ScanDetail` ports table |
+| Expose `scan_mode` | Extend `src/api/configs.ts` types and `Configs` form |
+
+## Related Documentation
+
+- **Backend**: [`backend.md`](backend.md) — Celery tasks, parsers
+- **Scan lifecycle**: [`scan-lifecycle.md`](scan-lifecycle.md) — End-to-end flow
+- **Usage guide**: [`usage-guide.md`](usage-guide.md) — Running scans
+- **Diagram**: [`mermaid/frontend-flow.mmd`](mermaid/frontend-flow.mmd)

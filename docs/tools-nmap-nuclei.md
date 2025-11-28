@@ -1,51 +1,143 @@
 # Nmap & Nuclei Deep Dive
 
-After reading this you’ll understand:
+After reading this you'll understand:
 - How Nmap discovery and service detection are invoked and parsed.
-- How service_profile + nuclei_profiles.yaml map services/products to nuclei targets/tags.
-- How nuclei commands are built per port and how findings flow into the DB (including low/info when configured).
+- How `get_nuclei_profile()` + `nuclei_profiles.yaml` map services/products to Nuclei targets/tags.
+- How Nuclei commands are built per port and how findings flow into the DB (including LOW/INFO).
 
 ## Nmap
-- Discovery (`tools/nmap.py` run_nmap_discovery):
-  - Scans top ports (`--top-ports`) with `-Pn -sS -T* --open`, writes XML.
-  - Parsed by `parsers/nmap_discovery_parser.py` → creates `Port` rows (state=open).
-- Service detection (`tools/nmap.py` run_nmap):
-  - Runs with configured args (defaults `-sS -sV -sC -T2 -Pn`) against open ports, writes XML.
-  - Parsed by `parsers/nmap_parser.py` → updates `Port` with `service_name`, `product`, `version`, `extra_info` (includes NSE script snippets). SSL/tunnel shows in `service_name` (e.g., `ssl/http`).
 
-## Service → NucleiProfile mapping
-- Module: `services/service_profile.py`.
-- Config: `config/nuclei_profiles.yaml`.
-- Profile fields: `should_scan`, `target_format` (`url` or `host_port`), `protocol`, `tags`, `timeout_multiplier`, optional `rate_limit`.
-- Product tags added when product substrings match (e.g., apache/nginx/haproxy/mysql/openssh).
-- Unknown services can fall back to `[service_name, network]` when `scan_unknown_services` is true.
-- Target builder: `build_nuclei_target` uses profile to produce URL (default port omitted for 80/443) or `ip:port`.
-- Scan modes:
-  - `scan_mode` (ScanConfig) is passed to `get_nuclei_profile`.
-  - YAML `scan_modes.fast.http_tags` applies targeted HTTP tags in fast mode; deep mode uses comprehensive (empty tags) for HTTP.
-- Exclusions: `excluded_templates` in YAML are passed to nuclei as `-exclude-templates ...` for every run.
-- Tag validation: `validate_tags` checks that tags resolve to at least one template (`nuclei -tl -tags ...`); if none found, the port is skipped with a warning.
+### Discovery (`tools/nmap.py` → `run_nmap_discovery`)
 
-## Nuclei invocation
-- One nuclei process per scannable Port.
-- Command pattern (`tools/nuclei.py`):
-  - `nuclei -target <target> -severity <severity_string> -jsonl-export <tmp> -silent -no-color -no-interactsh -rate-limit <profile or default 150>`
-  - Optional `-tags <comma>` when profile tags are non-empty.
-  - Optional `-templates <path>` (global override from config).
-  - Optional `-exclude-templates <pattern>` from YAML exclusions.
-  - Timeout: base `config.nuclei_timeout` (or `global_tool_timeout_seconds`) × `timeout_multiplier` from profile.
-- Profiles with empty tags (HTTP deep mode) omit `-tags` → broad/comprehensive HTTP coverage.
-- HTTP fast mode uses targeted HTTP tags from `scan_modes.fast.http_tags` plus product tags.
-- Network services use tags like `[ssh,network]`, `[mysql,network]`, `[redis,network]`, etc., validated before running.
+```bash
+nmap --top-ports <N> -Pn -sT -T* --open -oX <output.xml> <targets>
+```
 
-## Parsing and storage
-- Nuclei JSONL parsed by `parsers/nuclei_parser.py` → creates `Vulnerability` records.
-- Each run has a `ToolExecution` linked to `ScanTarget` and the specific `Port`; vulnerabilities link back to both.
-- Severity is stored as reported by nuclei; default `nuclei_severity` includes `critical,high,medium,low,info` (ScanConfig). In fast mode you may still include `low,info` if desired—set the config accordingly to show these in the UI tables.
+- Scans top ports with `-Pn -sT -T* --open`
+- Writes XML output
+- Parsed by `parsers/nmap_discovery_parser.py` → creates `Port` rows (`state=open`)
 
-## Debugging tips
-- Check `tool_executions` for raw_output/error_message/command_line and port linkage.
-- Verify `ports` have service_name/product/version from Nmap; profiles depend on these.
-- Ensure `nuclei_severity` includes desired severities (e.g., `critical,high,medium,low,info`) for broader findings.
-- If tags are skipped, look for tag validation warnings; update tags or templates accordingly.
-- Adjust `excluded_templates` in YAML if needed to reduce noise or re-include patterns.
+### Service Detection (`tools/nmap.py` → `run_nmap`)
+
+```bash
+nmap -sT -sV -sC -T2 -Pn -p <ports> -oX <output.xml> <targets>
+```
+
+- Runs with configured `nmap_args` from `ScanConfig`
+- Writes XML output
+- Parsed by `parsers/nmap_parser.py` → updates `Port` with:
+  - `service_name` (e.g., `http`, `ssh`, `ssl/http`)
+  - `product` (e.g., `Apache httpd`, `OpenSSH`)
+  - `version` (e.g., `2.4.41`, `8.2p1`)
+  - `extra_info` (NSE script snippets)
+
+## NucleiProfile Mapping
+
+**Module**: `backend/app/services/service_profile.py`
+**Config**: `backend/config/nuclei_profiles.yaml`
+
+### Profile Fields
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `should_scan` | Whether to scan this service | `true` |
+| `target_format` | `url` or `host_port` | `url` for HTTP |
+| `protocol` | `http`, `https`, or `None` | `https` for SSL services |
+| `tags` | Nuclei template tags | `[ssh, network]` or `[]` for comprehensive |
+| `timeout_multiplier` | Scales `nuclei_timeout` | `0.5` for fast services |
+| `rate_limit` | Optional per-profile rate limit | `50` for databases |
+
+### How Profiles Are Selected
+
+1. Normalize `service_name` (lowercase, handle `ssl/` prefix)
+2. Look up in `service_profiles` section of YAML
+3. If not found and `scan_unknown_services=true`, use fallback tags `[service_name, network]`
+4. Add product-specific tags from `product_tags` section based on substring match
+5. Apply `scan_mode` for HTTP services:
+   - `fast`: Use `scan_modes.fast.http_tags` + product tags
+   - `deep`: Use empty tags (comprehensive)
+
+### Target Building
+
+`build_nuclei_target(ip, port, profile)` returns:
+- **URL format**: `http://ip:port` or `https://ip:port` (port omitted for 80/443)
+- **Host:port format**: `ip:port`
+
+### Tag Validation
+
+`validate_tags(tags)` runs:
+
+```bash
+nuclei -tl -tags <tag1,tag2,...>
+```
+
+Returns `(has_templates: bool, template_count: int)`. `Port`s with tags that resolve to zero templates are skipped.
+
+### Exclusions
+
+`excluded_templates` from YAML are passed to Nuclei as `-exclude-templates <pattern>`.
+
+## Nuclei Invocation
+
+One Nuclei process per scannable `Port`. Command pattern:
+
+```bash
+nuclei -target <target> \
+       -severity <nuclei_severity> \
+       -jsonl-export <tmp_file> \
+       -silent -no-color -no-interactsh \
+       -rate-limit <profile.rate_limit or 150> \
+       [-tags <tags>] \
+       [-templates <path>] \
+       [-exclude-templates <pattern>]
+```
+
+### Flag Details
+
+| Flag | Source | Notes |
+|------|--------|-------|
+| `-target` | `build_nuclei_target()` | URL or host:port |
+| `-severity` | `ScanConfig.nuclei_severity` | Default: `critical,high,medium,low,info` |
+| `-rate-limit` | `NucleiProfile.rate_limit` or 150 | Per-profile override |
+| `-tags` | `NucleiProfile.tags` | Omitted if empty (comprehensive) |
+| `-templates` | `ScanConfig.nuclei_templates` | Optional override |
+| `-exclude-templates` | `nuclei_profiles.yaml` | Global exclusions |
+
+### Scan Mode Behavior
+
+| Mode | HTTP Tags | Non-HTTP Tags |
+|------|-----------|---------------|
+| `fast` | `scan_modes.fast.http_tags` + product tags | Service tags (e.g., `[ssh, network]`) |
+| `deep` | Empty (comprehensive) | Service tags |
+
+## Parsing and Storage
+
+1. Nuclei writes JSONL output
+2. `parsers/nuclei_parser.py` parses each line
+3. Creates `Vulnerability` records with:
+   - `template_id`, `name`, `severity`, `vuln_type`
+   - `matched_at`, `host`, `port`
+   - `tags`, `references`
+   - Links to `ScanTarget`, `ToolExecution`, and `Port` (via `port_id`)
+4. Severity is stored as reported by Nuclei (CRITICAL, HIGH, MEDIUM, LOW, INFO)
+
+## Debugging Tips
+
+| Issue | What to Check |
+|-------|---------------|
+| Nuclei not running | Check `enable_nuclei` in `ScanConfig` |
+| No findings | Check `nuclei_severity`, `excluded_templates`, tag validation warnings |
+| Service not scanned | Verify `NucleiProfile` exists or `scan_unknown_services=true` |
+| Slow scans | Use `scan_mode=fast`, check `rate_limit`, reduce template scope |
+
+**Where to look**:
+- `tool_executions` table: `raw_output`, `error_message`, `command_line`, `port_id`
+- `ports` table: `service_name`, `product`, `version`
+- Worker logs: Tag validation warnings, exclusions applied
+
+## Related Documentation
+
+- **Scan lifecycle**: [`scan-lifecycle.md`](scan-lifecycle.md) — End-to-end flow
+- **Data model**: [`data-model.md`](data-model.md) — Entity relationships
+- **Backend**: [`backend.md`](backend.md) — Celery tasks, parsers
+- **Troubleshooting**: [`troubleshooting.md`](troubleshooting.md) — Common issues

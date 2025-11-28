@@ -1,0 +1,88 @@
+%% PEEK System Overview
+%% Top-level diagram showing all major components
+
+flowchart TB
+    subgraph User["User Layer"]
+        Browser[Browser/Client]
+    end
+
+    subgraph Frontend["Frontend Layer"]
+        React[React App<br/>Vite + TypeScript]
+    end
+
+    subgraph Backend["Backend Layer"]
+        API[FastAPI<br/>REST API]
+        Auth[Auth Module]
+        Routers[API Routers<br/>scans, configs, reports]
+    end
+
+    subgraph Worker["Worker Layer"]
+        Celery[Celery Worker]
+        Tasks[Scan Tasks<br/>scan_tasks.py]
+        ServiceProfile[NucleiProfile<br/>service_profile.py]
+    end
+
+    subgraph Tools["External Tools"]
+        Nmap[Nmap<br/>Port Discovery<br/>Service Detection]
+        Nuclei[Nuclei<br/>Vulnerability Scanner]
+        SSHAudit[ssh-audit<br/>SSH Analysis]
+    end
+
+    subgraph Config["Configuration"]
+        NucleiYAML[nuclei_profiles.yaml<br/>Service Profiles<br/>Scan Modes<br/>Exclusions]
+    end
+
+    subgraph Storage["Data Layer"]
+        DB[(SQLite/Postgres<br/>Scan, ScanTarget,<br/>Port, ToolExecution,<br/>Vulnerability)]
+        Redis[(Redis<br/>Celery Broker)]
+    end
+
+    %% User interactions
+    Browser --> React
+    React --> API
+
+    %% Backend flow
+    API --> Auth
+    API --> Routers
+    Routers --> DB
+    Routers --> Celery
+
+    %% Worker flow
+    Celery --> Tasks
+    Tasks --> ServiceProfile
+    ServiceProfile --> NucleiYAML
+    Tasks --> Nmap
+    Tasks --> Nuclei
+    Tasks --> SSHAudit
+    Tasks --> DB
+
+    %% Tool to DB
+    Nmap -.->|Port records| DB
+    Nuclei -.->|Vulnerability records| DB
+    SSHAudit -.->|SSH findings| DB
+
+    %% Redis as broker
+    Celery <--> Redis
+
+    %% Results back to user
+    DB --> Routers
+    Routers --> API
+    API --> React
+    React --> Browser
+
+    %% Styling
+    classDef user fill:#e1f5fe,stroke:#01579b
+    classDef frontend fill:#f3e5f5,stroke:#4a148c
+    classDef backend fill:#e8f5e9,stroke:#1b5e20
+    classDef worker fill:#fff3e0,stroke:#e65100
+    classDef tools fill:#fce4ec,stroke:#880e4f
+    classDef storage fill:#e3f2fd,stroke:#0d47a1
+    classDef config fill:#fffde7,stroke:#f57f17
+
+    class Browser user
+    class React frontend
+    class API,Auth,Routers backend
+    class Celery,Tasks,ServiceProfile worker
+    class Nmap,Nuclei,SSHAudit tools
+    class DB,Redis storage
+    class NucleiYAML config

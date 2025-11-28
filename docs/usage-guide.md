@@ -2,35 +2,58 @@
 
 Practical steps to run scans and read results.
 
-## Run a fast scan on a host or subnet
-- In the UI: New Scan → enter targets → select a ScanConfig that uses `scan_mode=fast` and nuclei enabled.
-- Fast mode behavior:
-  - HTTP services use targeted tags from `scan_modes.fast.http_tags` (nuclei_profiles.yaml) plus product tags.
-  - Non-HTTP services still use service tags (ssh, mysql, etc.) validated before running.
-  - Exclusions and tag validation apply; ports with no matching templates are skipped with a warning in logs.
-  - Severity comes from the config’s `nuclei_severity` (default supports critical..info; adjust as needed).
-- Start the scan; progress will show nuclei phase when reached.
+## Run a Fast Scan
 
-## Run a deep scan including low/info
-- In the UI: New Scan → pick a ScanConfig with `scan_mode=deep`, nuclei enabled, and `nuclei_severity` including `low,info` (default backend value does).
-- Deep mode behavior:
-  - HTTP services use empty tags (comprehensive HTTP coverage); non-HTTP use service tags.
-  - Exclusions still apply; tag validation still enforced.
-  - Low/Info severities from nuclei appear in the vulnerabilities section if emitted.
+1. In the UI: **New Scan** → enter targets → select a `ScanConfig` with `scan_mode=fast` and Nuclei enabled
+2. **Fast mode behavior**:
+   - HTTP services use targeted tags from `scan_modes.fast.http_tags` + product tags
+   - Non-HTTP services use service tags (e.g., `[ssh, network]`), validated before running
+   - Exclusions and tag validation apply; `Port`s with no matching templates are skipped
+   - Severity comes from `nuclei_severity` in `ScanConfig`
+3. Start the scan; progress shows `nuclei` phase when reached
 
-## View and interpret results
-- From the Scan list, open a scan to the Scan Detail page.
-- Ports table shows discovered services (service_name/product/version/state/source).
-- Vulnerabilities section lists all severities (critical/high/medium/low/info) returned by the backend.
-- Phase timeline indicates where the scan is (nmap_discovery, nmap, ssh_audit, nuclei, completed).
+## Run a Deep Scan (Including LOW/INFO)
 
-## Understand what is (not) scanned by nuclei
-- Service profiles (`nuclei_profiles.yaml`) decide which services get scanned and which tags/rate limits apply.
-- Exclusions: `excluded_templates` are always passed to nuclei.
-- Tag validation: if a profile’s tags map to zero templates (`nuclei -tl -tags ...`), that port is skipped.
-- Unknown services: may be scanned with fallback tags if `scan_unknown_services` is true; otherwise skipped.
+1. In the UI: **New Scan** → select a `ScanConfig` with:
+   - `scan_mode=deep`
+   - Nuclei enabled
+   - `nuclei_severity` including `low,info` (default Backend value)
+2. **Deep mode behavior**:
+   - HTTP services use empty tags (comprehensive coverage)
+   - Non-HTTP services use service tags
+   - Exclusions still apply; tag validation still enforced
+   - LOW/INFO severities from Nuclei appear in the vulnerabilities section
 
-## API equivalents (quick reference)
-- Create/start: `POST /api/scans` then `POST /api/scans/{id}/start`.
-- List scans: `GET /api/scans`.
-- Scan details: `GET /api/scans/{id}`; ports: `/api/scans/{id}/ports`; vulnerabilities: `/api/scans/{id}/vulnerabilities`.
+## View and Interpret Results
+
+1. From the **Scan list**, open a scan to the **Scan Detail** page
+2. **Ports table**: Shows discovered services (`service_name`, `product`, `version`, `state`, source)
+3. **Vulnerabilities section**: Lists all severities (CRITICAL/HIGH/MEDIUM/LOW/INFO) returned by Backend
+4. **Phase timeline**: Indicates where the scan is (`nmap_discovery`, `nmap`, `ssh_audit`, `nuclei`, `completed`)
+
+## Understand What Is (Not) Scanned by Nuclei
+
+| Factor | Description |
+|--------|-------------|
+| `NucleiProfile` | Decides which services get scanned and which tags/rate limits apply |
+| Exclusions | `excluded_templates` are always passed to Nuclei |
+| Tag validation | `Port`s with tags that map to zero templates are skipped |
+| Unknown services | Scanned with fallback tags if `scan_unknown_services=true`; otherwise skipped |
+| `port_hints` | Used when Nmap service detection fails but port is well-known |
+
+## API Equivalents
+
+| Action | API Call |
+|--------|----------|
+| Create scan | `POST /api/scans` |
+| Start scan | `POST /api/scans/{id}/start` |
+| List scans | `GET /api/scans` |
+| Scan details | `GET /api/scans/{id}` |
+| Get ports | `GET /api/scans/{id}/ports` |
+| Get vulnerabilities | `GET /api/scans/{id}/vulnerabilities` |
+
+## Related Documentation
+
+- **Scan lifecycle**: [`scan-lifecycle.md`](scan-lifecycle.md) — End-to-end flow
+- **Troubleshooting**: [`troubleshooting.md`](troubleshooting.md) — Common issues
+- **NucleiProfile mapping**: [`tools-nmap-nuclei.md`](tools-nmap-nuclei.md) — Service profiles

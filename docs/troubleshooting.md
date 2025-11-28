@@ -2,32 +2,71 @@
 
 Common scanning issues and what to check.
 
-## Nmap shows open ports but no nuclei findings
-- Check scan_mode: fast mode uses targeted HTTP tags; deep mode is comprehensive.
-- Check nuclei_severity: ensure it includes the severities you expect (e.g., low/info).
-- Check exclusions: `excluded_templates` in `nuclei_profiles.yaml` may filter out templates.
-- Check tag validation: ports with tags that map to zero templates are skipped (warning in worker logs).
-- Verify service profiles: ensure the service is covered in `nuclei_profiles.yaml` or allowed via fallback.
-- Inspect ToolExecution/Vulnerability records in DB to confirm nuclei ran and what it returned.
+## Nmap Shows Open Ports but No Nuclei Findings
 
-## Low/Info findings missing in UI
-- Ensure the ScanConfig `nuclei_severity` includes `low,info`.
-- For HTTP fast mode, verify tags used still cover templates that emit low/info; deep mode is more likely to find them.
-- Confirm vulnerabilities endpoint returns those severities; the Scan Detail page will render any severities present.
+| Check | Description |
+|-------|-------------|
+| `scan_mode` | `fast` mode uses targeted HTTP tags; `deep` mode is comprehensive |
+| `nuclei_severity` | Ensure it includes the severities you expect (e.g., `low,info`) |
+| Exclusions | `excluded_templates` in `nuclei_profiles.yaml` may filter templates |
+| Tag validation | `Port`s with tags that map to zero templates are skipped (warning in Worker logs) |
+| `NucleiProfile` | Ensure service is covered in `nuclei_profiles.yaml` or allowed via fallback |
+| `enable_nuclei` | Verify Nuclei is enabled in `ScanConfig` |
 
-## Nuclei scans are slow or heavy
-- Use `scan_mode=fast` for targeted HTTP tags; deep mode runs more templates.
-- Check profile-specific `rate_limit` (some services throttle to 50); defaults to 150 otherwise.
-- Reduce template scope via tags or custom templates; review `excluded_templates`.
-- Ensure timeouts (`nuclei_timeout`, `global_tool_timeout_seconds`) are appropriate.
+**Inspect**: `ToolExecution` and `Vulnerability` records in DB to confirm Nuclei ran.
 
-## Some services are never scanned by nuclei
-- Verify service profile exists or `scan_unknown_services` is true for fallback tags.
-- Tag validation may skip ports if tags have zero templates.
-- Exclusions may remove relevant templates; check `excluded_templates`.
-- Confirm Nmap service_name/product is present; port_hints are used when service detection fails.
+## LOW/INFO Findings Missing in UI
 
-## Where to look
-- Worker logs for tag validation warnings, exclusions, and nuclei command info.
-- DB tables: `tool_executions` (raw_output/error_message/command_line/port_id), `vulnerabilities`, `ports`.
-- API: `GET /api/scans/{id}`, `/api/scans/{id}/ports`, `/api/scans/{id}/vulnerabilities` to verify what was stored.
+1. Ensure `ScanConfig.nuclei_severity` includes `low,info`
+2. For HTTP `fast` mode, verify tags used cover templates that emit LOW/INFO
+3. `deep` mode is more likely to find informational findings
+4. Confirm `GET /api/scans/{id}/vulnerabilities` returns those severities
+
+## Nuclei Scans Are Slow or Heavy
+
+| Mitigation | Description |
+|------------|-------------|
+| Use `scan_mode=fast` | Targeted HTTP tags vs comprehensive |
+| Check `rate_limit` | Some profiles throttle to 50; default is 150 |
+| Reduce template scope | Use tags or custom templates |
+| Review `excluded_templates` | Add noisy templates to exclusions |
+| Adjust timeouts | `nuclei_timeout`, `global_tool_timeout_seconds` |
+
+## Some Services Are Never Scanned by Nuclei
+
+| Check | Description |
+|-------|-------------|
+| `NucleiProfile` exists | Verify profile in `nuclei_profiles.yaml` |
+| `scan_unknown_services` | Set to `true` for fallback tags on unknown services |
+| Tag validation | Tags may map to zero templates (skipped with warning) |
+| Exclusions | May remove relevant templates |
+| Nmap detection | Verify `Port.service_name`/`product` is populated |
+| `port_hints` | Used when Nmap service detection fails |
+
+## Where to Look
+
+| Source | What to Check |
+|--------|---------------|
+| Worker logs | Tag validation warnings, exclusions, Nuclei command info |
+| `tool_executions` table | `raw_output`, `error_message`, `command_line`, `port_id` |
+| `vulnerabilities` table | Stored findings with severity |
+| `ports` table | `service_name`, `product`, `version`, `state` |
+| API | `GET /api/scans/{id}`, `GET /api/scans/{id}/ports`, `GET /api/scans/{id}/vulnerabilities` |
+
+## Docker Desktop Networking (macOS)
+
+**Issue**: Nmap `-sS` (SYN scan) shows ports as `filtered` instead of `open`.
+
+**Cause**: Docker Desktop runs in a VM; raw packets don't survive NAT translation.
+
+**Fix**: Use `-sT` (TCP connect scan) in `nmap_args`:
+
+```json
+["-sT", "-sV", "-sC", "-T2", "-Pn"]
+```
+
+## Related Documentation
+
+- **Scan lifecycle**: [`scan-lifecycle.md`](scan-lifecycle.md) — End-to-end flow
+- **NucleiProfile mapping**: [`tools-nmap-nuclei.md`](tools-nmap-nuclei.md) — Service profiles
+- **Backend**: [`backend.md`](backend.md) — Celery tasks, parsers

@@ -1,72 +1,100 @@
 # Backend
 
-After reading this you’ll understand:
+After reading this you'll understand:
 - How the backend is structured (packages, key modules).
-- How Celery tasks orchestrate Nmap → nuclei.
-- Where tool wrappers, parsers, and service profiles live.
+- How Celery tasks orchestrate Nmap → Nuclei.
+- Where tool wrappers, parsers, and `NucleiProfile` mapping live.
 - How to extend the scan pipeline (new tools or service profiles).
 
-## Layout (backend/app)
-- `tasks/`: Celery orchestration (`scan_tasks.py` runs phases; `scheduled_scan_tasks.py` for recurring scans).
-- `tools/`: External tool runners (`nmap.py`, `nuclei.py`, `ssh_audit.py`, etc.).
-- `parsers/`: Parse tool output into models (`nmap_parser.py`, `nuclei_parser.py`, `ssh_audit_parser.py`, etc.).
-- `services/`: Shared logic (e.g., `service_profile.py` for nuclei mapping).
-- `models/`: SQLAlchemy models (Scan, ScanTarget, Port, ToolExecution, Vulnerability, ScanConfig, etc.).
-- `core/config.py`: Settings, paths to tools (NMAP_PATH, NUCLEI_PATH, etc.).
+## Layout (`backend/app/`)
 
-## Scan orchestration (Celery)
-- Entry: `run_scan` in `tasks/scan_tasks.py`:
-  - Phase 1: Nmap discovery (creates Ports with state=open).
-  - Phase 2: Nmap service detection (enriches Ports with service_name/product/version/extra_info).
-  - Phase 3: Optional ssh-audit on SSH ports.
-  - Phase 4: Nuclei per-port (service-aware; honors scan_mode, exclusions, tag validation).
-- ToolExecution is created per tool run with command_line, timing, raw_output, exit_code, and links to ScanTarget (and Port for per-port runs like nuclei).
+| Directory | Purpose |
+|-----------|---------|
+| `tasks/` | Celery orchestration (`scan_tasks.py` runs phases; `scheduled_scan_tasks.py` for recurring scans) |
+| `tools/` | External tool runners (`nmap.py`, `nuclei.py`, `ssh_audit.py`) |
+| `parsers/` | Parse tool output into models (`nmap_parser.py`, `nuclei_parser.py`, `ssh_audit_parser.py`) |
+| `services/` | Shared logic (`service_profile.py` for `NucleiProfile` mapping) |
+| `models/` | SQLAlchemy models (`Scan`, `ScanTarget`, `Port`, `ToolExecution`, `Vulnerability`, `ScanConfig`) |
+| `routers/` | API endpoints (scans, configs, auth, reports) |
+| `schemas/` | Pydantic schemas for API payloads |
+| `core/` | Settings (`config.py`), security helpers, DB session |
 
-## Tool wrappers
-- `tools/nmap.py`: Builds Nmap commands for discovery and service detection; writes XML; parsed by `parsers/nmap_parser.py`.
-- `tools/nuclei.py`: Builds nuclei commands per target/port:
-  - `-target <target>` `-severity <severity_string>` `-jsonl-export <tmp>` `-silent -no-color -no-interactsh -rate-limit <profile or default 150>`
-  - Optional `-tags <comma>` when profile tags are non-empty (HTTP fast mode applies targeted HTTP tags).
-  - Optional `-templates <path>` from config (overrides tag filtering).
-  - Optional `-exclude-templates <pattern>` from `nuclei_profiles.yaml`.
-- `tools/ssh_audit.py`: Runs ssh-audit on configured SSH ports.
+## Scan Orchestration (Celery)
+
+Entry point: `run_scan` in `backend/app/tasks/scan_tasks.py`:
+
+| Phase | Action | Output |
+|-------|--------|--------|
+| 1 | Nmap discovery | Creates `Port` rows (`state=open`) |
+| 2 | Nmap service detection | Updates `Port` with `service_name`, `product`, `version`, `extra_info` |
+| 3 | ssh-audit (optional) | SSH security analysis on configured ports |
+| 4 | Nuclei per-port | Runs Nuclei per `Port` (service-aware; honors `scan_mode`, exclusions, tag validation) |
+
+`ToolExecution` is created per tool run with `command_line`, timing, `raw_output`, `exit_code`, and links to `ScanTarget` (and `Port` via `port_id` for per-port runs like Nuclei).
+
+## Tool Wrappers
+
+| File | Tool | Description |
+|------|------|-------------|
+| `tools/nmap.py` | Nmap | Builds commands for discovery and service detection; writes XML |
+| `tools/nuclei.py` | Nuclei | Builds per-port commands with `-target`, `-severity`, `-jsonl-export`, `-rate-limit`, optional `-tags`/`-templates`/`-exclude-templates` |
+| `tools/ssh_audit.py` | ssh-audit | Runs SSH security analysis on configured ports |
 
 ## Parsers
-- `parsers/nmap_parser.py`: Updates Ports with service detection results (service_name, product, version, extra_info).
-- `parsers/nuclei_parser.py`: Parses nuclei JSONL; creates Vulnerabilities linked to ScanTarget, ToolExecution, and Port when provided; stores severity as reported (low/info included if nuclei was configured to emit them).
-- `parsers/ssh_audit_parser.py`: Stores SSH audit findings per Port.
 
-## Service profiles (nuclei mapping)
-- Module: `services/service_profile.py`.
-- Config: `config/nuclei_profiles.yaml`.
-- Given a Port’s `service_name`/`product`/`version`, returns a NucleiProfile with:
-  - `should_scan`, `target_format` (`url` or `host_port`), `protocol`, `tags`, `timeout_multiplier`, optional `rate_limit`.
-  - Product tags may be added based on product substring matches (e.g., apache, nginx, haproxy, mysql).
-  - Unknown services can fall back to tags `[service_name, network]` when enabled (`scan_unknown_services`).
-- Scan modes: `scan_mode` from ScanConfig (`fast`/`deep`) influences HTTP tags (fast mode applies `scan_modes.fast.http_tags` + product tags; deep runs comprehensive).
-- Exclusions: `excluded_templates` from YAML passed to nuclei as `-exclude-templates`.
-- Tag validation: `validate_tags` checks that tags map to at least one template (`nuclei -tl -tags ...`); ports are skipped with a warning if no templates.
-- Used in `run_nuclei_phase` to decide whether/how to run nuclei per port (respecting scan_mode, exclusions, tag validation).
+| File | Input | Output |
+|------|-------|--------|
+| `parsers/nmap_parser.py` | Nmap XML | Updates `Port` with `service_name`, `product`, `version`, `extra_info` |
+| `parsers/nuclei_parser.py` | Nuclei JSONL | Creates `Vulnerability` linked to `ScanTarget`, `ToolExecution`, and `Port` |
+| `parsers/ssh_audit_parser.py` | ssh-audit JSON | Creates SSH audit findings per `Port` |
 
-## Extending the backend
-- Add a new tool:
-  - Create a runner in `tools/` and a parser in `parsers/`.
-  - Add a phase or hook in `tasks/scan_tasks.py` (or a dedicated Celery task) and create ToolExecution records.
-  - Store parsed results in new or existing models.
-- Add a new service → nuclei profile:
-  - Edit `config/nuclei_profiles.yaml` to add service profiles and/or product tags.
-  - Reload or redeploy; the mapper in `service_profile.py` will pick up the new profile.
-- Adjust nuclei severity/tags/templates/mode:
-  - Set `nuclei_severity` (include `low,info` to surface those in the UI).
-  - Set `nuclei_templates` for a custom template path (overrides tags).
-  - Set `scan_mode` (`fast`/`deep`) to influence HTTP tags and breadth.
-  - Update `excluded_templates` or `scan_modes` in YAML for exclusions and mode-specific behavior.
+## NucleiProfile Mapping
 
-## Useful diagrams
-- High-level: `mermaid/overview.mmd`
-- Scan flow: `mermaid/scan-lifecycle.mmd`
-- Data model: `mermaid/data-model.mmd`
-- Detailed Nmap→Nuclei pipeline: `mermaid/nmap-nuclei-pipeline.mmd`
-- Frontend flow: `mermaid/frontend-flow.mmd`
+**Module**: `backend/app/services/service_profile.py`
+**Config**: `backend/config/nuclei_profiles.yaml`
 
-See also: `frontend.md` for UI integration and `tools-nmap-nuclei.md` for nuclei specifics.
+Given a `Port`'s `service_name`/`product`/`version`, `get_nuclei_profile()` returns a `NucleiProfile` with:
+
+| Field | Description |
+|-------|-------------|
+| `should_scan` | Whether to scan this service |
+| `target_format` | `url` or `host_port` |
+| `protocol` | `http`, `https`, or `None` |
+| `tags` | Nuclei template tags (empty = comprehensive) |
+| `timeout_multiplier` | Scales `nuclei_timeout` |
+| `rate_limit` | Optional per-profile rate limit |
+
+**Features**:
+- **Product tags**: Added based on product substring matches (e.g., apache, nginx, mysql)
+- **Scan modes**: `scan_mode` from `ScanConfig` (`fast`/`deep`) influences HTTP tags
+  - `fast`: Uses `scan_modes.fast.http_tags` + product tags
+  - `deep`: Uses empty tags (comprehensive)
+- **Exclusions**: `excluded_templates` from YAML passed to Nuclei as `-exclude-templates`
+- **Tag validation**: `validate_tags()` checks that tags resolve to templates; `Port`s are skipped if no templates match
+- **Unknown services**: Fall back to `[service_name, network]` when `scan_unknown_services` is enabled
+
+## Extending the Backend
+
+### Adding a New Tool
+1. Create a runner in `backend/app/tools/<tool>.py`
+2. Create a parser in `backend/app/parsers/<tool>_parser.py`
+3. Add a phase in `backend/app/tasks/scan_tasks.py`
+4. Create `ToolExecution` records with `port_id` linkage
+
+### Adding a New NucleiProfile
+1. Edit `backend/config/nuclei_profiles.yaml`
+2. Add entry to `service_profiles` or `product_tags`
+3. Restart Worker; `service_profile.py` will pick up changes
+
+### Adjusting Nuclei Behavior
+- **Severity**: Set `nuclei_severity` in `ScanConfig` (include `low,info` for broader findings)
+- **Templates**: Set `nuclei_templates` for custom template path
+- **Scan mode**: Set `scan_mode` to `fast` or `deep`
+- **Exclusions**: Update `excluded_templates` in YAML
+
+## Related Documentation
+
+- **Diagrams**: [`mermaid/overview.mmd`](mermaid/overview.mmd), [`mermaid/scan-lifecycle.mmd`](mermaid/scan-lifecycle.mmd), [`mermaid/nmap-nuclei-pipeline.mmd`](mermaid/nmap-nuclei-pipeline.mmd)
+- **Nmap/Nuclei details**: [`tools-nmap-nuclei.md`](tools-nmap-nuclei.md)
+- **Frontend integration**: [`frontend.md`](frontend.md)
+- **Extending scanners**: [`extending-scanners.md`](extending-scanners.md)
