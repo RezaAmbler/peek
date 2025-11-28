@@ -14,7 +14,7 @@ from ..parsers.nmap_discovery_parser import create_ports_from_nmap_discovery
 from ..parsers.nmap_parser import update_ports_from_nmap
 from ..parsers.ssh_audit_parser import create_ssh_audit_from_output
 from ..parsers.nuclei_parser import create_vulnerabilities_from_nuclei
-from ..services.service_profile import get_nuclei_profile, build_nuclei_target
+from ..services.service_profile import get_nuclei_profile, build_nuclei_target, get_excluded_templates, validate_tags
 from sqlalchemy import select
 import uuid
 import logging
@@ -685,13 +685,19 @@ def run_nuclei_phase(db, scan: Scan, targets: List[ScanTarget], config):
         db.commit()
         return
 
+    # Get excluded templates once for all scans
+    excluded_templates = get_excluded_templates()
+
     # Filter ports that have scannable profiles
+    scan_mode = getattr(config, 'scan_mode', 'deep') or 'deep'
     scannable_ports = []
     for port_rec in all_ports:
         profile = get_nuclei_profile(
             service_name=port_rec.service_name,
             product=port_rec.product,
-            version=port_rec.version
+            version=port_rec.version,
+            port=port_rec.port,
+            scan_mode=scan_mode
         )
         if profile.should_scan:
             scannable_ports.append((port_rec, profile))
@@ -721,6 +727,15 @@ def run_nuclei_phase(db, scan: Scan, targets: List[ScanTarget], config):
         ip = target.ip_address
         port = port_rec.port
 
+        # Validate tags have templates (skip if no templates found)
+        if profile.tags:
+            has_templates, template_count = validate_tags(profile.tags)
+            if not has_templates:
+                logger.warning(f"No templates found for tags {profile.tags} on {ip}:{port}, skipping")
+                skipped += 1
+                continue
+            logger.debug(f"Tags {profile.tags} have {template_count} templates")
+
         # Build target string based on profile
         nuclei_target = build_nuclei_target(ip, port, profile)
         tags_info = f"tags={profile.tags}" if profile.tags else "tags=[] (comprehensive)"
@@ -749,12 +764,17 @@ def run_nuclei_phase(db, scan: Scan, targets: List[ScanTarget], config):
                 base_timeout = config.global_tool_timeout_seconds
             timeout = int(base_timeout * profile.timeout_multiplier)
 
+            # Use profile-specific rate limit or default
+            rate_limit = profile.rate_limit or 150
+
             success, raw_jsonl, error = run_nuclei(
                 target=nuclei_target,
-                severity=config.nuclei_severity or "critical,high,medium",
+                severity=config.nuclei_severity or "critical,high,medium,low,info",
                 templates=config.nuclei_templates,
                 tags=profile.tags if profile.tags else None,  # None = comprehensive (no tag filter)
-                timeout=timeout
+                timeout=timeout,
+                rate_limit=rate_limit,
+                exclude_templates=excluded_templates
             )
 
             # Update tool execution

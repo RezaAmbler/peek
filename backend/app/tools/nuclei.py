@@ -12,7 +12,8 @@ def run_nuclei(
     templates: Optional[str] = None,
     tags: Optional[List[str]] = None,
     timeout: int = 300,
-    rate_limit: int = 150
+    rate_limit: int = 150,
+    exclude_templates: Optional[List[str]] = None
 ) -> Tuple[bool, str, Optional[str]]:
     """
     Execute Nuclei vulnerability scanner.
@@ -25,6 +26,7 @@ def run_nuclei(
         tags: List of nuclei template tags to filter (e.g., ['ssh', 'network'])
         timeout: Max execution time in seconds
         rate_limit: Max requests per second
+        exclude_templates: List of template patterns to exclude
 
     Returns:
         (success: bool, raw_jsonl: str, error: Optional[str])
@@ -57,6 +59,11 @@ def run_nuclei(
         # Add custom templates if specified (templates override tags)
         if templates:
             cmd.extend(['-templates', templates])
+
+        # Add exclusions if provided
+        if exclude_templates:
+            for exclusion in exclude_templates:
+                cmd.extend(['-exclude-templates', exclusion])
 
         # Execute
         result = subprocess.run(

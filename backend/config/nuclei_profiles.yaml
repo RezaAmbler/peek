@@ -16,6 +16,59 @@
 #                     rdp, vnc, ldap, network, default-login, cve
 
 # ============================================
+# Template Exclusions
+# ============================================
+# Templates to exclude from all scans
+# These are typically noisy, slow, or produce false positives
+excluded_templates:
+  - http/miscellaneous/
+  - http/technologies/fingerprinthub-web-fingerprints.yaml
+
+# ============================================
+# Scan Mode Configurations
+# ============================================
+# fast = targeted tags for HTTP (focuses on real vulnerabilities)
+# deep = comprehensive scan (empty tags for HTTP = all templates)
+scan_modes:
+  fast:
+    http_tags: [cves, vulnerabilities, exposures, misconfigurations]
+    description: "Fast scan - focuses on known CVEs and common vulnerabilities"
+  deep:
+    http_tags: []
+    description: "Deep scan - runs all applicable templates"
+
+# ============================================
+# Port-Based Fallback Hints
+# ============================================
+# Used when nmap service detection fails but port is well-known
+port_hints:
+  21: ftp
+  22: ssh
+  23: telnet
+  25: smtp
+  53: dns
+  80: http
+  110: pop3
+  143: imap
+  443: ssl/http
+  445: smb
+  993: ssl/imap
+  995: ssl/pop3
+  1433: ms-sql-s
+  1521: oracle
+  3306: mysql
+  3389: rdp
+  5432: postgresql
+  5672: amqp
+  5900: vnc
+  6379: redis
+  8080: http
+  8443: ssl/http
+  9200: elasticsearch
+  11211: memcached
+  27017: mongodb
+
+# ============================================
 # Service Profiles
 # ============================================
 #
@@ -70,21 +123,25 @@ service_profiles:
     target_format: host_port
     tags: [mysql, network]
     timeout_multiplier: 0.5
+    rate_limit: 50  # Slower for databases
 
   postgresql:
     target_format: host_port
     tags: [postgres, network]
     timeout_multiplier: 0.5
+    rate_limit: 50  # Slower for databases
 
   redis:
     target_format: host_port
     tags: [redis, network]
     timeout_multiplier: 0.5
+    rate_limit: 50  # Slower for databases
 
   mongodb:
     target_format: host_port
     tags: [mongodb, network]
     timeout_multiplier: 0.5
+    rate_limit: 50  # Slower for databases
 
   smtp:
     target_format: host_port
@@ -115,6 +172,7 @@ service_profiles:
     target_format: host_port
     tags: [ldap, network]
     timeout_multiplier: 0.5
+    rate_limit: 50  # Slower for sensitive services
 
   dns:
     target_format: host_port
@@ -124,6 +182,42 @@ service_profiles:
   domain:  # DNS alternate name
     target_format: host_port
     tags: [dns, network]
+    timeout_multiplier: 0.5
+
+  # --- IoT / Embedded Protocols ---
+  upnp:
+    target_format: host_port
+    tags: [upnp, network, iot]
+    timeout_multiplier: 0.5
+
+  rtsp:
+    target_format: host_port
+    tags: [rtsp, network]
+    timeout_multiplier: 0.5
+
+  sip:
+    target_format: host_port
+    tags: [sip, network, voip]
+    timeout_multiplier: 0.5
+
+  mqtt:
+    target_format: host_port
+    tags: [mqtt, network, iot]
+    timeout_multiplier: 0.5
+
+  coap:
+    target_format: host_port
+    tags: [coap, network, iot]
+    timeout_multiplier: 0.5
+
+  modbus:
+    target_format: host_port
+    tags: [modbus, network, iot, ics]
+    timeout_multiplier: 0.5
+
+  bacnet:
+    target_format: host_port
+    tags: [bacnet, network, iot, ics]
     timeout_multiplier: 0.5
 
 # ============================================
@@ -302,3 +396,15 @@ product_tags:
   phpmyadmin: [phpmyadmin]
   pgadmin: [pgadmin]
   adminer: [adminer]
+
+  # ===========================================
+  # Cloud Providers
+  # ===========================================
+  aws: [aws, cloud]
+  amazon: [aws, cloud]
+  gcp: [gcp, cloud]
+  google: [gcp, cloud]
+  azure: [azure, cloud]
+  digitalocean: [digitalocean, cloud]
+  linode: [linode, cloud]
+  cloudflare: [cloudflare, cloud, cdn]

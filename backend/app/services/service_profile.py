@@ -5,9 +5,11 @@ Maps Nmap service detection to Nuclei scanning configuration.
 Loads from config/nuclei_profiles.yaml for easy maintenance.
 """
 
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from dataclasses import dataclass, field
 from pathlib import Path
+from functools import lru_cache
+import subprocess
 import yaml
 import logging
 
@@ -26,6 +28,7 @@ class NucleiProfile:
     protocol: Optional[str]  # 'http', 'https', or None
     tags: List[str] = field(default_factory=list)
     timeout_multiplier: float = 1.0
+    rate_limit: Optional[int] = None  # Custom rate limit for sensitive services
 
 
 def load_config(force_reload: bool = False) -> dict:
@@ -53,7 +56,9 @@ def get_nuclei_profile(
     service_name: Optional[str],
     product: Optional[str] = None,
     version: Optional[str] = None,
-    extra_info: Optional[dict] = None
+    extra_info: Optional[dict] = None,
+    port: Optional[int] = None,
+    scan_mode: str = "deep"
 ) -> NucleiProfile:
     """
     Get Nuclei scanning profile for a detected service.
@@ -63,6 +68,8 @@ def get_nuclei_profile(
         product: Nmap product (e.g., 'Apache httpd', 'OpenSSH')
         version: Nmap version string
         extra_info: Additional Nmap data
+        port: Port number for fallback hints when service_name is unknown
+        scan_mode: "fast" or "deep" - affects HTTP tag selection
 
     Returns:
         NucleiProfile with scan configuration
@@ -70,7 +77,16 @@ def get_nuclei_profile(
     config = load_config()
     profiles = config.get('service_profiles', {})
     product_tags = config.get('product_tags', {})
+    port_hints = config.get('port_hints', {})
+    scan_modes = config.get('scan_modes', {})
     scan_unknown = config.get('scan_unknown_services', False)
+
+    # If no service_name, try port hint
+    if not service_name and port:
+        hinted_service = port_hints.get(port)
+        if hinted_service:
+            service_name = hinted_service
+            logger.debug(f"Using port hint: port {port} -> {service_name}")
 
     if not service_name:
         return NucleiProfile(should_scan=False, target_format='host_port', protocol=None)
@@ -117,12 +133,25 @@ def get_nuclei_profile(
                 tags.extend(t for t in extra_tags if t not in tags)
                 break
 
+    # Apply scan mode for HTTP services
+    if target_format == 'url' and scan_mode == 'fast':
+        fast_config = scan_modes.get('fast', {})
+        http_tags = fast_config.get('http_tags', [])
+        if http_tags:
+            # In fast mode, use fast mode tags + any product-specific tags
+            product_specific_tags = [t for t in tags if t not in ['http', 'https']]
+            tags = list(http_tags) + product_specific_tags
+
+    # Extract rate_limit from profile if available
+    rate_limit = profile_data.get('rate_limit') if profile_data else None
+
     return NucleiProfile(
         should_scan=should_scan,
         target_format=target_format,
         protocol=protocol,
         tags=tags,
-        timeout_multiplier=timeout_mult
+        timeout_multiplier=timeout_mult,
+        rate_limit=rate_limit
     )
 
 
@@ -139,3 +168,62 @@ def build_nuclei_target(ip: str, port: int, profile: NucleiProfile) -> str:
 def reload_config():
     """Force reload configuration from disk."""
     load_config(force_reload=True)
+
+
+def get_excluded_templates() -> List[str]:
+    """Get list of template patterns to exclude from nuclei scans."""
+    config = load_config()
+    return config.get('excluded_templates', [])
+
+
+@lru_cache(maxsize=200)
+def validate_tags_have_templates(tags_tuple: Tuple[str, ...]) -> Tuple[bool, int]:
+    """
+    Check if the given tags have any matching nuclei templates.
+    Results are cached to avoid repeated subprocess calls.
+
+    Args:
+        tags_tuple: Tuple of tag strings (must be tuple for caching)
+
+    Returns:
+        Tuple of (has_templates: bool, template_count: int)
+    """
+    if not tags_tuple:
+        return True, -1  # Empty tags = all templates
+
+    tags_str = ','.join(tags_tuple)
+
+    try:
+        result = subprocess.run(
+            ['nuclei', '-tl', '-tags', tags_str],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        # Count non-empty lines in output
+        templates = [l for l in result.stdout.strip().split('\n') if l.strip()]
+        template_count = len(templates)
+        return template_count > 0, template_count
+    except subprocess.TimeoutExpired:
+        logger.warning(f"Timeout validating tags: {tags_str}")
+        return True, -1  # Assume valid on timeout
+    except Exception as e:
+        logger.warning(f"Failed to validate tags {tags_str}: {e}")
+        return True, -1  # Assume valid on error
+
+
+def validate_tags(tags: List[str]) -> Tuple[bool, int]:
+    """
+    Wrapper that converts list to tuple for caching.
+
+    Returns:
+        Tuple of (has_templates: bool, template_count: int)
+    """
+    if not tags:
+        return True, -1
+    return validate_tags_have_templates(tuple(sorted(tags)))
+
+
+def clear_tag_validation_cache():
+    """Clear the tag validation cache (useful after template updates)."""
+    validate_tags_have_templates.cache_clear()

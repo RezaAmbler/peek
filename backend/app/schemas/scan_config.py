@@ -23,9 +23,10 @@ class ScanConfigBase(BaseModel):
     # Tool toggles
     enable_ssh_audit: bool = Field(default=True, description="Run ssh-audit on SSH ports")
     enable_nuclei: bool = Field(default=False, description="Run Nuclei vulnerability scanner")
-    nuclei_severity: str = Field(default="critical,high,medium", description="Nuclei severity filter", json_schema_extra={"example": "critical,high,medium,low,info"})
+    nuclei_severity: str = Field(default="critical,high,medium,low,info", description="Nuclei severity filter", json_schema_extra={"example": "critical,high,medium,low,info"})
     nuclei_templates: Optional[str] = Field(None, description="Custom Nuclei template paths")
     nuclei_timeout: int = Field(default=300, ge=60, le=1800, description="Nuclei timeout per target (seconds)")
+    scan_mode: str = Field(default="deep", description="Scan mode: 'fast' (targeted CVEs) or 'deep' (comprehensive)", json_schema_extra={"example": "deep"})
 
     # Advanced timeouts
     global_tool_timeout_seconds: Optional[int] = Field(None, ge=60, le=7200)
@@ -60,6 +61,14 @@ class ScanConfigBase(BaseModel):
             raise ValueError('nmap_args must be a non-empty list')
         return v
 
+    @field_validator('scan_mode')
+    @classmethod
+    def validate_scan_mode(cls, v: str) -> str:
+        valid = {'fast', 'deep'}
+        if v.lower() not in valid:
+            raise ValueError(f"Invalid scan_mode '{v}'. Must be 'fast' or 'deep'")
+        return v.lower()
+
 class ScanConfigCreate(ScanConfigBase):
     pass
 
@@ -80,6 +89,7 @@ class ScanConfigUpdate(BaseModel):
     nuclei_severity: Optional[str] = None
     nuclei_templates: Optional[str] = None
     nuclei_timeout: Optional[int] = Field(None, ge=60, le=1800)
+    scan_mode: Optional[str] = None
     global_tool_timeout_seconds: Optional[int] = Field(None, ge=60, le=7200)
     parallelism_limit: Optional[int] = Field(None, ge=1, le=50)
     highlight_ports: Optional[List[int]] = None

@@ -35,9 +35,10 @@ class ScanConfig(Base):
     # Tool toggles
     enable_ssh_audit = Column(Boolean, default=True, nullable=False)
     enable_nuclei = Column(Boolean, default=False, nullable=False)
-    nuclei_severity = Column(String, default="critical,high,medium", nullable=False)
+    nuclei_severity = Column(String, default="critical,high,medium,low,info", nullable=False)
     nuclei_templates = Column(String, nullable=True)  # Path to custom templates
     nuclei_timeout = Column(Integer, default=300, nullable=False)
+    scan_mode = Column(String, default="deep", nullable=False)  # 'fast' or 'deep'
 
     # Advanced timeouts
     global_tool_timeout_seconds = Column(Integer, nullable=True)
