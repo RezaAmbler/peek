@@ -38,7 +38,11 @@ def update_ports_from_nmap(
                 port.service_name = port_data.get('service_name')
                 port.product = port_data.get('product')
                 port.version = port_data.get('version')
-                port.state = port_data.get('state', port.state)
+                # Only update state if nmap found it "open" - never downgrade from "open" to "filtered"
+                # This preserves discovery results when service detection times out or is blocked
+                new_state = port_data.get('state')
+                if new_state == 'open' or port.state != 'open':
+                    port.state = new_state if new_state else port.state
 
                 if port_data.get('extra_info'):
                     port.extra_info = port_data['extra_info']

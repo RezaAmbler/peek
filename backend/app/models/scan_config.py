@@ -22,7 +22,7 @@ class ScanConfig(Base):
     # Scanning parameters
     masscan_rate = Column(Integer, default=1000, nullable=False)  # PPS
     masscan_interface = Column(String, nullable=True)  # e.g., "en0", "eth0"
-    nmap_args = Column(JSON, default=lambda: ["-sS", "-sV", "-sC", "-T2", "-Pn"], nullable=False)
+    nmap_args = Column(JSON, default=lambda: ["-sT", "-sV", "-sC", "-T2", "-Pn"], nullable=False)
     ssh_ports = Column(JSON, default=lambda: [22, 830], nullable=False)
 
     # Concurrency & Timeouts

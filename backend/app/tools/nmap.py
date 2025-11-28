@@ -114,14 +114,14 @@ def run_nmap_discovery(
     try:
         # Build command for port discovery
         # -Pn: Skip host discovery (assume host is up)
-        # -sS: SYN scan (fast and stealthy)
+        # -sT: TCP connect scan (works in Docker containers)
         # --top-ports N: Scan top N most common ports
         # OR -p-: Scan all 65535 ports (slower but complete)
         cmd = [
             'sudo',
             settings.NMAP_PATH or 'nmap',
             '-Pn',
-            '-sS',
+            '-sT',
             f'-{timing_template}',
             '--open',  # Only show open ports
             f'--top-ports={scan_top_ports}',
