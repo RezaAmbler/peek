@@ -24,4 +24,11 @@ PEEK is a network scanner and reporting platform that orchestrates Nmap for disc
 ## Doc index (Phase 1)
 - Overview architecture: `architecture.md` (diagram: `mermaid/overview.mmd`)
 - Scan flow: `scan-lifecycle.md` (diagram: `mermaid/scan-lifecycle.mmd`)
-
+- Data model: `data-model.md` (diagram: `mermaid/data-model.mmd`)
+- Backend internals: `backend.md`, `tools-nmap-nuclei.md`
+- Frontend overview: `frontend.md`
+- Usage & troubleshooting: `usage-guide.md`, `troubleshooting.md`
+- Codebase overview: `codebase-tour.md`
+- Extending scanners: `extending-scanners.md`
+- Performance/scaling: `performance.md`
+- Detailed pipelines: `mermaid/nmap-nuclei-pipeline.mmd`, `mermaid/frontend-flow.mmd`
