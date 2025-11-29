@@ -26,7 +26,9 @@ class ScanConfigBase(BaseModel):
 
     # Tool toggles
     enable_ssh_audit: bool = Field(default=True, description="Run ssh-audit on SSH ports")
-    enable_nuclei: bool = Field(default=False, description="Run Nuclei vulnerability scanner")
+    enable_nuclei: bool = Field(default=True, description="Run Nuclei vulnerability scanner")
+    enable_nse: bool = Field(default=True, description="Run Nmap Scripting Engine (NSE) scripts")
+    enable_sslscan: bool = Field(default=True, description="Run SSLScan for TLS/SSL analysis")
     nuclei_severity: str = Field(default="critical,high,medium,low,info", description="Nuclei severity filter", json_schema_extra={"example": "critical,high,medium,low,info"})
     nuclei_templates: Optional[str] = Field(None, description="Custom Nuclei template paths")
     nuclei_timeout: int = Field(default=300, ge=60, le=1800, description="Nuclei timeout per target (seconds)")
@@ -100,6 +102,8 @@ class ScanConfigUpdate(BaseModel):
     nmap_timeout_percent: Optional[float] = Field(None, ge=0.20, le=0.90)
     enable_ssh_audit: Optional[bool] = None
     enable_nuclei: Optional[bool] = None
+    enable_nse: Optional[bool] = None
+    enable_sslscan: Optional[bool] = None
     nuclei_severity: Optional[str] = None
     nuclei_templates: Optional[str] = None
     nuclei_timeout: Optional[int] = Field(None, ge=60, le=1800)
@@ -123,6 +127,7 @@ class ScanConfigResponse(ScanConfigBase):
     created_at: datetime
     updated_at: datetime
     is_default: bool
+    is_preset: bool = False  # System presets cannot be edited/deleted
 
     class Config:
         from_attributes = True

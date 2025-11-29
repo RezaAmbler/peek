@@ -38,11 +38,13 @@ class ScanConfig(Base):
 
     # Tool toggles
     enable_ssh_audit = Column(Boolean, default=True, nullable=False)
-    enable_nuclei = Column(Boolean, default=False, nullable=False)
+    enable_nuclei = Column(Boolean, default=True, nullable=False)
+    enable_nse = Column(Boolean, default=True, nullable=False)  # Nmap Scripting Engine
+    enable_sslscan = Column(Boolean, default=True, nullable=False)  # SSL/TLS scanner
     nuclei_severity = Column(String, default="critical,high,medium,low,info", nullable=False)
     nuclei_templates = Column(String, nullable=True)  # Path to custom templates
     nuclei_timeout = Column(Integer, default=300, nullable=False)
-    scan_mode = Column(String, default="fast", nullable=False)  # 'fast' (top-ports) or 'deep' (all ports)
+    scan_mode = Column(String, default="deep", nullable=False)  # 'fast' (top-ports) or 'deep' (all ports)
 
     # Web scanning options
     enable_nikto = Column(Boolean, default=False, nullable=False)
@@ -65,6 +67,7 @@ class ScanConfig(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     is_default = Column(Boolean, default=False, nullable=False)
+    is_preset = Column(Boolean, default=False, nullable=False)  # System presets cannot be edited/deleted
 
     # Relationships
     user = relationship("User", back_populates="scan_configs")

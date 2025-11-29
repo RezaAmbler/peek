@@ -12,7 +12,7 @@ from .models.organization import Organization
 from .models.scan_config import ScanConfig
 from .models.scan import Scan, ScanStatus
 from sqlalchemy import select, or_
-from .services.config_service import ensure_user_has_default_config
+from .services.config_service import ensure_user_has_default_config, seed_system_presets
 
 # OpenAPI tag descriptions for Swagger UI grouping
 OPENAPI_TAGS = [
@@ -130,6 +130,9 @@ async def create_default_admin():
 
         # Ensure admin has a default config
         await ensure_user_has_default_config(session, admin.id)
+
+        # Seed system presets (owned by admin, visible to all users)
+        await seed_system_presets(session, admin.id)
 
 app = FastAPI(
     title="PEEK V2 API",

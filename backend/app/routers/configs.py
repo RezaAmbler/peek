@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, or_
 from typing import Optional
 from ..database import get_db
 from ..models.scan_config import ScanConfig
@@ -32,8 +32,8 @@ async def get_config_by_id(
             detail="Configuration not found"
         )
 
-    # Authorization: owner or admin
-    if config.user_id != current_user.id and not current_user.is_admin:
+    # Authorization: owner, admin, OR preset (presets are readable by everyone)
+    if config.user_id != current_user.id and not current_user.is_admin and not config.is_preset:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to access this configuration"
@@ -47,7 +47,7 @@ async def list_configs(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """List all scan configurations for the current user."""
+    """List all scan configurations for the current user, plus system presets visible to everyone."""
     # Determine which user's configs to fetch
     if user_id:
         # Admin can view other users' configs
@@ -60,11 +60,16 @@ async def list_configs(
     else:
         target_user_id = current_user.id
 
-    # Fetch configs
+    # Fetch user's configs AND system presets (visible to all)
     result = await db.execute(
         select(ScanConfig)
-        .where(ScanConfig.user_id == target_user_id)
-        .order_by(ScanConfig.is_default.desc(), ScanConfig.created_at.desc())
+        .where(
+            or_(
+                ScanConfig.user_id == target_user_id,
+                ScanConfig.is_preset == True
+            )
+        )
+        .order_by(ScanConfig.is_preset.desc(), ScanConfig.is_default.desc(), ScanConfig.created_at.desc())
     )
     configs = result.scalars().all()
 
@@ -125,6 +130,13 @@ async def update_config(
     """Update an existing configuration"""
     config = await get_config_by_id(config_id, current_user, db)
 
+    # Preset protection: cannot modify system presets
+    if config.is_preset:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Preset configurations cannot be modified. Clone it to create your own."
+        )
+
     # Update fields
     update_data = config_data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
@@ -143,6 +155,13 @@ async def delete_config(
 ):
     """Delete a configuration"""
     config = await get_config_by_id(config_id, current_user, db)
+
+    # Preset protection: cannot delete system presets
+    if config.is_preset:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Preset configurations cannot be deleted."
+        )
 
     was_default = config.is_default
 
