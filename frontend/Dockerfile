@@ -6,6 +6,9 @@ COPY package*.json ./
 RUN npm install
 
 COPY . .
+
+# Set API URL to empty (paths already include /api prefix, nginx proxies to backend)
+ENV VITE_API_URL=
 RUN npm run build
 
 FROM nginx:alpine

@@ -5,6 +5,7 @@ import { comparisonsApi } from '../api/comparisons';
 import { formatDistanceToNow, format } from 'date-fns';
 import { SSHAuditCard } from '../components/SSHAuditCard';
 import { VulnerabilityCard } from '../components/VulnerabilityCard';
+import { ServiceIcon } from '../components/ServiceIcon';
 import { useState, Fragment, useMemo } from 'react';
 import { Menu, Transition } from '@headlessui/react';
 import { Navigation } from '../components/Navigation';
@@ -56,6 +57,24 @@ export function ScanDetail() {
 
   // State for host filter
   const [hostFilter, setHostFilter] = useState<string | null>(null);
+
+  // State for severity filter (all enabled by default)
+  const [activeSeverities, setActiveSeverities] = useState<Set<string>>(
+    new Set(['critical', 'high', 'medium', 'low'])
+  );
+
+  // Toggle severity filter
+  const toggleSeverity = (severity: string) => {
+    setActiveSeverities(prev => {
+      const next = new Set(prev);
+      if (next.has(severity)) {
+        next.delete(severity);
+      } else {
+        next.add(severity);
+      }
+      return next;
+    });
+  };
 
   const { data: scan, isLoading } = useQuery({
     queryKey: ['scan', scanId],
@@ -245,13 +264,24 @@ export function ScanDetail() {
     return { actualVulnerabilities: vulns, infoFindings: infos, vulnCounts: counts };
   }, [vulnerabilities]);
 
-  // Filter vulnerabilities and info findings by host
+  // Filter vulnerabilities by host AND severity
   const filteredVulnerabilities = useMemo(() => {
-    if (!hostFilter) return actualVulnerabilities;
-    return actualVulnerabilities.filter((v: { host?: string; matched_at?: string }) =>
-      v.host?.includes(hostFilter) || v.matched_at?.includes(hostFilter)
+    let filtered = actualVulnerabilities;
+
+    // Filter by host
+    if (hostFilter) {
+      filtered = filtered.filter((v: { host?: string; matched_at?: string }) =>
+        v.host?.includes(hostFilter) || v.matched_at?.includes(hostFilter)
+      );
+    }
+
+    // Filter by severity
+    filtered = filtered.filter((v: { severity?: string }) =>
+      activeSeverities.has(v.severity?.toLowerCase() || 'info')
     );
-  }, [actualVulnerabilities, hostFilter]);
+
+    return filtered;
+  }, [actualVulnerabilities, hostFilter, activeSeverities]);
 
   const filteredInfoFindings = useMemo(() => {
     if (!hostFilter) return infoFindings;
@@ -875,6 +905,7 @@ export function ScanDetail() {
                         )}
                       </div>
                     </th>
+                    <th className="w-10 px-2 py-3"></th>
                     <th
                       className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
                       onClick={() => handleSort('version')}
@@ -930,6 +961,15 @@ export function ScanDetail() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {port.service_name || <span className="text-gray-400">-</span>}
+                      </td>
+                      <td className="px-2 py-4 text-center">
+                        {port.service_name && (
+                          <ServiceIcon
+                            service={port.service_name}
+                            version={port.version}
+                            size={18}
+                          />
+                        )}
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-600 max-w-xs truncate" title={port.version || ''}>
                         {port.version || <span className="text-gray-400">-</span>}
@@ -1012,26 +1052,62 @@ export function ScanDetail() {
               )}
             </div>
             <div className="flex items-center gap-2">
-              {/* Severity badges */}
+              {/* Clickable severity filter badges */}
               {vulnCounts.critical > 0 && (
-                <span className="px-2 py-0.5 text-xs font-semibold rounded bg-red-700 text-white">
+                <button
+                  onClick={(e) => { e.stopPropagation(); toggleSeverity('critical'); }}
+                  className={`px-2 py-0.5 text-xs font-semibold rounded transition-all cursor-pointer ${
+                    activeSeverities.has('critical')
+                      ? 'bg-red-700 text-white'
+                      : 'bg-red-100 text-red-700 border border-red-300'
+                  }`}
+                  title={`${activeSeverities.has('critical') ? 'Hide' : 'Show'} critical vulnerabilities`}
+                  data-testid="filter-critical"
+                >
                   CRITICAL: {vulnCounts.critical}
-                </span>
+                </button>
               )}
               {vulnCounts.high > 0 && (
-                <span className="px-2 py-0.5 text-xs font-semibold rounded bg-orange-500 text-white">
+                <button
+                  onClick={(e) => { e.stopPropagation(); toggleSeverity('high'); }}
+                  className={`px-2 py-0.5 text-xs font-semibold rounded transition-all cursor-pointer ${
+                    activeSeverities.has('high')
+                      ? 'bg-orange-500 text-white'
+                      : 'bg-orange-100 text-orange-700 border border-orange-300'
+                  }`}
+                  title={`${activeSeverities.has('high') ? 'Hide' : 'Show'} high vulnerabilities`}
+                  data-testid="filter-high"
+                >
                   HIGH: {vulnCounts.high}
-                </span>
+                </button>
               )}
               {vulnCounts.medium > 0 && (
-                <span className="px-2 py-0.5 text-xs font-semibold rounded bg-yellow-500 text-white">
+                <button
+                  onClick={(e) => { e.stopPropagation(); toggleSeverity('medium'); }}
+                  className={`px-2 py-0.5 text-xs font-semibold rounded transition-all cursor-pointer ${
+                    activeSeverities.has('medium')
+                      ? 'bg-yellow-500 text-white'
+                      : 'bg-yellow-100 text-yellow-700 border border-yellow-300'
+                  }`}
+                  title={`${activeSeverities.has('medium') ? 'Hide' : 'Show'} medium vulnerabilities`}
+                  data-testid="filter-medium"
+                >
                   MEDIUM: {vulnCounts.medium}
-                </span>
+                </button>
               )}
               {vulnCounts.low > 0 && (
-                <span className="px-2 py-0.5 text-xs font-semibold rounded bg-blue-500 text-white">
+                <button
+                  onClick={(e) => { e.stopPropagation(); toggleSeverity('low'); }}
+                  className={`px-2 py-0.5 text-xs font-semibold rounded transition-all cursor-pointer ${
+                    activeSeverities.has('low')
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-blue-100 text-blue-700 border border-blue-300'
+                  }`}
+                  title={`${activeSeverities.has('low') ? 'Hide' : 'Show'} low vulnerabilities`}
+                  data-testid="filter-low"
+                >
                   LOW: {vulnCounts.low}
-                </span>
+                </button>
               )}
               <svg
                 className={`w-5 h-5 text-gray-500 transform transition-transform ${showVulnerabilities ? 'rotate-180' : ''}`}
@@ -1045,14 +1121,24 @@ export function ScanDetail() {
           </button>
           {showVulnerabilities && (
             <div className="p-6">
+              {/* Filter status indicator */}
+              {activeSeverities.size < 4 && actualVulnerabilities.length > 0 && (
+                <p className="text-sm text-gray-500 mb-4">
+                  Showing {filteredVulnerabilities.length} of {actualVulnerabilities.length} vulnerabilities
+                  {hostFilter && ' (filtered by host)'}
+                </p>
+              )}
               {filteredVulnerabilities.length > 0 ? (
                 <div className="space-y-4">
                   {filteredVulnerabilities.map((vuln: Vulnerability) => (
                     <VulnerabilityCard key={vuln.id} vulnerability={vuln} />
                   ))}
                 </div>
-              ) : actualVulnerabilities.length > 0 && hostFilter ? (
-                <p className="text-gray-500 text-center py-4">No vulnerabilities for selected host</p>
+              ) : actualVulnerabilities.length > 0 && (hostFilter || activeSeverities.size < 4) ? (
+                <p className="text-gray-500 text-center py-4">
+                  No vulnerabilities match current filters
+                  {activeSeverities.size < 4 && ' (click severity badges to adjust)'}
+                </p>
               ) : (
                 <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                   <div className="flex items-center">
