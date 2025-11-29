@@ -88,21 +88,19 @@ def run_nmap(
 
 def run_nmap_discovery(
     ip: str,
-    scan_top_ports: int = 1000,
     timing_template: str = "T4",
-    timeout: int = 300
+    timeout: int = 900
 ) -> Tuple[bool, str, Optional[str]]:
     """
-    Execute nmap for port discovery (replaces masscan for Docker environments).
+    Execute nmap for port discovery scanning ALL 65,535 ports.
 
-    This function scans the top N ports to discover open services.
-    It's more reliable than masscan in Docker environments.
+    This ensures no services are missed, regardless of what port they run on.
+    Full port scans take longer but provide complete coverage.
 
     Args:
         ip: Target IP address
-        scan_top_ports: Number of top ports to scan (default 1000)
         timing_template: Nmap timing (T1-T5, default T4 for fast)
-        timeout: Max execution time in seconds
+        timeout: Max execution time in seconds (default 900 = 15 minutes)
 
     Returns:
         (success: bool, raw_xml: str, error: Optional[str])
@@ -112,19 +110,19 @@ def run_nmap_discovery(
         output_path = Path(f.name)
 
     try:
-        # Build command for port discovery
+        # Build command for full port discovery
         # -Pn: Skip host discovery (assume host is up)
-        # -sT: TCP connect scan (works in Docker containers)
-        # --top-ports N: Scan top N most common ports
-        # OR -p-: Scan all 65535 ports (slower but complete)
+        # -sT: TCP connect scan (works in Docker containers without raw sockets)
+        # -p-: Scan ALL 65,535 ports
+        # --open: Only show open ports (reduces output noise)
         cmd = [
             'sudo',
             settings.NMAP_PATH or 'nmap',
             '-Pn',
             '-sT',
             f'-{timing_template}',
-            '--open',  # Only show open ports
-            f'--top-ports={scan_top_ports}',
+            '--open',
+            '-p-',  # ALL 65,535 ports
             '-oX', str(output_path),
             ip
         ]

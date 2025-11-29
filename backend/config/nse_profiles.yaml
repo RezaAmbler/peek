@@ -1,0 +1,258 @@
+# NSE Profiles Configuration
+# Maps service names/ports to NSE scripts for targeted security scanning
+#
+# Each profile defines:
+#   - scripts: List of NSE scripts to run
+#   - ports: Optional list of ports (if service detected on unexpected port)
+#   - protocol: tcp or udp (default: tcp)
+#   - timeout: Script timeout in seconds (default: 300)
+#   - description: Human-readable description
+
+# Global NSE settings
+settings:
+  default_timeout: 300
+  max_concurrent: 5
+  enabled: true
+
+# Service-based profiles (matched against nmap service detection)
+profiles:
+  # RDP - Remote Desktop Protocol
+  rdp:
+    description: "RDP security and encryption analysis"
+    services:
+      - ms-wbt-server
+      - rdp
+    ports:
+      - 3389
+    scripts:
+      - rdp-enum-encryption   # Check encryption levels (None, Low, High, FIPS)
+      - rdp-ntlm-info         # Extract NTLM info (hostname, domain, OS version)
+    timeout: 180
+
+  # SSH - Already handled by ssh-audit, but can add extra NSE scripts
+  ssh:
+    description: "SSH banner and key exchange info"
+    services:
+      - ssh
+    ports:
+      - 22
+      - 2222
+      - 830
+    scripts:
+      - ssh2-enum-algos      # Enumerate supported algorithms
+      - ssh-hostkey          # Show host key fingerprints
+    timeout: 60
+    # Note: ssh-audit is more comprehensive, these are supplemental
+
+  # NTP - Network Time Protocol
+  ntp:
+    description: "NTP service info and monlist amplification check"
+    services:
+      - ntp
+    ports:
+      - 123
+    protocol: udp
+    scripts:
+      - ntp-info            # Get NTP server info
+      - ntp-monlist         # Check for monlist amplification vulnerability
+    timeout: 60
+
+  # DNS - Domain Name System
+  dns:
+    description: "DNS server info and zone transfer check"
+    services:
+      - domain
+      - dns
+    ports:
+      - 53
+    protocol: udp
+    scripts:
+      - dns-nsid            # Get DNS server ID
+      - dns-service-discovery  # DNS-SD enumeration
+      - dns-recursion       # Check if recursion is enabled
+    timeout: 120
+
+  # SMTP - Simple Mail Transfer Protocol
+  smtp:
+    description: "SMTP security configuration"
+    services:
+      - smtp
+      - submission
+    ports:
+      - 25
+      - 587
+      - 465
+    scripts:
+      - smtp-commands       # List supported commands
+      - smtp-enum-users     # Check for user enumeration (VRFY, EXPN)
+    timeout: 120
+
+  # FTP - File Transfer Protocol
+  ftp:
+    description: "FTP security analysis"
+    services:
+      - ftp
+    ports:
+      - 21
+    scripts:
+      - ftp-anon            # Check for anonymous access
+      - ftp-bounce          # Check for FTP bounce attack
+      - ftp-syst            # Get system info
+    timeout: 60
+
+  # Telnet
+  telnet:
+    description: "Telnet service info"
+    services:
+      - telnet
+    ports:
+      - 23
+    scripts:
+      - telnet-encryption   # Check for encryption support
+      - telnet-ntlm-info    # Extract NTLM info if present
+    timeout: 60
+
+  # SMB - Server Message Block
+  smb:
+    description: "SMB/CIFS security analysis"
+    services:
+      - microsoft-ds
+      - netbios-ssn
+    ports:
+      - 445
+      - 139
+    scripts:
+      - smb-security-mode   # Check security mode (signing, etc.)
+      - smb-os-discovery    # OS detection via SMB
+      - smb2-security-mode  # SMB2 security settings
+    timeout: 180
+
+  # VNC - Virtual Network Computing
+  vnc:
+    description: "VNC authentication and security"
+    services:
+      - vnc
+    ports:
+      - 5900
+      - 5901
+      - 5902
+    scripts:
+      - vnc-info            # VNC server info
+    timeout: 60
+
+  # MySQL
+  mysql:
+    description: "MySQL server info"
+    services:
+      - mysql
+    ports:
+      - 3306
+    scripts:
+      - mysql-info          # Get MySQL version and capabilities
+      - mysql-enum          # Enumerate users (if auth bypass)
+    timeout: 60
+
+  # PostgreSQL
+  postgresql:
+    description: "PostgreSQL server info"
+    services:
+      - postgresql
+    ports:
+      - 5432
+    scripts:
+      - pgsql-brute         # Skip - brute force
+    timeout: 60
+
+  # MSSQL - Microsoft SQL Server
+  mssql:
+    description: "MSSQL server info and security"
+    services:
+      - ms-sql-s
+      - mssql
+    ports:
+      - 1433
+      - 1434
+    scripts:
+      - ms-sql-info         # MSSQL version and config
+      - ms-sql-ntlm-info    # NTLM info extraction
+    timeout: 120
+
+  # LDAP - Lightweight Directory Access Protocol
+  ldap:
+    description: "LDAP server info"
+    services:
+      - ldap
+      - ldaps
+    ports:
+      - 389
+      - 636
+    scripts:
+      - ldap-rootdse        # Get root DSE info
+    timeout: 60
+
+  # SNMP - Simple Network Management Protocol
+  snmp:
+    description: "SNMP info and community string check"
+    services:
+      - snmp
+    ports:
+      - 161
+    protocol: udp
+    scripts:
+      - snmp-info           # Get SNMP system info
+      - snmp-sysdescr       # System description
+    timeout: 120
+
+  # HTTP/HTTPS - Handled separately by nuclei, but include basic NSE
+  http:
+    description: "HTTP server info and security headers"
+    services:
+      - http
+      - http-alt
+    ports:
+      - 80
+      - 8080
+      - 8000
+      - 8008
+    scripts:
+      - http-server-header  # Server header extraction
+      - http-methods        # Allowed HTTP methods
+    timeout: 60
+
+  # HTTPS - SSL/TLS handled by sslscan
+  https:
+    description: "HTTPS server info"
+    services:
+      - https
+      - ssl/http
+    ports:
+      - 443
+      - 8443
+    scripts:
+      - http-server-header  # Server header extraction
+      - http-methods        # Allowed HTTP methods
+    timeout: 60
+    # Note: TLS analysis done by sslscan
+
+  # Redis
+  redis:
+    description: "Redis server info"
+    services:
+      - redis
+    ports:
+      - 6379
+    scripts:
+      - redis-info          # Redis server info and version
+    timeout: 60
+
+  # Memcached
+  memcached:
+    description: "Memcached info and stats"
+    services:
+      - memcached
+      - memcache
+    ports:
+      - 11211
+    scripts:
+      - memcached-info      # Memcached stats
+    timeout: 60

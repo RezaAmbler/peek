@@ -6,7 +6,7 @@ import csv
 import io
 import uuid
 from ..database import get_db
-from ..models import Scan, ScanTarget, ScanConfig, User, ScanStatus, Port, SSHAudit, Vulnerability
+from ..models import Scan, ScanTarget, ScanConfig, User, ScanStatus, Port, SSHAudit, Vulnerability, NseFinding, SslScanResult
 from ..schemas.scan import (
     ScanCreate,
     ScanCreateFromCSV,
@@ -632,6 +632,171 @@ async def get_scan_vulnerabilities(
             "extracted_results": vuln.extracted_results,
             "curl_command": vuln.curl_command,
             "timestamp": vuln.timestamp.isoformat()
+        })
+
+    return result_list
+
+
+@router.get("/{scan_id}/nse-findings", summary="Get NSE script findings")
+async def get_scan_nse_findings(
+    scan_id: str,
+    severity: Optional[str] = Query(None, description="Filter by severity: critical,high,medium,low,info (comma-separated)"),
+    script_id: Optional[str] = Query(None, description="Filter by script ID (e.g., rdp-enum-encryption)"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get all NSE script findings for a scan, sorted by severity."""
+    # Verify scan access
+    result = await db.execute(select(Scan).where(Scan.id == scan_id))
+    scan = result.scalar_one_or_none()
+
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    if scan.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Build query
+    query = (
+        select(NseFinding)
+        .join(Port, NseFinding.port_id == Port.id)
+        .join(ScanTarget, Port.scan_target_id == ScanTarget.id)
+        .where(ScanTarget.scan_id == scan_id)
+    )
+
+    # Filter by severity if provided
+    if severity:
+        severities = [s.strip() for s in severity.split(',')]
+        query = query.where(NseFinding.severity.in_(severities))
+
+    # Filter by script_id if provided
+    if script_id:
+        query = query.where(NseFinding.script_id == script_id)
+
+    findings_result = await db.execute(query)
+    findings = findings_result.scalars().all()
+
+    # Sort by severity
+    severity_order = {
+        'critical': 1,
+        'high': 2,
+        'medium': 3,
+        'low': 4,
+        'info': 5
+    }
+    sorted_findings = sorted(findings, key=lambda f: severity_order.get(f.severity, 99))
+
+    # Join with port and target info
+    result_list = []
+    for finding in sorted_findings:
+        port_result = await db.execute(
+            select(Port).where(Port.id == finding.port_id)
+        )
+        port = port_result.scalar_one()
+
+        target_result = await db.execute(
+            select(ScanTarget).where(ScanTarget.id == port.scan_target_id)
+        )
+        target = target_result.scalar_one()
+
+        result_list.append({
+            "id": str(finding.id),
+            "ip_address": target.ip_address,
+            "device_name": target.device_name,
+            "port": port.port,
+            "protocol": port.protocol,
+            "service_name": port.service_name,
+            "script_id": finding.script_id,
+            "profile_name": finding.profile_name,
+            "raw_output": finding.raw_output,
+            "elements": finding.elements,
+            "severity": finding.severity,
+            "error": finding.error
+        })
+
+    return result_list
+
+
+@router.get("/{scan_id}/sslscan-results", summary="Get SSL/TLS scan results")
+async def get_scan_sslscan_results(
+    scan_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get all SSL/TLS scan results for a scan, including protocol support, ciphers, and certificate info."""
+    # Verify scan access
+    result = await db.execute(select(Scan).where(Scan.id == scan_id))
+    scan = result.scalar_one_or_none()
+
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    if scan.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Get all sslscan results for this scan
+    query = (
+        select(SslScanResult)
+        .join(Port, SslScanResult.port_id == Port.id)
+        .join(ScanTarget, Port.scan_target_id == ScanTarget.id)
+        .where(ScanTarget.scan_id == scan_id)
+    )
+
+    results = await db.execute(query)
+    ssl_results = results.scalars().all()
+
+    # Join with port and target info
+    result_list = []
+    for ssl_result in ssl_results:
+        port_result = await db.execute(
+            select(Port).where(Port.id == ssl_result.port_id)
+        )
+        port = port_result.scalar_one()
+
+        target_result = await db.execute(
+            select(ScanTarget).where(ScanTarget.id == port.scan_target_id)
+        )
+        target = target_result.scalar_one()
+
+        result_list.append({
+            "id": str(ssl_result.id),
+            "ip_address": target.ip_address,
+            "device_name": target.device_name,
+            "port": port.port,
+            "protocol": port.protocol,
+            "service_name": port.service_name,
+            # Protocol support
+            "sslv2_enabled": ssl_result.sslv2_enabled,
+            "sslv3_enabled": ssl_result.sslv3_enabled,
+            "tlsv10_enabled": ssl_result.tlsv10_enabled,
+            "tlsv11_enabled": ssl_result.tlsv11_enabled,
+            "tlsv12_enabled": ssl_result.tlsv12_enabled,
+            "tlsv13_enabled": ssl_result.tlsv13_enabled,
+            # Security features
+            "fallback_scsv_supported": ssl_result.fallback_scsv_supported,
+            "secure_renegotiation": ssl_result.secure_renegotiation,
+            "compression_supported": ssl_result.compression_supported,
+            "heartbleed_vulnerable": ssl_result.heartbleed_vulnerable,
+            # Ciphers and key exchange
+            "ciphers": ssl_result.ciphers,
+            "key_exchange_groups": ssl_result.key_exchange_groups,
+            # Certificate info
+            "cert_subject": ssl_result.cert_subject,
+            "cert_issuer": ssl_result.cert_issuer,
+            "cert_altnames": ssl_result.cert_altnames,
+            "cert_not_before": ssl_result.cert_not_before,
+            "cert_not_after": ssl_result.cert_not_after,
+            "cert_expired": ssl_result.cert_expired,
+            "cert_self_signed": ssl_result.cert_self_signed,
+            "cert_signature_algorithm": ssl_result.cert_signature_algorithm,
+            "cert_key_type": ssl_result.cert_key_type,
+            "cert_key_bits": ssl_result.cert_key_bits,
+            # Analysis results
+            "findings": ssl_result.findings,
+            "grade": ssl_result.grade,
+            # Status
+            "connection_failed": ssl_result.connection_failed,
+            "failure_reason": ssl_result.failure_reason
         })
 
     return result_list

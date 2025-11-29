@@ -1,0 +1,438 @@
+{
+  "multicast": ["multicast-profinet-discovery.nse"]
+,
+  "ndmp": ["ndmp-fs-info.nse","ndmp-version.nse"]
+,
+  "bacnet": ["bacnet-info.nse"]
+,
+  "smb2": ["smb2-capabilities.nse","smb2-security-mode.nse","smb2-time.nse","smb2-vuln-uptime.nse"]
+,
+  "nexpose": ["nexpose-brute.nse"]
+,
+  "epmd": ["epmd-info.nse"]
+,
+  "https": ["https-redirect.nse"]
+,
+  "mrinfo.nse": ["mrinfo.nse"]
+,
+  "resolveall.nse": ["resolveall.nse"]
+,
+  "rusers.nse": ["rusers.nse"]
+,
+  "rfc868": ["rfc868-time.nse"]
+,
+  "hostmap": ["hostmap-bfk.nse","hostmap-crtsh.nse","hostmap-robtex.nse"]
+,
+  "distcc": ["distcc-cve2004-2687.nse"]
+,
+  "fcrdns.nse": ["fcrdns.nse"]
+,
+  "ajp": ["ajp-auth.nse","ajp-brute.nse","ajp-headers.nse","ajp-methods.nse","ajp-request.nse"]
+,
+  "ipidseq.nse": ["ipidseq.nse"]
+,
+  "rsa": ["rsa-vuln-roca.nse"]
+,
+  "allseeingeye": ["allseeingeye-info.nse"]
+,
+  "ntp": ["ntp-info.nse","ntp-monlist.nse"]
+,
+  "clamav": ["clamav-exec.nse"]
+,
+  "mcafee": ["mcafee-epo-agent.nse"]
+,
+  "s7": ["s7-info.nse"]
+,
+  "hddtemp": ["hddtemp-info.nse"]
+,
+  "smtp": ["smtp-brute.nse","smtp-commands.nse","smtp-enum-users.nse","smtp-ntlm-info.nse","smtp-open-relay.nse","smtp-strangeport.nse","smtp-vuln-cve2010-4344.nse","smtp-vuln-cve2011-1720.nse","smtp-vuln-cve2011-1764.nse"]
+,
+  "qscan.nse": ["qscan.nse"]
+,
+  "dhcp": ["dhcp-discover.nse"]
+,
+  "dns": ["dns-blacklist.nse","dns-brute.nse","dns-cache-snoop.nse","dns-check-zone.nse","dns-client-subnet-scan.nse","dns-fuzz.nse","dns-ip6-arpa-scan.nse","dns-nsec-enum.nse","dns-nsec3-enum.nse","dns-nsid.nse","dns-random-srcport.nse","dns-random-txid.nse","dns-recursion.nse","dns-service-discovery.nse","dns-srv-enum.nse","dns-update.nse","dns-zeustracker.nse","dns-zone-transfer.nse"]
+,
+  "weblogic": ["weblogic-t3-info.nse"]
+,
+  "pjl": ["pjl-ready-message.nse"]
+,
+  "mysql": ["mysql-audit.nse","mysql-brute.nse","mysql-databases.nse","mysql-dump-hashes.nse","mysql-empty-password.nse","mysql-enum.nse","mysql-info.nse","mysql-query.nse","mysql-users.nse","mysql-variables.nse","mysql-vuln-cve2012-2122.nse"]
+,
+  "nntp": ["nntp-ntlm-info.nse"]
+,
+  "backorifice": ["backorifice-brute.nse","backorifice-info.nse"]
+,
+  "teamspeak2": ["teamspeak2-version.nse"]
+,
+  "creds": ["creds-summary.nse"]
+,
+  "tor": ["tor-consensus-checker.nse"]
+,
+  "rlogin": ["rlogin-brute.nse"]
+,
+  "voldemort": ["voldemort-info.nse"]
+,
+  "nat": ["nat-pmp-info.nse","nat-pmp-mapport.nse"]
+,
+  "maxdb": ["maxdb-info.nse"]
+,
+  "mongodb": ["mongodb-brute.nse","mongodb-databases.nse","mongodb-info.nse"]
+,
+  "rexec": ["rexec-brute.nse"]
+,
+  "daap": ["daap-get-library.nse"]
+,
+  "rmi": ["rmi-dumpregistry.nse","rmi-vuln-classloader.nse"]
+,
+  "memcached": ["memcached-info.nse"]
+,
+  "domcon": ["domcon-brute.nse","domcon-cmd.nse"]
+,
+  "sslv2.nse": ["sslv2.nse"]
+,
+  "nbstat.nse": ["nbstat.nse"]
+,
+  "iax2": ["iax2-brute.nse","iax2-version.nse"]
+,
+  "finger.nse": ["finger.nse"]
+,
+  "wsdd": ["wsdd-discover.nse"]
+,
+  "rpcap": ["rpcap-brute.nse","rpcap-info.nse"]
+,
+  "ovs": ["ovs-agent-version.nse"]
+,
+  "dicom": ["dicom-brute.nse","dicom-ping.nse"]
+,
+  "profinet": ["profinet-cm-lookup.nse"]
+,
+  "openvas": ["openvas-otp-brute.nse"]
+,
+  "ldap": ["ldap-brute.nse","ldap-novell-getpass.nse","ldap-rootdse.nse","ldap-search.nse"]
+,
+  "nbd": ["nbd-info.nse"]
+,
+  "http": ["http-adobe-coldfusion-apsa1301.nse","http-affiliate-id.nse","http-apache-negotiation.nse","http-apache-server-status.nse","http-aspnet-debug.nse","http-auth-finder.nse","http-auth.nse","http-avaya-ipoffice-users.nse","http-awstatstotals-exec.nse","http-axis2-dir-traversal.nse","http-backup-finder.nse","http-barracuda-dir-traversal.nse","http-bigip-cookie.nse","http-brute.nse","http-cakephp-version.nse","http-chrono.nse","http-cisco-anyconnect.nse","http-coldfusion-subzero.nse","http-comments-displayer.nse","http-config-backup.nse","http-cookie-flags.nse","http-cors.nse","http-cross-domain-policy.nse","http-csrf.nse","http-date.nse","http-default-accounts.nse","http-devframework.nse","http-dlink-backdoor.nse","http-dombased-xss.nse","http-domino-enum-passwords.nse","http-drupal-enum-users.nse","http-drupal-enum.nse","http-enum.nse","http-errors.nse","http-exif-spider.nse","http-favicon.nse","http-feed.nse","http-fetch.nse","http-fileupload-exploiter.nse","http-form-brute.nse","http-form-fuzzer.nse","http-frontpage-login.nse","http-generator.nse","http-git.nse","http-gitweb-projects-enum.nse","http-google-malware.nse","http-grep.nse","http-headers.nse","http-hp-ilo-info.nse","http-huawei-hg5xx-vuln.nse","http-icloud-findmyiphone.nse","http-icloud-sendmsg.nse","http-iis-short-name-brute.nse","http-iis-webdav-vuln.nse","http-internal-ip-disclosure.nse","http-joomla-brute.nse","http-jsonp-detection.nse","http-litespeed-sourcecode-download.nse","http-ls.nse","http-majordomo2-dir-traversal.nse","http-malware-host.nse","http-mcmp.nse","http-method-tamper.nse","http-methods.nse","http-mobileversion-checker.nse","http-ntlm-info.nse","http-open-proxy.nse","http-open-redirect.nse","http-passwd.nse","http-php-version.nse","http-phpmyadmin-dir-traversal.nse","http-phpself-xss.nse","http-proxy-brute.nse","http-put.nse","http-qnap-nas-info.nse","http-referer-checker.nse","http-rfi-spider.nse","http-robots.txt.nse","http-robtex-reverse-ip.nse","http-robtex-shared-ns.nse","http-sap-netweaver-leak.nse","http-security-headers.nse","http-server-header.nse","http-shellshock.nse","http-sitemap-generator.nse","http-slowloris-check.nse","http-slowloris.nse","http-sql-injection.nse","http-stored-xss.nse","http-svn-enum.nse","http-svn-info.nse","http-title.nse","http-tplink-dir-traversal.nse","http-trace.nse","http-traceroute.nse","http-trane-info.nse","http-unsafe-output-escaping.nse","http-useragent-tester.nse","http-userdir-enum.nse","http-vhosts.nse","http-virustotal.nse","http-vlcstreamer-ls.nse","http-vmware-path-vuln.nse","http-vuln-cve2006-3392.nse","http-vuln-cve2009-3960.nse","http-vuln-cve2010-0738.nse","http-vuln-cve2010-2861.nse","http-vuln-cve2011-3192.nse","http-vuln-cve2011-3368.nse","http-vuln-cve2012-1823.nse","http-vuln-cve2013-0156.nse","http-vuln-cve2013-6786.nse","http-vuln-cve2013-7091.nse","http-vuln-cve2014-2126.nse","http-vuln-cve2014-2127.nse","http-vuln-cve2014-2128.nse","http-vuln-cve2014-2129.nse","http-vuln-cve2014-3704.nse","http-vuln-cve2014-8877.nse","http-vuln-cve2015-1427.nse","http-vuln-cve2015-1635.nse","http-vuln-cve2017-1001000.nse","http-vuln-cve2017-5638.nse","http-vuln-cve2017-5689.nse","http-vuln-cve2017-8917.nse","http-vuln-misfortune-cookie.nse","http-vuln-wnr1000-creds.nse","http-waf-detect.nse","http-waf-fingerprint.nse","http-webdav-scan.nse","http-wordpress-brute.nse","http-wordpress-enum.nse","http-wordpress-users.nse","http-xssed.nse"]
+,
+  "dpap": ["dpap-brute.nse"]
+,
+  "drda": ["drda-brute.nse","drda-info.nse"]
+,
+  "address": ["address-info.nse"]
+,
+  "xmpp": ["xmpp-brute.nse","xmpp-info.nse"]
+,
+  "realvnc": ["realvnc-auth-bypass.nse"]
+,
+  "nessus": ["nessus-brute.nse","nessus-xmlrpc-brute.nse"]
+,
+  "banner.nse": ["banner.nse"]
+,
+  "bitcoin": ["bitcoin-getaddr.nse","bitcoin-info.nse"]
+,
+  "clock": ["clock-skew.nse"]
+,
+  "unusual": ["unusual-port.nse"]
+,
+  "vuze": ["vuze-dht-info.nse"]
+,
+  "hartip": ["hartip-info.nse"]
+,
+  "bittorrent": ["bittorrent-discovery.nse"]
+,
+  "traceroute": ["traceroute-geolocation.nse"]
+,
+  "fingerprint": ["fingerprint-strings.nse"]
+,
+  "xmlrpc": ["xmlrpc-methods.nse"]
+,
+  "membase": ["membase-brute.nse","membase-http-info.nse"]
+,
+  "auth": ["auth-owners.nse","auth-spoof.nse"]
+,
+  "firewall": ["firewall-bypass.nse"]
+,
+  "lu": ["lu-enum.nse"]
+,
+  "oracle": ["oracle-brute-stealth.nse","oracle-brute.nse","oracle-enum-users.nse","oracle-sid-brute.nse","oracle-tns-version.nse"]
+,
+  "ventrilo": ["ventrilo-info.nse"]
+,
+  "omp2": ["omp2-brute.nse","omp2-enum-targets.nse"]
+,
+  "broadcast": ["broadcast-ataoe-discover.nse","broadcast-avahi-dos.nse","broadcast-bjnp-discover.nse","broadcast-db2-discover.nse","broadcast-dhcp-discover.nse","broadcast-dhcp6-discover.nse","broadcast-dns-service-discovery.nse","broadcast-dropbox-listener.nse","broadcast-eigrp-discovery.nse","broadcast-hid-discoveryd.nse","broadcast-igmp-discovery.nse","broadcast-jenkins-discover.nse","broadcast-listener.nse","broadcast-ms-sql-discover.nse","broadcast-netbios-master-browser.nse","broadcast-networker-discover.nse","broadcast-novell-locate.nse","broadcast-ospf2-discover.nse","broadcast-pc-anywhere.nse","broadcast-pc-duo.nse","broadcast-pim-discovery.nse","broadcast-ping.nse","broadcast-pppoe-discover.nse","broadcast-rip-discover.nse","broadcast-ripng-discover.nse","broadcast-sonicwall-discover.nse","broadcast-sybase-asa-discover.nse","broadcast-tellstick-discover.nse","broadcast-upnp-info.nse","broadcast-versant-locate.nse","broadcast-wake-on-lan.nse","broadcast-wpad-discover.nse","broadcast-wsdd-discover.nse","broadcast-xdmcp-discover.nse"]
+,
+  "mikrotik": ["mikrotik-routeros-brute.nse","mikrotik-routeros-username-brute.nse","mikrotik-routeros-version.nse"]
+,
+  "sniffer": ["sniffer-detect.nse"]
+,
+  "url": ["url-snarf.nse"]
+,
+  "msrpc": ["msrpc-enum.nse"]
+,
+  "iscsi": ["iscsi-brute.nse","iscsi-info.nse"]
+,
+  "murmur": ["murmur-version.nse"]
+,
+  "deluge": ["deluge-rpc-brute.nse"]
+,
+  "informix": ["informix-brute.nse","informix-query.nse","informix-tables.nse"]
+,
+  "sip": ["sip-brute.nse","sip-call-spoof.nse","sip-enum-users.nse","sip-methods.nse"]
+,
+  "krb5": ["krb5-enum-users.nse"]
+,
+  "svn": ["svn-brute.nse"]
+,
+  "ubiquiti": ["ubiquiti-discovery.nse"]
+,
+  "tftp": ["tftp-enum.nse","tftp-version.nse"]
+,
+  "socks": ["socks-auth-info.nse","socks-brute.nse","socks-open-proxy.nse"]
+,
+  "flume": ["flume-master-info.nse"]
+,
+  "x11": ["x11-access.nse"]
+,
+  "ncp": ["ncp-enum-users.nse","ncp-serverinfo.nse"]
+,
+  "afp": ["afp-brute.nse","afp-ls.nse","afp-path-vuln.nse","afp-serverinfo.nse","afp-showmount.nse"]
+,
+  "amqp": ["amqp-info.nse"]
+,
+  "asn": ["asn-query.nse"]
+,
+  "sshv1.nse": ["sshv1.nse"]
+,
+  "hnap": ["hnap-info.nse"]
+,
+  "p2p": ["p2p-conficker.nse"]
+,
+  "ms": ["ms-sql-brute.nse","ms-sql-config.nse","ms-sql-dac.nse","ms-sql-dump-hashes.nse","ms-sql-empty-password.nse","ms-sql-hasdbaccess.nse","ms-sql-info.nse","ms-sql-ntlm-info.nse","ms-sql-query.nse","ms-sql-tables.nse","ms-sql-xp-cmdshell.nse"]
+,
+  "eppc": ["eppc-enum-processes.nse"]
+,
+  "isns": ["isns-info.nse"]
+,
+  "nje": ["nje-node-brute.nse","nje-pass-brute.nse"]
+,
+  "ganglia": ["ganglia-info.nse"]
+,
+  "coap": ["coap-resources.nse"]
+,
+  "freelancer": ["freelancer-info.nse"]
+,
+  "vmauthd": ["vmauthd-brute.nse"]
+,
+  "upnp": ["upnp-info.nse"]
+,
+  "pcanywhere": ["pcanywhere-brute.nse"]
+,
+  "whois": ["whois-domain.nse","whois-ip.nse"]
+,
+  "cassandra": ["cassandra-brute.nse","cassandra-info.nse"]
+,
+  "bjnp": ["bjnp-discover.nse"]
+,
+  "vnc": ["vnc-brute.nse","vnc-info.nse","vnc-title.nse"]
+,
+  "netbus": ["netbus-auth-bypass.nse","netbus-brute.nse","netbus-info.nse","netbus-version.nse"]
+,
+  "path": ["path-mtu.nse"]
+,
+  "modbus": ["modbus-discover.nse"]
+,
+  "versant": ["versant-info.nse"]
+,
+  "cvs": ["cvs-brute-repository.nse","cvs-brute.nse"]
+,
+  "docker": ["docker-version.nse"]
+,
+  "lltd": ["lltd-discovery.nse"]
+,
+  "port": ["port-states.nse"]
+,
+  "nbns": ["nbns-interfaces.nse"]
+,
+  "icap": ["icap-info.nse"]
+,
+  "duplicates.nse": ["duplicates.nse"]
+,
+  "gkrellm": ["gkrellm-info.nse"]
+,
+  "impress": ["impress-remote-discover.nse"]
+,
+  "openflow": ["openflow-info.nse"]
+,
+  "nping": ["nping-brute.nse"]
+,
+  "telnet": ["telnet-brute.nse","telnet-encryption.nse","telnet-ntlm-info.nse"]
+,
+  "ike": ["ike-version.nse"]
+,
+  "imap": ["imap-brute.nse","imap-capabilities.nse","imap-ntlm-info.nse"]
+,
+  "mqtt": ["mqtt-subscribe.nse"]
+,
+  "rpc": ["rpc-grind.nse"]
+,
+  "samba": ["samba-vuln-cve-2012-1182.nse"]
+,
+  "rtsp": ["rtsp-methods.nse","rtsp-url-brute.nse"]
+,
+  "vtam": ["vtam-enum.nse"]
+,
+  "ftp": ["ftp-anon.nse","ftp-bounce.nse","ftp-brute.nse","ftp-libopie.nse","ftp-proftpd-backdoor.nse","ftp-syst.nse","ftp-vsftpd-backdoor.nse","ftp-vuln-cve2010-4221.nse"]
+,
+  "giop": ["giop-info.nse"]
+,
+  "pptp": ["pptp-version.nse"]
+,
+  "cups": ["cups-info.nse","cups-queue-info.nse"]
+,
+  "vulners.nse": ["vulners.nse"]
+,
+  "iec": ["iec-identify.nse"]
+,
+  "nrpe": ["nrpe-enum.nse"]
+,
+  "irc": ["irc-botnet-channels.nse","irc-brute.nse","irc-info.nse","irc-sasl-brute.nse","irc-unrealircd-backdoor.nse"]
+,
+  "tls": ["tls-alpn.nse","tls-nextprotoneg.nse","tls-ticketbleed.nse"]
+,
+  "citrix": ["citrix-brute-xml.nse","citrix-enum-apps-xml.nse","citrix-enum-apps.nse","citrix-enum-servers-xml.nse","citrix-enum-servers.nse"]
+,
+  "puppet": ["puppet-naivesigning.nse"]
+,
+  "rpcinfo.nse": ["rpcinfo.nse"]
+,
+  "cccam": ["cccam-version.nse"]
+,
+  "supermicro": ["supermicro-ipmi-conf.nse"]
+,
+  "pcworx": ["pcworx-info.nse"]
+,
+  "openwebnet": ["openwebnet-discovery.nse"]
+,
+  "jdwp": ["jdwp-exec.nse","jdwp-info.nse","jdwp-inject.nse","jdwp-version.nse"]
+,
+  "rsync": ["rsync-brute.nse","rsync-list-modules.nse"]
+,
+  "xdmcp": ["xdmcp-discover.nse"]
+,
+  "pgsql": ["pgsql-brute.nse"]
+,
+  "bitcoinrpc": ["bitcoinrpc-info.nse"]
+,
+  "tso": ["tso-brute.nse","tso-enum.nse"]
+,
+  "servicetags.nse": ["servicetags.nse"]
+,
+  "mmouse": ["mmouse-brute.nse","mmouse-exec.nse"]
+,
+  "ssh2": ["ssh2-enum-algos.nse"]
+,
+  "quake1": ["quake1-info.nse"]
+,
+  "redis": ["redis-brute.nse","redis-info.nse"]
+,
+  "omron": ["omron-info.nse"]
+,
+  "quake3": ["quake3-info.nse","quake3-master-getservers.nse"]
+,
+  "wdb": ["wdb-version.nse"]
+,
+  "knx": ["knx-gateway-discover.nse","knx-gateway-info.nse"]
+,
+  "uptime": ["uptime-agent-info.nse"]
+,
+  "stuxnet": ["stuxnet-detect.nse"]
+,
+  "iec61850": ["iec61850-mms.nse"]
+,
+  "gopher": ["gopher-ls.nse"]
+,
+  "hadoop": ["hadoop-datanode-info.nse","hadoop-jobtracker-info.nse","hadoop-namenode-info.nse","hadoop-secondary-namenode-info.nse","hadoop-tasktracker-info.nse"]
+,
+  "snmp": ["snmp-brute.nse","snmp-hh3c-logins.nse","snmp-info.nse","snmp-interfaces.nse","snmp-ios-config.nse","snmp-netstat.nse","snmp-processes.nse","snmp-sysdescr.nse","snmp-win32-services.nse","snmp-win32-shares.nse","snmp-win32-software.nse","snmp-win32-users.nse"]
+,
+  "rdp": ["rdp-enum-encryption.nse","rdp-ntlm-info.nse","rdp-vuln-ms12-020.nse"]
+,
+  "shodan": ["shodan-api.nse"]
+,
+  "ip": ["ip-forwarding.nse","ip-geolocation-geoplugin.nse","ip-geolocation-ipinfodb.nse","ip-geolocation-map-bing.nse","ip-geolocation-map-google.nse","ip-geolocation-map-kml.nse","ip-geolocation-maxmind.nse","ip-https-discover.nse"]
+,
+  "enip": ["enip-info.nse"]
+,
+  "firewalk.nse": ["firewalk.nse"]
+,
+  "llmnr": ["llmnr-resolve.nse"]
+,
+  "tn3270": ["tn3270-screen.nse"]
+,
+  "skypev2": ["skypev2-version.nse"]
+,
+  "reverse": ["reverse-index.nse"]
+,
+  "gpsd": ["gpsd-info.nse"]
+,
+  "ipmi": ["ipmi-brute.nse","ipmi-cipher-zero.nse","ipmi-version.nse"]
+,
+  "acarsd": ["acarsd-info.nse"]
+,
+  "couchdb": ["couchdb-databases.nse","couchdb-stats.nse"]
+,
+  "qconn": ["qconn-exec.nse"]
+,
+  "sslv2": ["sslv2-drown.nse"]
+,
+  "domino": ["domino-enum-users.nse"]
+,
+  "metasploit": ["metasploit-info.nse","metasploit-msgrpc-brute.nse","metasploit-xmlrpc-brute.nse"]
+,
+  "targets": ["targets-asn.nse","targets-ipv6-eui64.nse","targets-ipv6-map4to6.nse","targets-ipv6-multicast-echo.nse","targets-ipv6-multicast-invalid-dst.nse","targets-ipv6-multicast-mld.nse","targets-ipv6-multicast-slaac.nse","targets-ipv6-wordlist.nse","targets-sniffer.nse","targets-traceroute.nse","targets-xml.nse"]
+,
+  "stun": ["stun-info.nse","stun-version.nse"]
+,
+  "mtrace.nse": ["mtrace.nse"]
+,
+  "eap": ["eap-info.nse"]
+,
+  "fox": ["fox-info.nse"]
+,
+  "ssh": ["ssh-auth-methods.nse","ssh-brute.nse","ssh-hostkey.nse","ssh-publickey-acceptance.nse","ssh-run.nse"]
+,
+  "hbase": ["hbase-master-info.nse","hbase-region-info.nse"]
+,
+  "pop3": ["pop3-brute.nse","pop3-capabilities.nse","pop3-ntlm-info.nse"]
+,
+  "nfs": ["nfs-ls.nse","nfs-showmount.nse","nfs-statfs.nse"]
+,
+  "daytime.nse": ["daytime.nse"]
+,
+  "vmware": ["vmware-version.nse"]
+,
+  "sstp": ["sstp-discover.nse"]
+,
+  "ssl": ["ssl-ccs-injection.nse","ssl-cert-intaddr.nse","ssl-cert.nse","ssl-date.nse","ssl-dh-params.nse","ssl-enum-ciphers.nse","ssl-heartbleed.nse","ssl-known-key.nse","ssl-poodle.nse"]
+,
+  "openlookup": ["openlookup-info.nse"]
+,
+  "db2": ["db2-das-info.nse"]
+,
+  "lexmark": ["lexmark-config.nse"]
+,
+  "dict": ["dict-info.nse"]
+,
+  "unittest.nse": ["unittest.nse"]
+,
+  "smb": ["smb-brute.nse","smb-double-pulsar-backdoor.nse","smb-enum-domains.nse","smb-enum-groups.nse","smb-enum-processes.nse","smb-enum-services.nse","smb-enum-sessions.nse","smb-enum-shares.nse","smb-enum-users.nse","smb-flood.nse","smb-ls.nse","smb-mbenum.nse","smb-os-discovery.nse","smb-print-text.nse","smb-protocols.nse","smb-psexec.nse","smb-security-mode.nse","smb-server-stats.nse","smb-system-info.nse","smb-vuln-conficker.nse","smb-vuln-cve-2017-7494.nse","smb-vuln-cve2009-3103.nse","smb-vuln-ms06-025.nse","smb-vuln-ms07-029.nse","smb-vuln-ms08-067.nse","smb-vuln-ms10-054.nse","smb-vuln-ms10-061.nse","smb-vuln-ms17-010.nse","smb-vuln-regsvc-dos.nse","smb-vuln-webexec.nse","smb-webexec-exploit.nse"]
+,
+  "riak": ["riak-http-info.nse"]
+,
+  "cics": ["cics-enum.nse","cics-info.nse","cics-user-brute.nse","cics-user-enum.nse"]
+,
+  "ipv6": ["ipv6-multicast-mld-list.nse","ipv6-node-info.nse","ipv6-ra-flood.nse"]
+
+}

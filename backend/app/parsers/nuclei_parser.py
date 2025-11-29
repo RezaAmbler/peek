@@ -31,8 +31,21 @@ def create_vulnerabilities_from_nuclei(
 
         # Create Vulnerability records
         created_vulns = []
+        seen_keys = set()  # Track seen combinations within this batch
         for vuln_data in vulns_data:
-            # Check if vulnerability already exists (prevent duplicates)
+            # Create a unique key for this vulnerability
+            vuln_key = (
+                vuln_data['template_id'],
+                vuln_data['port'],
+                vuln_data['matched_at']
+            )
+
+            # Skip if we've already seen this combination in this batch
+            if vuln_key in seen_keys:
+                continue
+            seen_keys.add(vuln_key)
+
+            # Check if vulnerability already exists in database (prevent duplicates)
             existing = db.query(Vulnerability).filter(
                 Vulnerability.scan_target_id == str(target.id),
                 Vulnerability.template_id == vuln_data['template_id'],

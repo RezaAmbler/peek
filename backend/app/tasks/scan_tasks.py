@@ -15,6 +15,12 @@ from ..parsers.nmap_parser import update_ports_from_nmap
 from ..parsers.ssh_audit_parser import create_ssh_audit_from_output
 from ..parsers.nuclei_parser import create_vulnerabilities_from_nuclei
 from ..services.service_profile import get_nuclei_profile, build_nuclei_target, get_excluded_templates, validate_tags
+from ..core.debug import save_nmap_debug, save_nuclei_debug, save_ssh_audit_debug
+from ..tools.nmap_nse import run_nmap_nse, parse_nse_output, determine_nse_severity
+from ..tools.sslscan import run_sslscan, parse_sslscan_output, analyze_ssl_security, calculate_ssl_grade
+from ..services.nse_profile import get_nse_profile_service
+from ..models.nse_finding import NseFinding
+from ..models.sslscan_result import SslScanResult
 from sqlalchemy import select
 import uuid
 import logging
@@ -92,12 +98,22 @@ def run_scan(self, scan_id: str):
                 self.update_state(state='PROGRESS', meta={'phase': 'ssh-audit', 'progress': 0.8})
                 run_ssh_audit_phase(db, scan, targets, config)
 
-            # Phase 4: Nuclei (90% -> 100%)
+            # Phase 4: Nuclei (85% -> 90%)
             if config.enable_nuclei:
                 scan.current_phase = ScanPhase.NUCLEI.value
                 db.commit()
-                self.update_state(state='PROGRESS', meta={'phase': 'nuclei', 'progress': 0.9})
+                self.update_state(state='PROGRESS', meta={'phase': 'nuclei', 'progress': 0.85})
                 run_nuclei_phase(db, scan, targets, config)
+
+            # Phase 5: NSE Scripts (90% -> 95%)
+            # NSE runs after nmap service detection to get detailed service info
+            self.update_state(state='PROGRESS', meta={'phase': 'nse', 'progress': 0.9})
+            run_nse_phase(db, scan, targets, config)
+
+            # Phase 6: sslscan (95% -> 100%)
+            # sslscan runs on SSL/TLS ports for TLS posture analysis
+            self.update_state(state='PROGRESS', meta={'phase': 'sslscan', 'progress': 0.95})
+            run_sslscan_phase(db, scan, targets, config)
 
             # Mark scan as completed
             scan.status = ScanStatus.COMPLETED.value
@@ -185,13 +201,22 @@ def scan_target_with_nmap_discovery(db, target: ScanTarget, config):
     db.add(tool_exec)
     db.commit()
 
-    # Use nmap discovery with top 1000 ports (covers most common services)
-    # This is more reliable in Docker than masscan's full port scan
+    # Use nmap discovery with full port scan (-p-)
+    # This scans ALL 65,535 ports to ensure no services are missed
     success, raw_xml, error = run_nmap_discovery(
         ip=target.ip_address,
-        scan_top_ports=1000,  # Top 1000 most common ports
         timing_template="T4",  # Fast timing
-        timeout=timeout
+        timeout=900  # 15 minutes for full port scan
+    )
+
+    # Save debug output (only when DEBUG=True)
+    # Get scan_id from target's relationship
+    scan_id = target.scan_id if hasattr(target, 'scan_id') else None
+    save_nmap_debug(
+        target=target.ip_address,
+        raw_xml=raw_xml,
+        scan_id=str(scan_id) if scan_id else None,
+        phase="discovery"
     )
 
     tool_exec.finished_at = datetime.utcnow()
@@ -561,6 +586,15 @@ def scan_target_with_nmap(db, target: ScanTarget, config):
         timeout=timeout
     )
 
+    # Save debug output (only when DEBUG=True)
+    scan_id = target.scan_id if hasattr(target, 'scan_id') else None
+    save_nmap_debug(
+        target=target.ip_address,
+        raw_xml=raw_xml,
+        scan_id=str(scan_id) if scan_id else None,
+        phase="service"
+    )
+
     tool_exec.finished_at = datetime.utcnow()
     tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
     tool_exec.raw_output = raw_xml
@@ -629,6 +663,14 @@ def run_ssh_audit_phase(db, scan: Scan, targets: List[ScanTarget], config):
             ip=target.ip_address,
             port=port_record.port,
             timeout=timeout
+        )
+
+        # Save debug output (only when DEBUG=True)
+        save_ssh_audit_debug(
+            target=target.ip_address,
+            raw_json=raw_json,
+            scan_id=str(scan.id),
+            port=port_record.port
         )
 
         # Update tool execution
@@ -777,21 +819,40 @@ def run_nuclei_phase(db, scan: Scan, targets: List[ScanTarget], config):
                 exclude_templates=excluded_templates
             )
 
+            # Save debug output (only when DEBUG=True)
+            save_nuclei_debug(
+                target=ip,
+                raw_jsonl=raw_jsonl,
+                scan_id=str(scan.id),
+                port=port
+            )
+
             # Update tool execution
             tool_exec.finished_at = datetime.utcnow()
             tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
-            tool_exec.raw_output = raw_jsonl[:50000] if raw_jsonl else None
             tool_exec.raw_format = "jsonl"
             tool_exec.error_message = error
             tool_exec.exit_code = 0 if success else 1
 
             if success:
+                # IMPORTANT: Set full raw_output BEFORE parsing, then truncate AFTER
+                # Parser reads from tool_exec.raw_output, so we need full data first
+                tool_exec.raw_output = raw_jsonl if raw_jsonl else None
+
                 # Parse and create Vulnerability records (pass port_rec for direct linking)
                 vulns = create_vulnerabilities_from_nuclei(db, tool_exec, target, port_rec)
                 vulns_found += len(vulns)
 
+                # Log observability info
+                logger.info(f"Nuclei output: {len(raw_jsonl) if raw_jsonl else 0} bytes, parsed {len(vulns)} vulnerabilities for {nuclei_target}")
+
+                # Now truncate for storage (parsing already complete on full data)
+                tool_exec.raw_output = raw_jsonl[:50000] if raw_jsonl else None
+
                 # Update scan vulnerability count
                 scan.total_vulnerabilities += len(vulns)
+            else:
+                tool_exec.raw_output = raw_jsonl[:50000] if raw_jsonl else None
 
             db.commit()
             scanned += 1
@@ -811,3 +872,300 @@ def run_nuclei_phase(db, scan: Scan, targets: List[ScanTarget], config):
         db.commit()
 
     logger.info(f"Nuclei complete: {scanned} scanned, {skipped} skipped, {vulns_found} vulnerabilities found")
+
+
+def run_nse_phase(db, scan: Scan, targets: List[ScanTarget], config):
+    """
+    Run NSE (Nmap Scripting Engine) scripts on discovered services.
+
+    NSE scripts provide detailed security analysis for specific services
+    like RDP encryption level, NTP monlist vulnerability, etc.
+    """
+    logger.info(f"Starting NSE phase for scan {scan.id}")
+
+    nse_service = get_nse_profile_service()
+    if not nse_service.is_enabled():
+        logger.info("NSE scanning is disabled in configuration")
+        return
+
+    # Get all open ports with their service info
+    all_ports = db.query(Port).join(ScanTarget).filter(
+        ScanTarget.scan_id == str(scan.id),
+        Port.state == 'open'
+    ).all()
+
+    if not all_ports:
+        logger.info("No open ports for NSE scanning")
+        return
+
+    # Build list of ports with their services for profile matching
+    ports_info = []
+    for port in all_ports:
+        ports_info.append({
+            'port': port.port,
+            'protocol': port.protocol,
+            'service_name': port.service_name,
+            'port_record': port
+        })
+
+    # Get ports that have matching NSE profiles
+    ports_with_nse = nse_service.get_ports_for_nse(ports_info)
+
+    if not ports_with_nse:
+        logger.info("No services matched NSE profiles")
+        return
+
+    logger.info(f"NSE: {len(ports_with_nse)} ports matched profiles from {len(all_ports)} total")
+
+    total = len(ports_with_nse)
+    completed = 0
+    findings_total = 0
+
+    for port_info in ports_with_nse:
+        port_record = port_info['port_record']
+        scripts = port_info['scripts']
+        profile_name = port_info['profile']
+        timeout = port_info.get('timeout', 300)
+
+        # Get target for this port
+        target = db.query(ScanTarget).filter(
+            ScanTarget.id == port_record.scan_target_id
+        ).first()
+
+        if not target:
+            completed += 1
+            continue
+
+        ip = target.ip_address
+        port = port_record.port
+        protocol = port_record.protocol
+
+        logger.info(f"NSE: Running {len(scripts)} scripts on {ip}:{port} (profile: {profile_name})")
+
+        # Create tool execution record
+        tool_exec = ToolExecution(
+            id=str(uuid.uuid4()),
+            scan_target_id=str(target.id),
+            port_id=str(port_record.id),
+            tool_name="nmap-nse",
+            command_line=f"nmap -p{port} --script={','.join(scripts)} {ip}",
+            started_at=datetime.utcnow()
+        )
+        db.add(tool_exec)
+        db.flush()
+
+        try:
+            # Run NSE scripts
+            success, raw_xml, error = run_nmap_nse(
+                ip=ip,
+                port=port,
+                scripts=scripts,
+                protocol=protocol,
+                timeout=timeout
+            )
+
+            tool_exec.finished_at = datetime.utcnow()
+            tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
+            tool_exec.raw_output = raw_xml[:50000] if raw_xml else None
+            tool_exec.raw_format = "xml"
+            tool_exec.error_message = error
+            tool_exec.exit_code = 0 if success else 1
+
+            if success and raw_xml:
+                # Parse NSE output
+                try:
+                    findings = parse_nse_output(raw_xml)
+                    for finding in findings:
+                        severity = determine_nse_severity(
+                            finding['script_id'],
+                            finding['output'],
+                            finding['elements']
+                        )
+
+                        nse_finding = NseFinding(
+                            id=str(uuid.uuid4()),
+                            port_id=str(port_record.id),
+                            tool_execution_id=str(tool_exec.id),
+                            script_id=finding['script_id'],
+                            profile_name=profile_name,
+                            raw_output=finding['output'],
+                            elements=finding['elements'],
+                            severity=severity
+                        )
+                        db.add(nse_finding)
+                        findings_total += 1
+
+                except Exception as parse_error:
+                    logger.error(f"NSE parse error for {ip}:{port}: {parse_error}")
+                    tool_exec.error_message = f"Parse error: {parse_error}"
+
+            db.commit()
+
+        except Exception as e:
+            logger.error(f"NSE error for {ip}:{port}: {e}")
+            tool_exec.finished_at = datetime.utcnow()
+            tool_exec.error_message = str(e)
+            tool_exec.exit_code = 1
+            db.commit()
+
+        completed += 1
+
+    logger.info(f"NSE complete: {completed} ports scanned, {findings_total} findings")
+
+
+def run_sslscan_phase(db, scan: Scan, targets: List[ScanTarget], config):
+    """
+    Run sslscan on discovered SSL/TLS services.
+
+    Analyzes TLS configuration, cipher suites, certificate details,
+    and known vulnerabilities like Heartbleed.
+    """
+    logger.info(f"Starting sslscan phase for scan {scan.id}")
+
+    # Ports that typically use SSL/TLS
+    ssl_ports = [443, 8443, 993, 995, 465, 636, 990, 989, 4443, 9443]
+    ssl_services = ['https', 'ssl/http', 'imaps', 'pop3s', 'smtps', 'ldaps', 'ftps']
+
+    # Get ports that might have SSL/TLS
+    ssl_port_records = db.query(Port).join(ScanTarget).filter(
+        ScanTarget.scan_id == str(scan.id),
+        Port.state == 'open'
+    ).filter(
+        # Port number match OR service name match
+        (Port.port.in_(ssl_ports)) |
+        (Port.service_name.in_(ssl_services))
+    ).all()
+
+    if not ssl_port_records:
+        logger.info("No SSL/TLS ports found for sslscan")
+        return
+
+    logger.info(f"sslscan: {len(ssl_port_records)} potential SSL/TLS ports")
+
+    total = len(ssl_port_records)
+    completed = 0
+    results_total = 0
+
+    for port_record in ssl_port_records:
+        # Get target for this port
+        target = db.query(ScanTarget).filter(
+            ScanTarget.id == port_record.scan_target_id
+        ).first()
+
+        if not target:
+            completed += 1
+            continue
+
+        ip = target.ip_address
+        port = port_record.port
+
+        logger.info(f"sslscan: Scanning {ip}:{port}")
+
+        # Create tool execution record
+        tool_exec = ToolExecution(
+            id=str(uuid.uuid4()),
+            scan_target_id=str(target.id),
+            port_id=str(port_record.id),
+            tool_name="sslscan",
+            command_line=f"sslscan {ip}:{port}",
+            started_at=datetime.utcnow()
+        )
+        db.add(tool_exec)
+        db.flush()
+
+        try:
+            # Run sslscan
+            success, raw_xml, error = run_sslscan(
+                ip=ip,
+                port=port,
+                timeout=60,
+                connect_timeout=10
+            )
+
+            tool_exec.finished_at = datetime.utcnow()
+            tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
+            tool_exec.raw_output = raw_xml[:50000] if raw_xml else None
+            tool_exec.raw_format = "xml"
+            tool_exec.error_message = error
+            tool_exec.exit_code = 0 if success else 1
+
+            if success and raw_xml:
+                try:
+                    # Parse sslscan output
+                    parsed = parse_sslscan_output(raw_xml)
+
+                    if not parsed.get('connection_failed'):
+                        # Analyze security and generate findings
+                        findings = analyze_ssl_security(parsed)
+                        grade = calculate_ssl_grade(findings)
+
+                        # Create SslScanResult record
+                        ssl_result = SslScanResult(
+                            id=str(uuid.uuid4()),
+                            port_id=str(port_record.id),
+                            tool_execution_id=str(tool_exec.id),
+                            sslv2_enabled=parsed.get('sslv2_enabled', False),
+                            sslv3_enabled=parsed.get('sslv3_enabled', False),
+                            tlsv10_enabled=parsed.get('tlsv10_enabled', False),
+                            tlsv11_enabled=parsed.get('tlsv11_enabled', False),
+                            tlsv12_enabled=parsed.get('tlsv12_enabled', False),
+                            tlsv13_enabled=parsed.get('tlsv13_enabled', False),
+                            fallback_scsv_supported=parsed.get('fallback_scsv_supported'),
+                            secure_renegotiation=parsed.get('secure_renegotiation'),
+                            compression_supported=parsed.get('compression_supported'),
+                            heartbleed_vulnerable=parsed.get('heartbleed_vulnerable', False),
+                            ciphers=parsed.get('ciphers'),
+                            key_exchange_groups=parsed.get('key_exchange_groups'),
+                            cert_subject=parsed.get('cert_subject'),
+                            cert_issuer=parsed.get('cert_issuer'),
+                            cert_altnames=parsed.get('cert_altnames'),
+                            cert_not_before=parsed.get('cert_not_before'),
+                            cert_not_after=parsed.get('cert_not_after'),
+                            cert_expired=parsed.get('cert_expired'),
+                            cert_self_signed=parsed.get('cert_self_signed'),
+                            cert_signature_algorithm=parsed.get('cert_signature_algorithm'),
+                            cert_key_type=parsed.get('cert_key_type'),
+                            cert_key_bits=parsed.get('cert_key_bits'),
+                            findings=findings,
+                            grade=grade,
+                            connection_failed=False
+                        )
+                        db.add(ssl_result)
+                        results_total += 1
+                    else:
+                        # Connection failed
+                        ssl_result = SslScanResult(
+                            id=str(uuid.uuid4()),
+                            port_id=str(port_record.id),
+                            tool_execution_id=str(tool_exec.id),
+                            connection_failed=True,
+                            failure_reason=parsed.get('failure_reason', 'Unknown error')
+                        )
+                        db.add(ssl_result)
+
+                except Exception as parse_error:
+                    logger.error(f"sslscan parse error for {ip}:{port}: {parse_error}")
+                    tool_exec.error_message = f"Parse error: {parse_error}"
+            else:
+                # Tool failed - record connection failure
+                ssl_result = SslScanResult(
+                    id=str(uuid.uuid4()),
+                    port_id=str(port_record.id),
+                    tool_execution_id=str(tool_exec.id),
+                    connection_failed=True,
+                    failure_reason=error or 'sslscan execution failed'
+                )
+                db.add(ssl_result)
+
+            db.commit()
+
+        except Exception as e:
+            logger.error(f"sslscan error for {ip}:{port}: {e}")
+            tool_exec.finished_at = datetime.utcnow()
+            tool_exec.error_message = str(e)
+            tool_exec.exit_code = 1
+            db.commit()
+
+        completed += 1
+
+    logger.info(f"sslscan complete: {completed} ports scanned, {results_total} successful results")

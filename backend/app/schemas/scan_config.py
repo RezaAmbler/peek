@@ -13,6 +13,10 @@ class ScanConfigBase(BaseModel):
     nmap_args: List[str] = Field(default=["-sS", "-sV", "-sC", "-T2", "-Pn"], description="Nmap command arguments", json_schema_extra={"example": ["-sS", "-sV", "-sC", "-T2", "-Pn"]})
     ssh_ports: List[int] = Field(default=[22, 830], description="Ports to run ssh-audit on", json_schema_extra={"example": [22, 830]})
 
+    # Port discovery settings
+    discovery_top_ports: int = Field(default=1000, ge=100, le=10000, description="Number of top ports to scan during discovery")
+    additional_ports: Optional[str] = Field(default="6379,11211,9200,27017,5984,9042,2375,2376,5672,15672,8080,8443,9000", description="Comma-separated list of additional ports to always scan")
+
     # Concurrency & Timeouts
     max_concurrent_hosts: int = Field(default=10, ge=1, le=100)
     max_concurrent_scans: int = Field(default=3, ge=1, le=10)
@@ -79,6 +83,8 @@ class ScanConfigUpdate(BaseModel):
     masscan_interface: Optional[str] = None
     nmap_args: Optional[List[str]] = None
     ssh_ports: Optional[List[int]] = None
+    discovery_top_ports: Optional[int] = Field(None, ge=100, le=10000)
+    additional_ports: Optional[str] = None
     max_concurrent_hosts: Optional[int] = Field(None, ge=1, le=100)
     max_concurrent_scans: Optional[int] = Field(None, ge=1, le=10)
     host_timeout_seconds: Optional[int] = Field(None, ge=60, le=7200)

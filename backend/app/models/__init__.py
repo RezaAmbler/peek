@@ -9,6 +9,8 @@ from .ssh_audit import SSHAudit
 from .vulnerability import Vulnerability
 from .scan_comparison import ScanComparison
 from .scheduled_scan import ScheduledScan
+from .nse_finding import NseFinding
+from .sslscan_result import SslScanResult
 
 __all__ = [
     "User",
@@ -27,4 +29,6 @@ __all__ = [
     "Vulnerability",
     "ScanComparison",
     "ScheduledScan",
+    "NseFinding",
+    "SslScanResult",
 ]

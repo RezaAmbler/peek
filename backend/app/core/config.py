@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     SSH_AUDIT_PATH: str = "ssh-audit"
     NUCLEI_PATH: str = "nuclei"
 
+    # Debug output (saves raw tool output to files when DEBUG=True)
+    DEBUG_OUTPUT_DIR: str = "/app/data/debug"  # Inside container, maps to ./data/debug on host
+
     # SMTP Email Configuration
     SMTP_ENABLED: bool = False
     SMTP_HOST: str = "smtp.gmail.com"

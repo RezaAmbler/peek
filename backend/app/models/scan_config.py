@@ -25,6 +25,10 @@ class ScanConfig(Base):
     nmap_args = Column(JSON, default=lambda: ["-sT", "-sV", "-sC", "-T2", "-Pn"], nullable=False)
     ssh_ports = Column(JSON, default=lambda: [22, 830], nullable=False)
 
+    # Port discovery settings
+    discovery_top_ports = Column(Integer, default=1000, nullable=False)  # --top-ports=N
+    additional_ports = Column(String, nullable=True, default="6379,11211,9200,27017,5984,9042,2375,2376,5672,15672,8080,8443,9000")  # Always scan these ports
+
     # Concurrency & Timeouts
     max_concurrent_hosts = Column(Integer, default=10, nullable=False)
     max_concurrent_scans = Column(Integer, default=3, nullable=False)
