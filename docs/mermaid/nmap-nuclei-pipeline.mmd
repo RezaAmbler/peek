@@ -1,18 +1,37 @@
 flowchart TD
-  U[User/API] --> SC[Create Scan & Targets]
-  SC --> W[Worker run_scan]
-  W --> D1[Nmap discovery\n(open ports → Ports)]
-  D1 --> D2[Nmap service detection\n(update service_name/product/version/extra_info)]
-  D2 --> SP[service_profile\n(config: nuclei_profiles.yaml)]
-  SP --> TGT[Build nuclei target\n(url or host:port, scan_mode-aware)]
-  SP --> TAGS[Select tags/timeout/rate\n+ validate tags\n+ apply exclusions]
-  TGT --> NR[Run nuclei per port]
+  U[User/API]
+  SC[Create scan and targets]
+  W[Worker run_scan]
+  D1[Nmap discovery open ports to ports]
+  D2[Nmap service detection update service name product version extra info]
+  SP[service profile nuclei profiles yaml]
+  TGT[Build nuclei target url or host port scan mode aware]
+  TAGS[Select tags timeout rate validate tags apply exclusions]
+  NR[Run nuclei per port]
+  CMD[Nuclei flags target severity jsonl export silent no color no interactsh rate limit profile or default optional tags templates exclude templates]
+  OUT[Nuclei JSONL output]
+  P1[Parse nuclei output]
+  TE[ToolExecution linked to ScanTarget and Port]
+  VULN[Vulnerabilities including low and info severities]
+  DB[Database]
+  API[Backend API]
+  FE[Frontend shows ports and vulnerabilities]
+
+  U --> SC
+  SC --> W
+  W --> D1
+  D1 --> D2
+  D2 --> SP
+  SP --> TGT
+  SP --> TAGS
+  TGT --> NR
   TAGS --> NR
-  NR -->|flags| CMD[-target -severity -jsonl-export -silent -no-color -no-interactsh -rate-limit <profile/default>\n+ optional -tags / -templates / -exclude-templates]
-  NR --> OUT[Nuclei JSONL output]
-  OUT --> P1[Parse nuclei output]
-  P1 --> TE[ToolExecution\n(linked to ScanTarget + Port)]
-  P1 --> VULN[Vulnerabilities\n(severity incl. low/info if emitted)]
-  VULN --> DB[(DB)]
-  DB --> API[Backend API]
-  API --> FE[Frontend shows ports + vulns\n(low/info included if configured)]
+  NR --> CMD
+  NR --> OUT
+  OUT --> P1
+  P1 --> TE
+  P1 --> VULN
+  VULN --> DB
+  DB --> API
+  API --> FE
+  FE --> U

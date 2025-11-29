@@ -566,10 +566,11 @@ async def get_scan_ssh_audits(
 async def get_scan_vulnerabilities(
     scan_id: str,
     severity: Optional[str] = Query(None, description="Filter by severity: critical,high,medium,low,info (comma-separated)"),
+    source_tool: Optional[str] = Query(None, description="Filter by source tool: nuclei,nikto,zap,nse (comma-separated)"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get all vulnerabilities found by Nuclei during the scan, sorted by severity."""
+    """Get all vulnerabilities found during the scan, sorted by severity. Supports filtering by tool (nuclei, nikto, zap, nse)."""
     # Verify scan access
     result = await db.execute(select(Scan).where(Scan.id == scan_id))
     scan = result.scalar_one_or_none()
@@ -591,6 +592,11 @@ async def get_scan_vulnerabilities(
     if severity:
         severities = [s.strip() for s in severity.split(',')]
         query = query.where(Vulnerability.severity.in_(severities))
+
+    # Filter by source tool if provided
+    if source_tool:
+        tools = [t.strip() for t in source_tool.split(',')]
+        query = query.where(Vulnerability.source_tool.in_(tools))
 
     # Order by severity (critical first)
     severity_order = {
@@ -626,6 +632,7 @@ async def get_scan_vulnerabilities(
             "matched_at": vuln.matched_at,
             "host": vuln.host,
             "port": vuln.port,
+            "source_tool": vuln.source_tool,
             "description": vuln.description,
             "reference": vuln.reference,
             "tags": vuln.tags,

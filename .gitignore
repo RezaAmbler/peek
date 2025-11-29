@@ -68,3 +68,7 @@ htmlcov/
 .coverage.*
 coverage.xml
 *.cover
+
+#misc
+tmp/
+.mcp.json

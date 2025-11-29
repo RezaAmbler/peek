@@ -19,6 +19,10 @@ class ScanPhase(str, enum.Enum):
     NMAP = "nmap"
     SSH_AUDIT = "ssh_audit"
     NUCLEI = "nuclei"
+    NSE = "nse"
+    SSLSCAN = "sslscan"
+    NIKTO = "nikto"
+    ZAP = "zap"
     COMPLETED = "completed"
     FAILED = "failed"
 

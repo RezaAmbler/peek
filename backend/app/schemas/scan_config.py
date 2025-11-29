@@ -32,6 +32,14 @@ class ScanConfigBase(BaseModel):
     nuclei_timeout: int = Field(default=300, ge=60, le=1800, description="Nuclei timeout per target (seconds)")
     scan_mode: str = Field(default="deep", description="Scan mode: 'fast' (targeted CVEs) or 'deep' (comprehensive)", json_schema_extra={"example": "deep"})
 
+    # Web scanning options
+    enable_nikto: bool = Field(default=False, description="Run Nikto web server scanner")
+    enable_zap: bool = Field(default=False, description="Run OWASP ZAP web application scanner")
+    zap_scan_type: str = Field(default="baseline", description="ZAP scan type: 'baseline' or 'api'")
+    zap_timeout: int = Field(default=300, ge=60, le=1800, description="ZAP scan timeout (seconds)")
+    nikto_timeout: int = Field(default=120, ge=30, le=600, description="Nikto scan timeout (seconds)")
+    target_urls: Optional[List[str]] = Field(None, description="URLs for web scanning (if different from discovered HTTP services)")
+
     # Advanced timeouts
     global_tool_timeout_seconds: Optional[int] = Field(None, ge=60, le=7200)
     parallelism_limit: Optional[int] = Field(None, ge=1, le=50)
@@ -96,6 +104,12 @@ class ScanConfigUpdate(BaseModel):
     nuclei_templates: Optional[str] = None
     nuclei_timeout: Optional[int] = Field(None, ge=60, le=1800)
     scan_mode: Optional[str] = None
+    enable_nikto: Optional[bool] = None
+    enable_zap: Optional[bool] = None
+    zap_scan_type: Optional[str] = None
+    zap_timeout: Optional[int] = Field(None, ge=60, le=1800)
+    nikto_timeout: Optional[int] = Field(None, ge=30, le=600)
+    target_urls: Optional[List[str]] = None
     global_tool_timeout_seconds: Optional[int] = Field(None, ge=60, le=7200)
     parallelism_limit: Optional[int] = Field(None, ge=1, le=50)
     highlight_ports: Optional[List[int]] = None
