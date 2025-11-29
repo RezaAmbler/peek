@@ -1,9 +1,12 @@
 import subprocess
 import json
 import tempfile
+import logging
 from pathlib import Path
 from typing import Tuple, List, Optional
 from ..core.config import settings
+
+logger = logging.getLogger(__name__)
 
 def run_nuclei(
     target_url: str = None,
@@ -49,6 +52,7 @@ def run_nuclei(
             '-silent',  # Suppress banner
             '-no-color',
             '-no-interactsh',  # Disable interactsh for faster scans
+            '-omit-raw',  # Strip raw request/response to reduce output size
             '-rate-limit', str(rate_limit),
         ]
 
@@ -196,8 +200,10 @@ def parse_nuclei_output(raw_jsonl: str) -> List[dict]:
     vulnerabilities = []
 
     # Parse each line as separate JSON
-    for line in raw_jsonl.strip().split('\n'):
-        if not line.strip():
+    lines = raw_jsonl.strip().split('\n')
+    for i, line in enumerate(lines):
+        line = line.strip()
+        if not line:
             continue
 
         try:
@@ -231,7 +237,9 @@ def parse_nuclei_output(raw_jsonl: str) -> List[dict]:
             vulnerabilities.append(parsed_vuln)
 
         except json.JSONDecodeError as e:
-            # Skip malformed lines
+            # Log malformed lines with preview for debugging
+            line_preview = line[:100] + '...' if len(line) > 100 else line
+            logger.warning(f"Nuclei JSONL parse error on line {i}: {e} — preview: {line_preview}")
             continue
 
     return vulnerabilities

@@ -6,8 +6,9 @@
 # HOW TO ADD NEW SERVICES:
 # 1. Check if nuclei has templates: nuclei -tl -tags <service_name>
 # 2. If templates exist, add entry below
-# 3. Most network services use: target_format: host_port, tags: [<service>, network]
+# 3. Network services use: target_format: host_port, tags: [<service>]
 # 4. HTTP-based services use: target_format: url, protocol: http/https
+# NOTE: Avoid broad tags like 'network' - they add 300+ templates and cause timeouts
 #
 # TEMPLATE TAG DISCOVERY:
 #   docker exec peek-celery-1 nuclei -tl -tags <tag_name>
@@ -107,126 +108,131 @@ service_profiles:
     tags: []  # Comprehensive - all templates
 
   # --- Network Services (use host:port format) ---
-  # These all follow the same pattern: tags match service name + 'network'
+  # Use service-specific tags only (no 'network' tag) for faster scans
 
   ssh:
     target_format: host_port
-    tags: [ssh, network]
-    timeout_multiplier: 0.5
+    tags: [ssh]
+    timeout_multiplier: 1.0
 
   ftp:
     target_format: host_port
-    tags: [ftp, network]
-    timeout_multiplier: 0.5
+    tags: [ftp]
+    timeout_multiplier: 1.0
 
   mysql:
     target_format: host_port
-    tags: [mysql, network]
-    timeout_multiplier: 0.5
+    tags: [mysql]
+    timeout_multiplier: 1.0
     rate_limit: 50  # Slower for databases
 
   postgresql:
     target_format: host_port
-    tags: [postgres, network]
-    timeout_multiplier: 0.5
+    tags: [postgres]
+    timeout_multiplier: 1.0
     rate_limit: 50  # Slower for databases
 
   redis:
     target_format: host_port
-    tags: [redis, network]
-    timeout_multiplier: 0.5
+    tags: [redis]
+    timeout_multiplier: 1.0
     rate_limit: 50  # Slower for databases
 
   mongodb:
     target_format: host_port
-    tags: [mongodb, network]
-    timeout_multiplier: 0.5
+    tags: [mongodb]
+    timeout_multiplier: 1.0
     rate_limit: 50  # Slower for databases
+
+  memcached:
+    target_format: host_port
+    tags: [memcached]
+    timeout_multiplier: 1.0
+    rate_limit: 50  # Slower for caching services
 
   smtp:
     target_format: host_port
-    tags: [smtp, network]
-    timeout_multiplier: 0.5
+    tags: [smtp]
+    timeout_multiplier: 1.0
 
   rdp:
     target_format: host_port
-    tags: [rdp, network]
-    timeout_multiplier: 0.5
+    tags: [rdp]
+    timeout_multiplier: 1.0
 
   ms-wbt-server:  # RDP alternate name
     target_format: host_port
-    tags: [rdp, network]
-    timeout_multiplier: 0.5
+    tags: [rdp]
+    timeout_multiplier: 1.0
 
   vnc:
     target_format: host_port
-    tags: [vnc, network]
-    timeout_multiplier: 0.5
+    tags: [vnc]
+    timeout_multiplier: 1.0
 
   telnet:
     target_format: host_port
-    tags: [telnet, network]
-    timeout_multiplier: 0.5
+    tags: [telnet]
+    timeout_multiplier: 1.0
 
   ldap:
     target_format: host_port
-    tags: [ldap, network]
-    timeout_multiplier: 0.5
+    tags: [ldap]
+    timeout_multiplier: 1.0
     rate_limit: 50  # Slower for sensitive services
 
   dns:
     target_format: host_port
-    tags: [dns, network]
-    timeout_multiplier: 0.5
+    tags: [dns]
+    timeout_multiplier: 1.0
 
   domain:  # DNS alternate name
     target_format: host_port
-    tags: [dns, network]
-    timeout_multiplier: 0.5
+    tags: [dns]
+    timeout_multiplier: 1.0
 
   # --- IoT / Embedded Protocols ---
   upnp:
     target_format: host_port
-    tags: [upnp, network, iot]
-    timeout_multiplier: 0.5
+    tags: [upnp, iot]
+    timeout_multiplier: 1.0
 
   rtsp:
     target_format: host_port
-    tags: [rtsp, network]
-    timeout_multiplier: 0.5
+    tags: [rtsp]
+    timeout_multiplier: 1.0
 
   sip:
     target_format: host_port
-    tags: [sip, network, voip]
-    timeout_multiplier: 0.5
+    tags: [sip, voip]
+    timeout_multiplier: 1.0
 
   mqtt:
     target_format: host_port
-    tags: [mqtt, network, iot]
-    timeout_multiplier: 0.5
+    tags: [mqtt, iot]
+    timeout_multiplier: 1.0
 
   coap:
     target_format: host_port
-    tags: [coap, network, iot]
-    timeout_multiplier: 0.5
+    tags: [coap, iot]
+    timeout_multiplier: 1.0
 
   modbus:
     target_format: host_port
-    tags: [modbus, network, iot, ics]
-    timeout_multiplier: 0.5
+    tags: [modbus, iot, ics]
+    timeout_multiplier: 1.0
 
   bacnet:
     target_format: host_port
-    tags: [bacnet, network, iot, ics]
-    timeout_multiplier: 0.5
+    tags: [bacnet, iot, ics]
+    timeout_multiplier: 1.0
 
 # ============================================
 # Fallback for Unknown Services
 # ============================================
 # If a service isn't listed above, the mapper will:
 # 1. Try using service_name as a nuclei tag
-# 2. Add 'network' tag
-# 3. Use host:port format
+# 2. Use host:port format
 # Set to false to skip unknown services entirely
 scan_unknown_services: true
 

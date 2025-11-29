@@ -109,11 +109,11 @@ def get_nuclei_profile(
         timeout_mult = profile_data.get('timeout_multiplier', 1.0)
         should_scan = True
     elif scan_unknown:
-        # Fallback: try service name as tag + network
-        tags = [normalized.replace('/', '-'), 'network']
+        # Fallback: try service name as tag only (no 'network' to avoid timeouts)
+        tags = [normalized.replace('/', '-')]
         target_format = 'host_port'
         protocol = None
-        timeout_mult = 0.5
+        timeout_mult = 1.0
         should_scan = True
         logger.debug(f"Using fallback profile for unknown service: {service_name}")
     else:
