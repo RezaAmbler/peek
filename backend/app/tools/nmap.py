@@ -89,18 +89,23 @@ def run_nmap(
 def run_nmap_discovery(
     ip: str,
     timing_template: str = "T4",
-    timeout: int = 900
+    timeout: int = 600,
+    top_ports: Optional[int] = None,
+    additional_ports: Optional[str] = None,
+    full_scan: bool = False
 ) -> Tuple[bool, str, Optional[str]]:
     """
-    Execute nmap for port discovery scanning ALL 65,535 ports.
+    Execute nmap for port discovery.
 
-    This ensures no services are missed, regardless of what port they run on.
-    Full port scans take longer but provide complete coverage.
+    By default uses top-ports for fast scanning. Can optionally do full port scan.
 
     Args:
         ip: Target IP address
         timing_template: Nmap timing (T1-T5, default T4 for fast)
-        timeout: Max execution time in seconds (default 900 = 15 minutes)
+        timeout: Max execution time in seconds (default 600 = 10 minutes)
+        top_ports: Use nmap's --top-ports=N (default 1000 if not full_scan)
+        additional_ports: Comma-separated list of extra ports to always scan
+        full_scan: If True, scan all 65,535 ports (slow, needs longer timeout)
 
     Returns:
         (success: bool, raw_xml: str, error: Optional[str])
@@ -110,10 +115,9 @@ def run_nmap_discovery(
         output_path = Path(f.name)
 
     try:
-        # Build command for full port discovery
+        # Build command for port discovery
         # -Pn: Skip host discovery (assume host is up)
         # -sT: TCP connect scan (works in Docker containers without raw sockets)
-        # -p-: Scan ALL 65,535 ports
         # --open: Only show open ports (reduces output noise)
         cmd = [
             'sudo',
@@ -122,10 +126,36 @@ def run_nmap_discovery(
             '-sT',
             f'-{timing_template}',
             '--open',
-            '-p-',  # ALL 65,535 ports
-            '-oX', str(output_path),
-            ip
         ]
+
+        # Determine port specification
+        if full_scan:
+            # Full port scan - ALL 65,535 ports (slow!)
+            cmd.append('-p-')
+        else:
+            # Smart port scan - top ports + additional specific ports
+            port_spec = []
+
+            # Use top-ports (default 1000)
+            effective_top_ports = top_ports if top_ports else 1000
+
+            # Add any additional ports from config
+            if additional_ports:
+                # Parse additional_ports string and add to list
+                extra_ports = [p.strip() for p in additional_ports.split(',') if p.strip()]
+                if extra_ports:
+                    port_spec.extend(extra_ports)
+
+            # Build port argument
+            if port_spec:
+                # Combine top-ports with explicit port list
+                # Format: --top-ports=1000 -p 6379,11211,etc
+                cmd.extend([f'--top-ports={effective_top_ports}'])
+                cmd.extend(['-p', ','.join(port_spec)])
+            else:
+                cmd.extend([f'--top-ports={effective_top_ports}'])
+
+        cmd.extend(['-oX', str(output_path), ip])
 
         # Execute
         result = subprocess.run(

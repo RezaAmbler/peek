@@ -18,9 +18,13 @@ from ..services.service_profile import get_nuclei_profile, build_nuclei_target, 
 from ..core.debug import save_nmap_debug, save_nuclei_debug, save_ssh_audit_debug
 from ..tools.nmap_nse import run_nmap_nse, parse_nse_output, determine_nse_severity
 from ..tools.sslscan import run_sslscan, parse_sslscan_output, analyze_ssl_security, calculate_ssl_grade
+from ..tools.nikto import run_nikto
+from ..tools.zap import run_zap_baseline, check_zap_available
 from ..services.nse_profile import get_nse_profile_service
 from ..models.nse_finding import NseFinding
 from ..models.sslscan_result import SslScanResult
+from ..parsers.nikto_parser import create_vulnerabilities_from_nikto
+from ..parsers.zap_parser import create_vulnerabilities_from_zap
 from sqlalchemy import select
 import uuid
 import logging
@@ -110,10 +114,24 @@ def run_scan(self, scan_id: str):
             self.update_state(state='PROGRESS', meta={'phase': 'nse', 'progress': 0.9})
             run_nse_phase(db, scan, targets, config)
 
-            # Phase 6: sslscan (95% -> 100%)
+            # Phase 6: sslscan (95% -> 97%)
             # sslscan runs on SSL/TLS ports for TLS posture analysis
             self.update_state(state='PROGRESS', meta={'phase': 'sslscan', 'progress': 0.95})
             run_sslscan_phase(db, scan, targets, config)
+
+            # Phase 7: Nikto (97% -> 98%)
+            if config.enable_nikto:
+                scan.current_phase = ScanPhase.NIKTO.value
+                db.commit()
+                self.update_state(state='PROGRESS', meta={'phase': 'nikto', 'progress': 0.97})
+                run_nikto_phase(db, scan, targets, config)
+
+            # Phase 8: ZAP (98% -> 100%)
+            if config.enable_zap:
+                scan.current_phase = ScanPhase.ZAP.value
+                db.commit()
+                self.update_state(state='PROGRESS', meta={'phase': 'zap', 'progress': 0.98})
+                run_zap_phase(db, scan, targets, config)
 
             # Mark scan as completed
             scan.status = ScanStatus.COMPLETED.value
@@ -201,12 +219,28 @@ def scan_target_with_nmap_discovery(db, target: ScanTarget, config):
     db.add(tool_exec)
     db.commit()
 
-    # Use nmap discovery with full port scan (-p-)
-    # This scans ALL 65,535 ports to ensure no services are missed
+    # Use nmap discovery with config-based port strategy
+    # scan_mode='deep' uses full port scan, 'fast' uses top-ports + additional
+    scan_mode = getattr(config, 'scan_mode', None) or 'fast'
+    full_scan = scan_mode == 'deep'
+
+    # Calculate timeout based on scan mode
+    # Full scan needs longer timeout (30 min), top-ports is faster (10 min)
+    discovery_timeout = 1800 if full_scan else 600
+    if getattr(config, 'global_tool_timeout_seconds', None):
+        discovery_timeout = config.global_tool_timeout_seconds
+
+    # Get port discovery settings with defaults
+    top_ports = getattr(config, 'discovery_top_ports', None) or 1000
+    additional_ports = getattr(config, 'additional_ports', None) or "5432,6379,11211,9200,27017,1433,1521,5984,9042,2375,2376,5672,15672,8080,8443,9000"
+
     success, raw_xml, error = run_nmap_discovery(
         ip=target.ip_address,
         timing_template="T4",  # Fast timing
-        timeout=900  # 15 minutes for full port scan
+        timeout=discovery_timeout,
+        top_ports=top_ports,
+        additional_ports=additional_ports,
+        full_scan=full_scan
     )
 
     # Save debug output (only when DEBUG=True)
@@ -1169,3 +1203,222 @@ def run_sslscan_phase(db, scan: Scan, targets: List[ScanTarget], config):
         completed += 1
 
     logger.info(f"sslscan complete: {completed} ports scanned, {results_total} successful results")
+
+
+def run_nikto_phase(db, scan: Scan, targets: List[ScanTarget], config):
+    """
+    Run Nikto web server scanner against HTTP/HTTPS ports.
+
+    Nikto is a comprehensive web server scanner that checks for:
+    - Server misconfigurations
+    - Outdated software versions
+    - Dangerous files/CGIs
+    - Server-specific problems
+    """
+    logger.info(f"Starting Nikto phase for scan {scan.id}")
+
+    # HTTP services to scan
+    http_services = ['http', 'https', 'ssl/http', 'http-proxy', 'http-alt']
+
+    total_scanned = 0
+    total_findings = 0
+
+    for target in targets:
+        # Find HTTP/HTTPS ports for this target
+        http_ports = db.query(Port).filter(
+            Port.scan_target_id == str(target.id),
+            Port.state == 'open',
+            Port.service_name.in_(http_services)
+        ).all()
+
+        if not http_ports:
+            logger.debug(f"No HTTP ports found for {target.ip_address}, skipping Nikto")
+            continue
+
+        logger.info(f"Nikto: Found {len(http_ports)} HTTP port(s) for {target.ip_address}")
+
+        for port_rec in http_ports:
+            ssl = port_rec.service_name in ['https', 'ssl/http'] or port_rec.port == 443
+            ip = target.ip_address
+            port = port_rec.port
+
+            logger.info(f"Nikto: Scanning {ip}:{port} (ssl={ssl})")
+
+            # Create tool execution record
+            cmd_line = f"nikto -h {ip} -p {port} -Format json"
+            if ssl:
+                cmd_line += " -ssl"
+
+            tool_exec = ToolExecution(
+                id=str(uuid.uuid4()),
+                scan_target_id=str(target.id),
+                port_id=str(port_rec.id),
+                tool_name="nikto",
+                command_line=cmd_line,
+                started_at=datetime.utcnow()
+            )
+            db.add(tool_exec)
+            db.flush()
+
+            try:
+                # Run Nikto
+                timeout = config.nikto_timeout or 120
+                success, raw_json, error = run_nikto(
+                    target=ip,
+                    port=port,
+                    timeout=timeout,
+                    ssl=ssl
+                )
+
+                tool_exec.finished_at = datetime.utcnow()
+                tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
+                tool_exec.raw_output = raw_json[:50000] if raw_json else None  # Truncate if needed
+                tool_exec.raw_format = "json"
+                tool_exec.error_message = error
+                tool_exec.exit_code = 0 if success else 1
+
+                if success and raw_json:
+                    # Parse and create vulnerability records
+                    vulns = create_vulnerabilities_from_nikto(
+                        db=db,
+                        tool_execution=tool_exec,
+                        target=target,
+                        port_rec=port_rec,
+                        host=ip,
+                        port=port
+                    )
+                    total_findings += len(vulns)
+                    logger.info(f"Nikto found {len(vulns)} findings for {ip}:{port}")
+                else:
+                    logger.warning(f"Nikto scan failed for {ip}:{port}: {error}")
+
+                db.commit()
+                total_scanned += 1
+
+            except Exception as e:
+                logger.error(f"Nikto error for {ip}:{port}: {e}")
+                tool_exec.finished_at = datetime.utcnow()
+                tool_exec.error_message = str(e)
+                tool_exec.exit_code = 1
+                db.commit()
+
+    # Update scan statistics
+    from ..models.vulnerability import Vulnerability
+    total_vulns = db.query(Vulnerability).join(ScanTarget).filter(
+        ScanTarget.scan_id == str(scan.id)
+    ).count()
+    scan.total_vulnerabilities = total_vulns
+    db.commit()
+
+    logger.info(f"Nikto complete: {total_scanned} ports scanned, {total_findings} findings")
+
+
+def run_zap_phase(db, scan: Scan, targets: List[ScanTarget], config):
+    """
+    Run OWASP ZAP baseline scan against HTTP/HTTPS ports.
+
+    ZAP provides:
+    - Spider crawling to discover pages
+    - Passive scanning for security issues
+    - Active scanning (optional) for deeper analysis
+    """
+    logger.info(f"Starting ZAP phase for scan {scan.id}")
+
+    # Check if ZAP is available
+    if not check_zap_available():
+        logger.warning("ZAP container not available, skipping ZAP phase")
+        return
+
+    # HTTP services to scan
+    http_services = ['http', 'https', 'ssl/http', 'http-proxy', 'http-alt']
+
+    total_scanned = 0
+    total_findings = 0
+
+    for target in targets:
+        # Find HTTP/HTTPS ports for this target
+        http_ports = db.query(Port).filter(
+            Port.scan_target_id == str(target.id),
+            Port.state == 'open',
+            Port.service_name.in_(http_services)
+        ).all()
+
+        if not http_ports:
+            logger.debug(f"No HTTP ports found for {target.ip_address}, skipping ZAP")
+            continue
+
+        logger.info(f"ZAP: Found {len(http_ports)} HTTP port(s) for {target.ip_address}")
+
+        for port_rec in http_ports:
+            ssl = port_rec.service_name in ['https', 'ssl/http'] or port_rec.port == 443
+            ip = target.ip_address
+            port = port_rec.port
+
+            # Build target URL
+            scheme = "https" if ssl else "http"
+            target_url = f"{scheme}://{ip}:{port}"
+
+            logger.info(f"ZAP: Scanning {target_url}")
+
+            # Create tool execution record
+            tool_exec = ToolExecution(
+                id=str(uuid.uuid4()),
+                scan_target_id=str(target.id),
+                port_id=str(port_rec.id),
+                tool_name="zap",
+                command_line=f"zap-baseline {target_url}",
+                started_at=datetime.utcnow()
+            )
+            db.add(tool_exec)
+            db.flush()
+
+            try:
+                # Run ZAP baseline scan
+                timeout = config.zap_timeout or 300
+                success, alerts_json, error = run_zap_baseline(
+                    target_url=target_url,
+                    timeout=timeout,
+                    spider_timeout=60
+                )
+
+                tool_exec.finished_at = datetime.utcnow()
+                tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
+                tool_exec.raw_output = alerts_json[:50000] if alerts_json else None  # Truncate if needed
+                tool_exec.raw_format = "json"
+                tool_exec.error_message = error
+                tool_exec.exit_code = 0 if success else 1
+
+                if success and alerts_json:
+                    # Parse and create vulnerability records
+                    vulns = create_vulnerabilities_from_zap(
+                        db=db,
+                        tool_execution=tool_exec,
+                        target=target,
+                        port_rec=port_rec,
+                        host=ip,
+                        port=port
+                    )
+                    total_findings += len(vulns)
+                    logger.info(f"ZAP found {len(vulns)} findings for {target_url}")
+                else:
+                    logger.warning(f"ZAP scan failed for {target_url}: {error}")
+
+                db.commit()
+                total_scanned += 1
+
+            except Exception as e:
+                logger.error(f"ZAP error for {target_url}: {e}")
+                tool_exec.finished_at = datetime.utcnow()
+                tool_exec.error_message = str(e)
+                tool_exec.exit_code = 1
+                db.commit()
+
+    # Update scan statistics
+    from ..models.vulnerability import Vulnerability
+    total_vulns = db.query(Vulnerability).join(ScanTarget).filter(
+        ScanTarget.scan_id == str(scan.id)
+    ).count()
+    scan.total_vulnerabilities = total_vulns
+    db.commit()
+
+    logger.info(f"ZAP complete: {total_scanned} ports scanned, {total_findings} findings")

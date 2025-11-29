@@ -27,7 +27,7 @@ class ScanConfig(Base):
 
     # Port discovery settings
     discovery_top_ports = Column(Integer, default=1000, nullable=False)  # --top-ports=N
-    additional_ports = Column(String, nullable=True, default="6379,11211,9200,27017,5984,9042,2375,2376,5672,15672,8080,8443,9000")  # Always scan these ports
+    additional_ports = Column(String, nullable=True, default="5432,6379,11211,9200,27017,1433,1521,5984,9042,2375,2376,5672,15672,8080,8443,9000")  # Always scan these ports (databases, caches, message queues, docker)
 
     # Concurrency & Timeouts
     max_concurrent_hosts = Column(Integer, default=10, nullable=False)
@@ -42,7 +42,15 @@ class ScanConfig(Base):
     nuclei_severity = Column(String, default="critical,high,medium,low,info", nullable=False)
     nuclei_templates = Column(String, nullable=True)  # Path to custom templates
     nuclei_timeout = Column(Integer, default=300, nullable=False)
-    scan_mode = Column(String, default="deep", nullable=False)  # 'fast' or 'deep'
+    scan_mode = Column(String, default="fast", nullable=False)  # 'fast' (top-ports) or 'deep' (all ports)
+
+    # Web scanning options
+    enable_nikto = Column(Boolean, default=False, nullable=False)
+    enable_zap = Column(Boolean, default=False, nullable=False)
+    zap_scan_type = Column(String, default="baseline", nullable=False)  # baseline, api
+    zap_timeout = Column(Integer, default=300, nullable=False)  # seconds
+    nikto_timeout = Column(Integer, default=120, nullable=False)  # seconds
+    target_urls = Column(JSON, nullable=True)  # ["https://example.com/app"]
 
     # Advanced timeouts
     global_tool_timeout_seconds = Column(Integer, nullable=True)
