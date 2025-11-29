@@ -27,7 +27,7 @@ class ScanConfig(Base):
 
     # Port discovery settings
     discovery_top_ports = Column(Integer, default=1000, nullable=False)  # --top-ports=N
-    additional_ports = Column(String, nullable=True, default="5432,6379,11211,9200,27017,1433,1521,5984,9042,2375,2376,5672,15672,8080,8443,9000")  # Always scan these ports (databases, caches, message queues, docker)
+    additional_ports = Column(String, nullable=True, default="80,443,8080,8443,8888,5432,6379,11211,9200,27017,1433,1521,5984,9042,2375,2376,5672,15672,9000")  # Always scan these ports (HTTP, databases, caches, message queues, docker)
 
     # Concurrency & Timeouts
     max_concurrent_hosts = Column(Integer, default=10, nullable=False)
