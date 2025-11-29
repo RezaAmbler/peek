@@ -84,7 +84,8 @@ ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=1440
 ALLOWED_ORIGINS=[\"http://$TARGET_IP\",\"http://localhost:3000\"]
 VERSION=2.0.0
-REDIS_URL=redis://redis:6379/0
+CELERY_BROKER_URL=redis://redis:6379/0
+CELERY_RESULT_BACKEND=redis://redis:6379/0
 ENV_EOF"
 
 # Step 5: Create data directory
