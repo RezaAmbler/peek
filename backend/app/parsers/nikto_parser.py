@@ -50,11 +50,17 @@ def create_vulnerabilities_from_nikto(
         # Create dedup key
         finding_id = finding.get('id', 'unknown')
         finding_url = finding.get('url', '/')
+        finding_name = finding.get('name', '')
         dedup_key = (finding_id, finding_url, port)
 
         if dedup_key in seen:
             continue
         seen.add(dedup_key)
+
+        # Skip findings without valid name or ID - these are parser failures
+        if finding_id == 'unknown' and (not finding_name or 'unknown' in finding_name.lower()):
+            logger.debug(f"Skipping nikto finding with unknown name/id: {finding}")
+            continue
 
         # Map severity
         severity = map_nikto_severity(finding)
