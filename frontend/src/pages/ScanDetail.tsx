@@ -6,6 +6,8 @@ import { formatDistanceToNow, format } from 'date-fns';
 import { SSHAuditCard } from '../components/SSHAuditCard';
 import { VulnerabilityCard } from '../components/VulnerabilityCard';
 import { ServiceIcon } from '../components/ServiceIcon';
+import { SSLScanSection } from '../components/SSLScanSection';
+import { NSEFindingsSection } from '../components/NSEFindingsSection';
 import { useState, Fragment, useMemo } from 'react';
 import { Menu, Transition } from '@headlessui/react';
 import { Navigation } from '../components/Navigation';
@@ -109,6 +111,18 @@ export function ScanDetail() {
   const { data: vulnerabilities } = useQuery({
     queryKey: ['scan-vulnerabilities', scanId],
     queryFn: () => scansApi.getVulnerabilities(scanId),
+    enabled: !!scanId && scan?.status === 'completed',
+  });
+
+  const { data: nseFindings } = useQuery({
+    queryKey: ['scan-nse-findings', scanId],
+    queryFn: () => scansApi.getNSEFindings(scanId),
+    enabled: !!scanId && scan?.status === 'completed',
+  });
+
+  const { data: sslscanResults } = useQuery({
+    queryKey: ['scan-sslscan-results', scanId],
+    queryFn: () => scansApi.getSSLScanResults(scanId),
     enabled: !!scanId && scan?.status === 'completed',
   });
 
@@ -1032,6 +1046,16 @@ export function ScanDetail() {
             </div>
           )}
         </div>
+      )}
+
+      {/* SSL/TLS Analysis Section */}
+      {sslscanResults && sslscanResults.length > 0 && (
+        <SSLScanSection results={sslscanResults} hostFilter={hostFilter} />
+      )}
+
+      {/* NSE Script Results Section */}
+      {nseFindings && nseFindings.length > 0 && (
+        <NSEFindingsSection findings={nseFindings} hostFilter={hostFilter} />
       )}
 
       {/* Vulnerabilities Section (non-INFO only) */}

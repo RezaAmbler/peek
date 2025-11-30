@@ -65,6 +65,7 @@ def create_vulnerabilities_from_nuclei(
                 name=vuln_data['name'],
                 severity=vuln_data['severity'],
                 vuln_type=vuln_data['type'],
+                source_tool='nuclei',  # Identify findings from nuclei scanner
                 matched_at=vuln_data['matched_at'],
                 host=vuln_data['host'],
                 port=vuln_data['port'],
