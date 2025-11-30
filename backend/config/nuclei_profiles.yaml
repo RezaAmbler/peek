@@ -21,8 +21,9 @@
 # ============================================
 # Templates to exclude from all scans
 # These are typically noisy, slow, or produce false positives
+# NOTE: Avoid broad exclusions like http/miscellaneous/ - it blocks robots-txt and other useful findings
 excluded_templates:
-  - http/miscellaneous/
+  - http/miscellaneous/external-service-interaction.yaml  # Noisy, low value
   - http/technologies/fingerprinthub-web-fingerprints.yaml
 
 # ============================================

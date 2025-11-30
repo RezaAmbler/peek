@@ -125,8 +125,9 @@ def get_nuclei_profile(
     if is_ssl and protocol == 'http':
         protocol = 'https'
 
-    # Add product-specific tags
-    if product:
+    # Add product-specific tags ONLY if not in comprehensive mode
+    # Empty tags [] means comprehensive scan - don't narrow it down
+    if product and tags:
         product_lower = product.lower()
         for key, extra_tags in product_tags.items():
             if key in product_lower:
