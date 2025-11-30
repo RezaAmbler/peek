@@ -26,5 +26,9 @@ celery_app.conf.update(
             'task': 'app.tasks.scheduled_scan_tasks.check_scheduled_scans',
             'schedule': 60.0,  # Check every minute
         },
+        'check-stuck-scans': {
+            'task': 'app.tasks.scheduled_scan_tasks.check_stuck_scans',
+            'schedule': 300.0,  # Check every 5 minutes
+        },
     },
 )

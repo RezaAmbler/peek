@@ -47,23 +47,27 @@ def create_vulnerabilities_from_zap(
     seen = set()  # Dedupe within batch
 
     for finding in findings:
-        # Create dedup key
+        # Create dedup key matching the unique constraint:
+        # (scan_target_id, template_id, port, matched_at)
         alert_id = finding.get('alert_id', 'unknown')
         finding_url = finding.get('url', '')
-        param = finding.get('param', '')
-        dedup_key = (alert_id, finding_url, param)
+
+        # Use the URL from the finding if available, otherwise construct it
+        matched_at = finding_url if finding_url else f"http://{host}:{port}/"
+
+        # Dedup key must match the DB unique constraint columns
+        template_id = f"zap-{alert_id}"
+        dedup_key = (template_id, port, matched_at)
 
         if dedup_key in seen:
             continue
         seen.add(dedup_key)
 
-        # Use the URL from the finding if available, otherwise construct it
-        matched_at = finding_url if finding_url else f"http://{host}:{port}/"
-
-        # Check for existing duplicate in DB
+        # Check for existing duplicate in DB (all 4 constraint columns)
         existing = db.query(Vulnerability).filter(
             Vulnerability.scan_target_id == str(target.id),
-            Vulnerability.template_id == f"zap-{alert_id}",
+            Vulnerability.template_id == template_id,
+            Vulnerability.port == port,
             Vulnerability.matched_at == matched_at
         ).first()
 
@@ -77,7 +81,7 @@ def create_vulnerabilities_from_zap(
             scan_target_id=str(target.id),
             tool_execution_id=str(tool_execution.id),
             port_id=str(port_rec.id) if port_rec else None,
-            template_id=f"zap-{alert_id}",
+            template_id=template_id,
             name=finding.get('name', 'Unknown ZAP Finding')[:500],
             severity=finding.get('severity', 'info'),
             vuln_type="web",

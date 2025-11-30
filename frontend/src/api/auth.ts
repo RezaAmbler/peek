@@ -17,11 +17,11 @@ export interface LoginResponse {
 
 export const authApi = {
   async login(username: string, password: string): Promise<LoginResponse> {
-    const formData = new FormData();
-    formData.append('username', username);
-    formData.append('password', password);
+    const params = new URLSearchParams();
+    params.append('username', username);
+    params.append('password', password);
 
-    const { data } = await apiClient.post<LoginResponse>('/api/auth/login', formData, {
+    const { data } = await apiClient.post<LoginResponse>('/api/auth/login', params, {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },

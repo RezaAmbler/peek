@@ -1,6 +1,9 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// In production (VITE_API_URL=""), use relative paths. In development, use localhost:8000.
+const API_BASE_URL = import.meta.env.VITE_API_URL !== undefined
+  ? import.meta.env.VITE_API_URL
+  : 'http://localhost:8000';
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,

@@ -70,10 +70,11 @@ def create_vulnerabilities_from_nikto(
         url_path = finding_url if finding_url.startswith('/') else f"/{finding_url}"
         matched_at = f"{protocol}://{host}:{port}{url_path}"
 
-        # Check for existing duplicate in DB
+        # Check for existing duplicate in DB (all 4 unique constraint columns)
         existing = db.query(Vulnerability).filter(
             Vulnerability.scan_target_id == str(target.id),
             Vulnerability.template_id == f"nikto-{finding_id}",
+            Vulnerability.port == port,
             Vulnerability.matched_at == matched_at
         ).first()
 

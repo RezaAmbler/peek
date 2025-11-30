@@ -2,13 +2,17 @@ from celery import Task
 from datetime import datetime, timedelta
 from croniter import croniter
 import pytz
+import logging
 from ..celery_app import celery_app
 from ..db.sync_session import get_sync_db
 from ..models import ScheduledScan, Scan, ScanTarget
+from ..models.scan import ScanStatus, ScanPhase
 from ..tasks.scan_tasks import run_scan
 from ..services.comparison_service import ComparisonService
 import uuid
 from sqlalchemy import desc
+
+logger = logging.getLogger(__name__)
 
 @celery_app.task(name="app.tasks.scheduled_scan_tasks.check_scheduled_scans")
 def check_scheduled_scans():
@@ -272,3 +276,68 @@ Severity Breakdown:
         logger.info(f"✅ Email notification sent successfully")
     else:
         logger.warning(f"⚠️ Email notification failed (check SMTP configuration)")
+
+
+@celery_app.task(name="app.tasks.scheduled_scan_tasks.check_stuck_scans")
+def check_stuck_scans():
+    """
+    Periodic task that checks for scans stuck in 'running' or 'queued' state.
+
+    A scan is considered stuck if:
+    - It's been in 'running' state for more than 4 hours (configurable)
+    - It's been in 'queued' state for more than 30 minutes
+
+    This typically happens when:
+    - A Celery worker crashes mid-scan
+    - A database error causes a task to fail without updating status
+    - Network issues prevent task completion
+
+    Runs every 5 minutes via Celery Beat.
+    """
+    # Thresholds for stuck detection
+    RUNNING_STUCK_THRESHOLD_HOURS = 4
+    QUEUED_STUCK_THRESHOLD_MINUTES = 30
+
+    with get_sync_db() as db:
+        now = datetime.utcnow()
+
+        # Find scans stuck in 'running' state
+        running_threshold = now - timedelta(hours=RUNNING_STUCK_THRESHOLD_HOURS)
+        stuck_running = db.query(Scan).filter(
+            Scan.status == ScanStatus.RUNNING.value,
+            Scan.started_at < running_threshold
+        ).all()
+
+        for scan in stuck_running:
+            hours_running = (now - scan.started_at).total_seconds() / 3600
+            logger.warning(
+                f"Scan {scan.id} ({scan.name}) stuck in 'running' state for {hours_running:.1f} hours. "
+                f"Last phase: {scan.current_phase}. Marking as failed."
+            )
+            scan.status = ScanStatus.FAILED.value
+            scan.current_phase = ScanPhase.FAILED.value
+            scan.finished_at = now
+
+        # Find scans stuck in 'queued' state
+        queued_threshold = now - timedelta(minutes=QUEUED_STUCK_THRESHOLD_MINUTES)
+        stuck_queued = db.query(Scan).filter(
+            Scan.status == ScanStatus.QUEUED.value,
+            Scan.created_at < queued_threshold
+        ).all()
+
+        for scan in stuck_queued:
+            minutes_queued = (now - scan.created_at).total_seconds() / 60
+            logger.warning(
+                f"Scan {scan.id} ({scan.name}) stuck in 'queued' state for {minutes_queued:.0f} minutes. "
+                f"Marking as failed."
+            )
+            scan.status = ScanStatus.FAILED.value
+            scan.current_phase = ScanPhase.FAILED.value
+            scan.finished_at = now
+
+        if stuck_running or stuck_queued:
+            db.commit()
+            logger.info(
+                f"Stuck scan detector: marked {len(stuck_running)} running + "
+                f"{len(stuck_queued)} queued scans as failed"
+            )

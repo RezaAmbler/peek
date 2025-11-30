@@ -571,61 +571,99 @@ export function ScanDetail() {
         {/* Progress Bar and Phase Indicator */}
         {(scan.status === 'running' || scan.status === 'queued') && (
           <div className="mb-4">
-            {/* Phase Stepper */}
+            {/* Simplified 3-Phase Stepper */}
             <div className="flex items-center justify-between mb-4">
-              {['nmap_discovery', 'nmap', 'ssh_audit', 'nuclei'].map((phase, index, arr) => {
-                const phaseLabels: Record<string, string> = {
-                  nmap_discovery: 'Port Discovery',
-                  nmap: 'Service Detection',
-                  ssh_audit: 'SSH Audit',
-                  nuclei: 'Vulnerability Scan',
+              {(() => {
+                const uiPhases = [
+                  { id: 1, label: 'Discovery', backendPhases: ['nmap_discovery'] },
+                  { id: 2, label: 'Enumeration', backendPhases: ['nmap'] },
+                  { id: 3, label: 'Security Analysis', backendPhases: ['ssh_audit', 'nuclei', 'nse', 'sslscan', 'nikto', 'zap'] },
+                ];
+
+                // Map backend phase to UI phase number
+                const getCurrentUIPhase = (backendPhase: string): number => {
+                  if (['pending'].includes(backendPhase)) return 0;
+                  if (['nmap_discovery'].includes(backendPhase)) return 1;
+                  if (['nmap'].includes(backendPhase)) return 2;
+                  if (['ssh_audit', 'nuclei', 'nse', 'sslscan', 'nikto', 'zap'].includes(backendPhase)) return 3;
+                  if (['completed'].includes(backendPhase)) return 4;
+                  return 1;
                 };
-                const phaseOrder = ['pending', 'nmap_discovery', 'nmap', 'ssh_audit', 'nuclei', 'completed'];
-                const currentIndex = phaseOrder.indexOf(scan.current_phase);
-                const thisIndex = phaseOrder.indexOf(phase);
 
-                const isComplete = thisIndex < currentIndex;
-                const isCurrent = phase === scan.current_phase;
+                const currentUIPhase = getCurrentUIPhase(scan.current_phase);
 
-                return (
-                  <div key={phase} className="flex items-center flex-1">
-                    <div className="flex flex-col items-center">
-                      <div
-                        className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${
-                          isComplete
-                            ? 'bg-green-500 text-white'
-                            : isCurrent
-                            ? 'bg-blue-600 text-white animate-pulse'
-                            : 'bg-gray-200 text-gray-500'
-                        }`}
-                      >
-                        {isComplete ? (
-                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          </svg>
-                        ) : (
-                          index + 1
-                        )}
+                return uiPhases.map((phase, index, arr) => {
+                  const isComplete = phase.id < currentUIPhase;
+                  const isCurrent = phase.id === currentUIPhase;
+
+                  return (
+                    <div key={phase.id} className="flex items-center flex-1">
+                      <div className="flex flex-col items-center">
+                        <div
+                          className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${
+                            isComplete
+                              ? 'bg-green-500 text-white'
+                              : isCurrent
+                              ? 'bg-blue-600 text-white animate-pulse'
+                              : 'bg-gray-200 text-gray-500'
+                          }`}
+                        >
+                          {isComplete ? (
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                          ) : (
+                            phase.id
+                          )}
+                        </div>
+                        <span
+                          className={`mt-1 text-xs font-medium ${
+                            isCurrent ? 'text-blue-600' : isComplete ? 'text-green-600' : 'text-gray-500'
+                          }`}
+                        >
+                          {phase.label}
+                        </span>
                       </div>
-                      <span
-                        className={`mt-1 text-xs font-medium ${
-                          isCurrent ? 'text-blue-600' : isComplete ? 'text-green-600' : 'text-gray-500'
-                        }`}
-                      >
-                        {phaseLabels[phase]}
-                      </span>
+                      {index < arr.length - 1 && (
+                        <div
+                          className={`flex-1 h-1 mx-2 rounded ${
+                            phase.id < currentUIPhase ? 'bg-green-500' : 'bg-gray-200'
+                          }`}
+                        />
+                      )}
                     </div>
-                    {index < arr.length - 1 && (
-                      <div
-                        className={`flex-1 h-1 mx-2 rounded ${
-                          thisIndex < currentIndex ? 'bg-green-500' : 'bg-gray-200'
-                        }`}
-                      />
-                    )}
-                  </div>
-                );
-              })}
+                  );
+                });
+              })()}
             </div>
+
+            {/* Current Tool Indicator */}
+            {scan.status === 'running' && (
+              <div className="flex items-center justify-center mb-4 text-sm text-gray-600">
+                <svg className="animate-spin h-4 w-4 mr-2 text-blue-500" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                <span>
+                  Running: <strong className="text-gray-800">
+                    {(() => {
+                      const toolNames: Record<string, string> = {
+                        pending: 'Initializing...',
+                        nmap_discovery: 'Port Discovery',
+                        nmap: 'Service Enumeration',
+                        ssh_audit: 'SSH Audit',
+                        nuclei: 'Nuclei Vulnerability Scan',
+                        nse: 'NSE Scripts',
+                        sslscan: 'SSL/TLS Analysis',
+                        nikto: 'Nikto Web Scan',
+                        zap: 'OWASP ZAP',
+                      };
+                      return toolNames[scan.current_phase] || scan.current_phase;
+                    })()}
+                  </strong>
+                </span>
+              </div>
+            )}
 
             {/* Progress Bar */}
             <div className="flex justify-between mb-1">
