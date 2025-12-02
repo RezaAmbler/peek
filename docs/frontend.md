@@ -2,9 +2,9 @@
 
 After reading this you'll understand:
 - Where the UI lives and the main libraries it uses.
-- The key pages (create/edit scan, list, detail) and what they show.
-- How the UI calls the Backend APIs for scans, ports, and vulnerabilities.
-- Where to start if you need to change Nuclei-related presentation.
+- The config-centric architecture where configs contain targets.
+- The key pages (configs, scans, comparisons) and what they show.
+- How the UI calls the Backend APIs.
 
 ## Stack & Layout
 
@@ -17,41 +17,57 @@ After reading this you'll understand:
 | Styling | Tailwind CSS, Headless UI |
 
 **Key directories**:
-- `src/pages/` — Views
-- `src/api/` — API clients
-- `src/components/` — Shared UI components
+- `src/pages/` -- Views
+- `src/api/` -- API clients
+- `src/components/` -- Shared UI components
+
+## Config-Centric Architecture
+
+The frontend follows the config-centric model:
+
+1. **Configs define targets**: Users create/edit configs with target IPs/hostnames
+2. **Scans are executions**: Starting a scan creates a run with auto-incremented `run_number`
+3. **Run history**: Scan detail page shows dropdown of all runs for that config
+4. **Comparisons**: Only scans from the same config can be compared
 
 ## Key Pages
 
-### Scan Creation (`src/pages/NewScan.tsx`)
+### Config Management (`src/pages/Configs.tsx`)
 
-- Lets users provide name, description, `config_id`, targets (manual or CSV)
+- Lists and edits `ScanConfig` records
+- **Targets**: JSON array of IPs/hostnames to scan
+- **Settings**: `enable_nuclei`, `nuclei_severity`, `nuclei_timeout`, `nuclei_templates`, `scan_mode`
+- **Scheduling**: `schedule` (cron), `schedule_enabled`
+
+### New Scan (`src/pages/NewScan.tsx`)
+
+- Selects a config (which contains targets)
+- Optionally overrides name/description
 - Uses `scansApi.create` then `scansApi.start` to queue the scan
-- Relies on selected `ScanConfig` for `scan_mode` and Nuclei settings
-
-### Scan Edit (`src/pages/ScanEdit.tsx`)
-
-- Edit pending scans (name/description/targets/config)
+- Targets are automatically copied from the selected config
 
 ### Scan List (`src/pages/Scans.tsx`)
 
 - Lists scans with status filter
+- Shows `run_number` and config name
 - Actions: start, cancel, delete
-- Shows `status`, `current_phase` (including `nuclei`), counts of open ports/vulns
+- Shows `status`, `current_phase`, counts of open ports/vulns
 
 ### Scan Detail (`src/pages/ScanDetail.tsx`)
 
+- **Run History Dropdown**: Switch between runs of the same config
 - **Summary**: `ScanTarget`s, `Port`s, `Vulnerability` counts
 - **Phase timeline**: `nmap_discovery`, `nmap`, `ssh_audit`, `nuclei`, `completed`
 - **Ports table**: IP, device, port, protocol, `service_name`, version, state, `discovered_by`
-- **Vulnerabilities section**: All severities (CRITICAL/HIGH/MEDIUM/LOW/INFO) if they exist
-- LOW/INFO visibility: Results show whatever severities the Backend returned based on `nuclei_severity`
+- **Vulnerabilities section**: All severities (CRITICAL/HIGH/MEDIUM/LOW/INFO)
+- **Compare button**: Launches comparison with another run of same config
 
-### Configs (`src/pages/Configs.tsx`)
+### Comparison View (`src/pages/ComparisonView.tsx`)
 
-- Lists and edits `ScanConfig` records
-- Fields: `enable_nuclei`, `nuclei_severity`, `nuclei_timeout`, `nuclei_templates`
-- Note: `scan_mode` is supported by Backend; Frontend API client may need extension to expose it
+- **Same-config only**: Can only compare scans sharing `config_id`
+- **Enriched output**: Shows version, product, associated vulnerabilities for changed ports
+- **Change cards**: New ports, removed ports, changed services, new/resolved vulnerabilities
+- **JSON references**: Parsed and displayed as clickable links
 
 ## API Integration
 
@@ -59,9 +75,10 @@ After reading this you'll understand:
 
 | Function | Description |
 |----------|-------------|
-| `create`, `createFromCSV` | Create new scan |
+| `create` | Create scan from config (auto-assigns `run_number`) |
 | `start`, `restart`, `cancel` | Control scan execution |
 | `list`, `get` | Retrieve scans |
+| `getComparable` | Get same-config scans for comparison selection |
 | `getPorts` | Get `Port` records for a scan |
 | `getSSHAudits` | Get SSH audit results |
 | `getVulnerabilities` | Get `Vulnerability` records |
@@ -73,30 +90,52 @@ After reading this you'll understand:
 | `list`, `get`, `create`, `update`, `delete` | CRUD for `ScanConfig` |
 | `setDefault` | Set default config |
 
-**Fields include**: `enable_nuclei`, `nuclei_severity`, `nuclei_templates`, `nuclei_timeout`
+**Fields include**: `targets`, `enable_nuclei`, `nuclei_severity`, `nuclei_templates`, `nuclei_timeout`, `scan_mode`, `schedule`, `schedule_enabled`
+
+### Comparisons API (`src/api/comparisons.ts`)
+
+| Function | Description |
+|----------|-------------|
+| `compare` | Generate enriched diff between two same-config scans |
 
 ### Typical UI Flow
 
-1. Create scan → call `POST /api/scans`
-2. Start scan → call `POST /api/scans/{id}/start`
-3. Poll scan status → `GET /api/scans/{id}`
-4. When running/completed:
-   - Fetch ports → `GET /api/scans/{id}/ports`
-   - Fetch vulnerabilities → `GET /api/scans/{id}/vulnerabilities`
-5. Display results including LOW/INFO severities
+1. Create/edit config with targets -> `POST/PATCH /api/configs`
+2. Select config and start scan -> `POST /api/scans` (auto-assigns `run_number`)
+3. Start scan -> `POST /api/scans/{id}/start`
+4. Poll scan status -> `GET /api/scans/{id}`
+5. When running/completed:
+   - Fetch ports -> `GET /api/scans/{id}/ports`
+   - Fetch vulnerabilities -> `GET /api/scans/{id}/vulnerabilities`
+6. Compare runs -> `POST /api/comparisons/compare` (validates same `config_id`)
 
-## Modifying Nuclei-Related UI
+## UI Features
+
+### Run History Dropdown
+Located on scan detail page, allows switching between runs of the same config:
+- Shows `run_number` and date
+- Enables quick navigation between runs
+- Only shows scans for the same `config_id`
+
+### Enriched Comparison View
+Port and vulnerability changes display:
+- **Version/Product**: Shows before/after for service changes
+- **Associated Vulnerabilities**: Lists vulns for changed ports
+- **Matched At**: Shows where vulnerabilities were detected
+
+## Modifying UI
 
 | Change | Where to Look |
 |--------|---------------|
+| Config form with targets | `src/pages/ConfigEdit.tsx` |
+| Run history dropdown | `src/pages/ScanDetail.tsx` |
+| Comparison view | `src/pages/ComparisonView.tsx` |
+| Change cards | `src/components/ChangeCard.tsx` |
 | Vulnerability rendering | `src/pages/ScanDetail.tsx` |
-| Severity toggles | `src/pages/ScanDetail.tsx` |
-| Ports/services display | `ScanDetail` ports table |
-| Expose `scan_mode` | Extend `src/api/configs.ts` types and `Configs` form |
 
 ## Related Documentation
 
-- **Backend**: [`backend.md`](backend.md) — Celery tasks, parsers
-- **Scan lifecycle**: [`scan-lifecycle.md`](scan-lifecycle.md) — End-to-end flow
-- **Usage guide**: [`usage-guide.md`](usage-guide.md) — Running scans
+- **Backend**: [`backend.md`](backend.md) -- Celery tasks, parsers
+- **Scan lifecycle**: [`scan-lifecycle.md`](scan-lifecycle.md) -- End-to-end flow
+- **Data model**: [`data-model.md`](data-model.md) -- Entity relationships
 - **Diagram**: [`mermaid/frontend-flow.mmd`](mermaid/frontend-flow.mmd)

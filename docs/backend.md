@@ -2,9 +2,19 @@
 
 After reading this you'll understand:
 - How the backend is structured (packages, key modules).
-- How Celery tasks orchestrate Nmap → Nuclei.
+- The config-centric architecture where configs define targets.
+- How Celery tasks orchestrate Nmap -> Nuclei.
 - Where tool wrappers, parsers, and `NucleiProfile` mapping live.
-- How to extend the scan pipeline (new tools or service profiles).
+- How comparisons work with same-config validation.
+
+## Config-Centric Architecture
+
+The backend implements a config-centric model:
+
+1. **ScanConfig contains targets**: `targets` is a JSON array of IPs/hostnames
+2. **Scan is an execution**: Each scan gets an auto-incremented `run_number` per config
+3. **Targets copied at start**: Worker copies `config.targets` to `ScanTarget` rows
+4. **Same-config comparisons**: Comparison API validates `config_id` matches
 
 ## Layout (`backend/app/`)
 
@@ -13,9 +23,9 @@ After reading this you'll understand:
 | `tasks/` | Celery orchestration (`scan_tasks.py` runs phases; `scheduled_scan_tasks.py` for recurring scans) |
 | `tools/` | External tool runners (`nmap.py`, `nuclei.py`, `ssh_audit.py`) |
 | `parsers/` | Parse tool output into models (`nmap_parser.py`, `nuclei_parser.py`, `ssh_audit_parser.py`) |
-| `services/` | Shared logic (`service_profile.py` for `NucleiProfile` mapping) |
-| `models/` | SQLAlchemy models (`Scan`, `ScanTarget`, `Port`, `ToolExecution`, `Vulnerability`, `ScanConfig`) |
-| `routers/` | API endpoints (scans, configs, auth, reports) |
+| `services/` | Shared logic (`service_profile.py` for `NucleiProfile` mapping, `comparison_service.py` for diff generation) |
+| `models/` | SQLAlchemy models (`ScanConfig`, `Scan`, `ScanTarget`, `Port`, `ToolExecution`, `Vulnerability`) |
+| `routers/` | API endpoints (scans, configs, comparisons, auth, reports) |
 | `schemas/` | Pydantic schemas for API payloads |
 | `core/` | Settings (`config.py`), security helpers, DB session |
 
@@ -25,12 +35,36 @@ Entry point: `run_scan` in `backend/app/tasks/scan_tasks.py`:
 
 | Phase | Action | Output |
 |-------|--------|--------|
+| 0 | Copy targets from config | Creates `ScanTarget` rows from `config.targets` |
 | 1 | Nmap discovery | Creates `Port` rows (`state=open`) |
 | 2 | Nmap service detection | Updates `Port` with `service_name`, `product`, `version`, `extra_info` |
 | 3 | ssh-audit (optional) | SSH security analysis on configured ports |
 | 4 | Nuclei per-port | Runs Nuclei per `Port` (service-aware; honors `scan_mode`, exclusions, tag validation) |
 
 `ToolExecution` is created per tool run with `command_line`, timing, `raw_output`, `exit_code`, and links to `ScanTarget` (and `Port` via `port_id` for per-port runs like Nuclei).
+
+## Run Number Assignment
+
+When creating a scan via `POST /api/scans`:
+
+1. Query `MAX(run_number)` for the given `config_id`
+2. Assign `run_number = max + 1` (or 1 if first run)
+3. Auto-generate name as "Run #N -- YYYY-MM-DD" if not provided
+
+## Comparison Engine
+
+Located in `backend/app/services/comparison_service.py`:
+
+**Validation**:
+- Scans must share the same `config_id`
+- Returns error if configs differ
+
+**Enriched Output**:
+- Port changes include `version`, `product`, `associated_vulnerabilities`
+- Vulnerability changes include `matched_at`, severity, template info
+- JSON references are preserved for frontend parsing
+
+**Endpoint**: `POST /api/comparisons/compare`
 
 ## Tool Wrappers
 
@@ -64,14 +98,15 @@ Given a `Port`'s `service_name`/`product`/`version`, `get_nuclei_profile()` retu
 | `timeout_multiplier` | Scales `nuclei_timeout` |
 | `rate_limit` | Optional per-profile rate limit |
 
-**Features**:
-- **Product tags**: Added based on product substring matches (e.g., apache, nginx, mysql)
-- **Scan modes**: `scan_mode` from `ScanConfig` (`fast`/`deep`) influences HTTP tags
-  - `fast`: Uses `scan_modes.fast.http_tags` + product tags
-  - `deep`: Uses empty tags (comprehensive)
-- **Exclusions**: `excluded_templates` from YAML passed to Nuclei as `-exclude-templates`
-- **Tag validation**: `validate_tags()` checks that tags resolve to templates; `Port`s are skipped if no templates match
-- **Unknown services**: Fall back to `[service_name, network]` when `scan_unknown_services` is enabled
+## Scheduled Scans
+
+Celery Beat checks `ScheduledScan` records and triggers scans based on cron expressions.
+
+When triggered:
+1. Creates a new `Scan` with next `run_number`
+2. Copies `config.targets` to `ScanTarget` rows
+3. Executes normal scan pipeline
+4. Updates `last_scheduled_run` on the config
 
 ## Extending the Backend
 

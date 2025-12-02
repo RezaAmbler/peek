@@ -1,11 +1,16 @@
-++ docs/mermaid/scan-lifecycle.mmd
+%% PEEK Scan Lifecycle - Config-Centric Architecture
+%% ScanConfig contains targets; Scan is an execution with run_number
+
 graph TD;
   U["User"] --> FE["Frontend"];
   FE --> API["Backend API"];
-  API --> W["Worker / Celery"];
-  W --> D1["Nmap discovery"];
+  API --> |"Select config"| SC["ScanConfig (has targets)"];
+  SC --> W["Worker / Celery"];
+  W --> |"Assign run_number"| RN["Create Scan record"];
+  RN --> T["Copy config.targets to ScanTarget"];
+  T --> D1["Nmap discovery"];
   D1 --> P1["Ports created (open)"];
-  W --> D2["Nmap service detection"];
+  P1 --> D2["Nmap service detection"];
   D2 --> P2["Ports updated (service/product/version)"];
   P2 --> SP["service_profile + nuclei_profiles.yaml"];
   SP --> NQ["Build nuclei target + tags"];
