@@ -105,6 +105,7 @@ class ComparisonService:
                     'protocol': port['protocol'],
                     'service_name': port['service_name'],
                     'version': port['version'],
+                    'product': port.get('product'),
                     'description': f"New open port: {port['port']}/{port['protocol']}"
                 })
 
@@ -121,6 +122,8 @@ class ComparisonService:
                     'port': port['port'],
                     'protocol': port['protocol'],
                     'service_name': port['service_name'],
+                    'version': port['version'],
+                    'product': port.get('product'),
                     'description': f"Port closed: {port['port']}/{port['protocol']}"
                 })
 
@@ -188,6 +191,8 @@ class ComparisonService:
                     'name': vuln['name'],
                     'vuln_severity': vuln['severity'],
                     'matched_at': vuln['matched_at'],
+                    'vuln_description': vuln.get('description'),
+                    'reference': vuln.get('reference'),
                     'description': f"New {vuln['severity']} vulnerability: {vuln['name']}"
                 })
 
@@ -205,6 +210,9 @@ class ComparisonService:
                     'template_id': vuln['template_id'],
                     'name': vuln['name'],
                     'vuln_severity': vuln['severity'],
+                    'matched_at': vuln['matched_at'],
+                    'vuln_description': vuln.get('description'),
+                    'reference': vuln.get('reference'),
                     'description': f"Fixed {vuln['severity']} vulnerability: {vuln['name']}"
                 })
 
@@ -345,7 +353,8 @@ class ComparisonService:
                 p.protocol,
                 p.state,
                 p.service_name,
-                p.version
+                p.version,
+                p.product
             FROM ports p
             JOIN scan_targets st ON p.scan_target_id = st.id
             WHERE st.scan_id = :scan_id
@@ -363,7 +372,8 @@ class ComparisonService:
                 'protocol': row[3],
                 'state': row[4],
                 'service_name': row[5],
-                'version': row[6]
+                'version': row[6],
+                'product': row[7]
             })
 
         return ports
@@ -378,7 +388,9 @@ class ComparisonService:
                 v.name,
                 v.severity,
                 v.port,
-                v.matched_at
+                v.matched_at,
+                v.description,
+                v.reference
             FROM vulnerabilities v
             JOIN scan_targets st ON v.scan_target_id = st.id
             WHERE st.scan_id = :scan_id
@@ -395,7 +407,9 @@ class ComparisonService:
                 'name': row[3],
                 'severity': row[4],
                 'port': row[5],
-                'matched_at': row[6]
+                'matched_at': row[6],
+                'description': row[7],
+                'reference': row[8]
             })
 
         return vulns
