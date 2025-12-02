@@ -2,40 +2,34 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, delete
 from typing import Optional
-import csv
-import io
+from datetime import datetime
 import uuid
 from ..database import get_db
 from ..models import Scan, ScanTarget, ScanConfig, User, ScanStatus, Port, SSHAudit, Vulnerability, NseFinding, SslScanResult
 from ..schemas.scan import (
     ScanCreate,
-    ScanCreateFromCSV,
     ScanUpdate,
     ScanResponse,
     ScanDetailResponse,
     ScanListResponse,
-    TargetInput
 )
 from ..routers.auth import get_current_user
 
 router = APIRouter()
 
-def parse_csv_targets(csv_content: str) -> list[TargetInput]:
-    """Parse CSV content into target list"""
-    targets = []
-    reader = csv.DictReader(io.StringIO(csv_content))
 
-    for row in reader:
-        # Support both "ip" and "ip_address" column names
-        ip = row.get('ip_address') or row.get('ip') or row.get('IP')
-        device = row.get('device_name') or row.get('device') or row.get('name') or row.get('hostname')
+async def get_next_run_number(db: AsyncSession, config_id: str) -> int:
+    """Get the next run number for a config."""
+    result = await db.execute(
+        select(func.max(Scan.run_number)).where(Scan.config_id == config_id)
+    )
+    max_run = result.scalar()
+    return (max_run or 0) + 1
 
-        if not ip:
-            continue
 
-        targets.append(TargetInput(ip_address=ip.strip(), device_name=device.strip() if device else None))
-
-    return targets
+def generate_scan_name(run_number: int, created_at: datetime) -> str:
+    """Generate default scan name if not provided."""
+    return f"Run #{run_number} — {created_at.strftime('%b %d, %Y %H:%M')}"
 
 @router.get("", response_model=ScanListResponse, summary="List all scans")
 async def list_scans(
@@ -113,12 +107,12 @@ async def create_scan(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Create a new scan with target IP addresses.
+    Create a new scan run from a configuration.
 
+    Targets are inherited from the config — they are copied to ScanTarget rows at scan creation.
     The scan is created in **pending** status. Call `POST /api/scans/{id}/start` to queue it for execution.
     """
     # Verify config exists and user has access
-    # Convert UUID to string for SQLite string column comparison
     config_id_str = str(scan_data.config_id)
     config_result = await db.execute(
         select(ScanConfig).where(ScanConfig.id == config_id_str)
@@ -131,26 +125,38 @@ async def create_scan(
     if config.user_id != current_user.id and not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Not authorized to use this configuration")
 
+    # Validate config has targets
+    if not config.targets or len(config.targets) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Configuration has no targets. Add targets to the config before creating a scan."
+        )
+
+    # Get next run number for this config
+    run_number = await get_next_run_number(db, config_id_str)
+
     # Create scan
+    created_at = datetime.utcnow()
     scan = Scan(
         user_id=current_user.id,
         created_by_id=current_user.id,
         organization_id=None,  # Phase 1-4: always NULL
         config_id=config_id_str,
-        name=scan_data.name,
+        run_number=run_number,
+        name=scan_data.name or generate_scan_name(run_number, created_at),
         description=scan_data.description,
-        baseline_scan_id=str(scan_data.baseline_scan_id) if scan_data.baseline_scan_id else None,
-        total_targets=len(scan_data.targets)
+        created_at=created_at,
+        total_targets=len(config.targets)
     )
     db.add(scan)
     await db.flush()  # Get scan.id
 
-    # Create targets
-    for idx, target in enumerate(scan_data.targets):
+    # Create targets from config.targets
+    for idx, target_ip in enumerate(config.targets):
         scan_target = ScanTarget(
             scan_id=scan.id,
-            ip_address=target.ip_address,
-            device_name=target.device_name,
+            ip_address=target_ip.strip(),
+            device_name=None,  # Could add device_name mapping in config later
             sequence=idx
         )
         db.add(scan_target)
@@ -158,34 +164,29 @@ async def create_scan(
     await db.commit()
     await db.refresh(scan)
 
-    return scan
-
-@router.post("/from-csv", response_model=ScanResponse, status_code=status.HTTP_201_CREATED)
-async def create_scan_from_csv(
-    scan_data: ScanCreateFromCSV,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Create a new scan with targets from CSV"""
-    # Parse CSV
-    try:
-        targets = parse_csv_targets(scan_data.targets_csv)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid CSV format: {str(e)}")
-
-    if not targets:
-        raise HTTPException(status_code=400, detail="No valid targets found in CSV")
-
-    # Create using regular create logic
-    create_data = ScanCreate(
-        name=scan_data.name,
-        description=scan_data.description,
-        config_id=scan_data.config_id,
-        targets=targets,
-        baseline_scan_id=scan_data.baseline_scan_id
+    # Return with config_name for display
+    response = ScanResponse(
+        id=scan.id,
+        user_id=scan.user_id,
+        created_by_id=scan.created_by_id,
+        config_id=scan.config_id,
+        config_name=config.name,
+        run_number=scan.run_number,
+        name=scan.name,
+        description=scan.description,
+        status=scan.status,
+        current_phase=scan.current_phase,
+        created_at=scan.created_at,
+        started_at=scan.started_at,
+        finished_at=scan.finished_at,
+        progress_percent=scan.progress_percent,
+        total_targets=scan.total_targets,
+        completed_targets=scan.completed_targets,
+        failed_targets=scan.failed_targets,
+        total_open_ports=scan.total_open_ports,
+        total_vulnerabilities=scan.total_vulnerabilities,
     )
-
-    return await create_scan(create_data, current_user, db)
+    return response
 
 @router.delete("/{scan_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_scan(
@@ -220,7 +221,7 @@ async def update_scan(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Update a scan (only if status is pending)"""
+    """Update scan metadata (name, description only). Config and targets cannot be changed after creation."""
     result = await db.execute(select(Scan).where(Scan.id == scan_id))
     scan = result.scalar_one_or_none()
 
@@ -238,47 +239,10 @@ async def update_scan(
             detail="Cannot edit scan that is not in pending status"
         )
 
-    # Validate config exists if provided (before updating fields)
-    if scan_update.config_id:
-        config_id_str = str(scan_update.config_id)
-        config_result = await db.execute(
-            select(ScanConfig).where(ScanConfig.id == config_id_str)
-        )
-        config = config_result.scalar_one_or_none()
-        if not config:
-            raise HTTPException(status_code=404, detail="Configuration not found")
-        if config.user_id != current_user.id and not current_user.is_admin:
-            raise HTTPException(status_code=403, detail="Not authorized to use this configuration")
-
-    # Update basic fields - convert UUIDs to strings for SQLite
-    update_data = scan_update.model_dump(exclude_unset=True, exclude={'targets'})
+    # Update only name and description
+    update_data = scan_update.model_dump(exclude_unset=True)
     for field, value in update_data.items():
-        # Convert UUID fields to strings
-        if field in ('config_id', 'baseline_scan_id') and value is not None:
-            value = str(value)
         setattr(scan, field, value)
-
-    # Update targets if provided
-    if scan_update.targets is not None:
-        # Delete existing targets
-        await db.execute(
-            delete(ScanTarget).where(ScanTarget.scan_id == scan_id)
-        )
-        await db.flush()
-
-        # Add new targets
-        for idx, target in enumerate(scan_update.targets):
-            scan_target = ScanTarget(
-                id=str(uuid.uuid4()),
-                scan_id=scan_id,
-                ip_address=target.ip_address,
-                device_name=target.device_name,
-                sequence=idx
-            )
-            db.add(scan_target)
-
-        # Update total_targets count
-        scan.total_targets = len(scan_update.targets)
 
     await db.commit()
     await db.refresh(scan)
@@ -359,18 +323,18 @@ async def restart_scan(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Restart a failed/completed/cancelled scan by creating a new scan with the same configuration.
+    Restart a failed/completed/cancelled scan by creating a new run of the same configuration.
 
     Creates a new scan with:
-    - Same name (with " (retry)" suffix)
-    - Same description
+    - Next run_number for the config
+    - Auto-generated name (or with " (retry)" suffix if original had custom name)
     - Same configuration
-    - Same targets
+    - Fresh targets from config
     - Automatically starts the new scan
 
     Returns the new scan object.
     """
-    # Get original scan
+    # Get original scan with config
     result = await db.execute(
         select(Scan).where(Scan.id == scan_id)
     )
@@ -389,21 +353,34 @@ async def restart_scan(
             detail="Cannot restart a scan that is currently running or queued"
         )
 
-    # Get original targets
-    targets_result = await db.execute(
-        select(ScanTarget)
-        .where(ScanTarget.scan_id == scan_id)
-        .order_by(ScanTarget.sequence)
+    # Get config to get current targets
+    config_result = await db.execute(
+        select(ScanConfig).where(ScanConfig.id == original_scan.config_id)
     )
-    original_targets = targets_result.scalars().all()
+    config = config_result.scalar_one_or_none()
 
-    if not original_targets:
-        raise HTTPException(status_code=400, detail="Original scan has no targets")
+    if not config:
+        raise HTTPException(status_code=404, detail="Configuration not found")
+
+    if not config.targets or len(config.targets) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Configuration has no targets. Add targets before restarting."
+        )
+
+    # Get next run number
+    run_number = await get_next_run_number(db, original_scan.config_id)
 
     # Create new scan name
-    new_name = original_scan.name
-    if not new_name.endswith(" (retry)"):
-        new_name = f"{new_name} (retry)"
+    created_at = datetime.utcnow()
+    if original_scan.name and not original_scan.name.startswith("Run #"):
+        # Custom name - add retry suffix
+        new_name = original_scan.name
+        if not new_name.endswith(" (retry)"):
+            new_name = f"{new_name} (retry)"
+    else:
+        # Auto-generated name
+        new_name = generate_scan_name(run_number, created_at)
 
     # Create new scan
     new_scan = Scan(
@@ -411,20 +388,21 @@ async def restart_scan(
         created_by_id=current_user.id,
         organization_id=original_scan.organization_id,
         config_id=original_scan.config_id,
+        run_number=run_number,
         name=new_name,
         description=original_scan.description,
-        baseline_scan_id=original_scan.baseline_scan_id,
-        total_targets=len(original_targets)
+        created_at=created_at,
+        total_targets=len(config.targets)
     )
     db.add(new_scan)
     await db.flush()  # Get new_scan.id
 
-    # Copy targets to new scan
-    for idx, target in enumerate(original_targets):
+    # Create targets from config (fresh copy)
+    for idx, target_ip in enumerate(config.targets):
         new_target = ScanTarget(
             scan_id=new_scan.id,
-            ip_address=target.ip_address,
-            device_name=target.device_name,
+            ip_address=target_ip.strip(),
+            device_name=None,
             sequence=idx
         )
         db.add(new_target)
@@ -442,6 +420,75 @@ async def restart_scan(
     await db.refresh(new_scan)
 
     return new_scan
+
+
+@router.get("/{scan_id}/comparable", summary="Get comparable scans")
+async def get_comparable_scans(
+    scan_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get scans that can be compared with this one (same config_id).
+
+    Only completed scans from the same configuration are returned,
+    as meaningful comparisons require the same targets and scan settings.
+    """
+    # Get current scan
+    result = await db.execute(select(Scan).where(Scan.id == scan_id))
+    scan = result.scalar_one_or_none()
+
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    if scan.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Get config for display
+    config_result = await db.execute(
+        select(ScanConfig).where(ScanConfig.id == scan.config_id)
+    )
+    config = config_result.scalar_one_or_none()
+
+    # Get comparable scans (same config, completed, not self)
+    comparable_result = await db.execute(
+        select(Scan)
+        .where(
+            Scan.config_id == scan.config_id,
+            Scan.id != scan_id,
+            Scan.status == "completed"
+        )
+        .order_by(Scan.created_at.desc())
+    )
+    comparable_scans = comparable_result.scalars().all()
+
+    return {
+        "current_scan": {
+            "id": scan.id,
+            "name": scan.name,
+            "run_number": scan.run_number,
+            "config_id": scan.config_id,
+            "config_name": config.name if config else None,
+            "status": scan.status,
+            "created_at": scan.created_at.isoformat(),
+            "total_targets": scan.total_targets
+        },
+        "comparable_scans": [
+            {
+                "id": s.id,
+                "name": s.name,
+                "run_number": s.run_number,
+                "status": s.status,
+                "created_at": s.created_at.isoformat(),
+                "total_targets": s.total_targets,
+                "total_open_ports": s.total_open_ports,
+                "total_vulnerabilities": s.total_vulnerabilities
+            }
+            for s in comparable_scans
+        ],
+        "total_comparable": len(comparable_scans)
+    }
+
 
 @router.get("/{scan_id}/ports", summary="Get discovered ports")
 async def get_scan_ports(

@@ -17,7 +17,9 @@ export interface Scan {
   user_id: string;
   created_by_id: string;
   config_id: string;
-  name: string;
+  config_name?: string;  // Denormalized for display
+  run_number: number;
+  name?: string;  // May be null, display as "Run #N — Date" if so
   description?: string;
   status: string;
   current_phase: string;
@@ -30,7 +32,6 @@ export interface Scan {
   failed_targets: number;
   total_open_ports: number;
   total_vulnerabilities: number;
-  baseline_scan_id?: string;
 }
 
 export interface ScanDetail extends Scan {
@@ -45,33 +46,41 @@ export interface ScanListResponse {
   pages: number;
 }
 
-export interface TargetInput {
-  ip_address: string;
-  device_name?: string;
-}
-
 export interface CreateScanRequest {
-  name: string;
+  config_id: string;  // Required - targets come from config
+  name?: string;  // Optional - auto-generated as "Run #N — Date" if not provided
   description?: string;
-  config_id: string;
-  targets: TargetInput[];
-  baseline_scan_id?: string;
-}
-
-export interface CreateScanFromCSVRequest {
-  name: string;
-  description?: string;
-  config_id: string;
-  targets_csv: string;
-  baseline_scan_id?: string;
 }
 
 export interface UpdateScanRequest {
   name?: string;
   description?: string;
-  config_id?: string;
-  targets?: TargetInput[];
-  baseline_scan_id?: string;
+}
+
+export interface ComparableScan {
+  id: string;
+  name?: string;
+  run_number: number;
+  status: string;
+  created_at: string;
+  total_targets: number;
+  total_open_ports: number;
+  total_vulnerabilities: number;
+}
+
+export interface ComparableScansResponse {
+  current_scan: {
+    id: string;
+    name?: string;
+    run_number: number;
+    config_id: string;
+    config_name?: string;
+    status: string;
+    created_at: string;
+    total_targets: number;
+  };
+  comparable_scans: ComparableScan[];
+  total_comparable: number;
 }
 
 export interface Port {
@@ -225,11 +234,6 @@ export const scansApi = {
     return data;
   },
 
-  async createFromCSV(scan: CreateScanFromCSVRequest): Promise<Scan> {
-    const { data } = await apiClient.post<Scan>('/api/scans/from-csv', scan);
-    return data;
-  },
-
   async update(scanId: string, scan: UpdateScanRequest): Promise<Scan> {
     const { data } = await apiClient.patch<Scan>(`/api/scans/${scanId}`, scan);
     return data;
@@ -277,6 +281,11 @@ export const scansApi = {
 
   async getSSLScanResults(scanId: string): Promise<SSLScanResult[]> {
     const { data } = await apiClient.get<SSLScanResult[]>(`/api/scans/${scanId}/sslscan-results`);
+    return data;
+  },
+
+  async getComparable(scanId: string): Promise<ComparableScansResponse> {
+    const { data } = await apiClient.get<ComparableScansResponse>(`/api/scans/${scanId}/comparable`);
     return data;
   },
 };

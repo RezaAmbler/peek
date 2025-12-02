@@ -54,6 +54,14 @@ class ScanConfig(Base):
     nikto_timeout = Column(Integer, default=120, nullable=False)  # seconds
     target_urls = Column(JSON, nullable=True)  # ["https://example.com/app"]
 
+    # Targets — list of IPs or hostnames to scan
+    targets = Column(JSON, nullable=False, default=list)  # ["44.211.84.221", "10.0.0.1"]
+
+    # Scheduling (for automated recurring scans)
+    schedule = Column(String, nullable=True)  # Cron expression: "0 2 * * 0" = Sunday 2am
+    schedule_enabled = Column(Boolean, default=False, nullable=False)
+    last_scheduled_run = Column(DateTime, nullable=True)
+
     # Advanced timeouts
     global_tool_timeout_seconds = Column(Integer, nullable=True)
     parallelism_limit = Column(Integer, nullable=True)  # If null, uses max_concurrent_hosts
@@ -71,3 +79,4 @@ class ScanConfig(Base):
 
     # Relationships
     user = relationship("User", back_populates="scan_configs")
+    scans = relationship("Scan", back_populates="config", order_by="desc(Scan.created_at)")

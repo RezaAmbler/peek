@@ -6,6 +6,13 @@ export interface ScanConfig {
   organization_id?: string | null;
   name: string;
   description?: string;
+  // Targets — list of IPs or hostnames to scan
+  targets: string[];
+  // Scheduling
+  schedule?: string | null;  // Cron expression
+  schedule_enabled: boolean;
+  last_scheduled_run?: string | null;
+  run_count?: number;
   // Scan mode
   scan_mode: 'fast' | 'deep';
   // Tool toggles
@@ -60,6 +67,11 @@ export interface ConfigListResponse {
 export interface CreateConfigRequest {
   name: string;
   description?: string;
+  // Targets — list of IPs or hostnames to scan
+  targets?: string[];
+  // Scheduling
+  schedule?: string | null;
+  schedule_enabled?: boolean;
   // Scan mode
   scan_mode?: 'fast' | 'deep';
   // Tool toggles

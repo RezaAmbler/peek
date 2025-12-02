@@ -7,6 +7,9 @@ class ScanConfigBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="Configuration name", json_schema_extra={"example": "Production Scan Config"})
     description: Optional[str] = Field(None, max_length=500, description="Configuration description", json_schema_extra={"example": "Careful scan settings for production servers"})
 
+    # Targets — list of IPs or hostnames to scan
+    targets: List[str] = Field(default=[], description="List of IPs or hostnames to scan", json_schema_extra={"example": ["44.211.84.221", "10.0.0.1"]})
+
     # Scanning parameters
     masscan_rate: int = Field(default=1000, ge=100, le=100000, description="Masscan packets per second", json_schema_extra={"example": 1000})
     masscan_interface: Optional[str] = Field(None, max_length=50, description="Network interface for masscan", json_schema_extra={"example": "eth0"})
@@ -51,6 +54,18 @@ class ScanConfigBase(BaseModel):
     email_on_completion: bool = False
     email_on_changes_only: bool = False
 
+    # Scheduling (for automated recurring scans)
+    schedule: Optional[str] = Field(None, description="Cron expression for scheduled runs", json_schema_extra={"example": "0 2 * * 0"})
+    schedule_enabled: bool = Field(default=False, description="Whether scheduled runs are enabled")
+
+    @field_validator('targets')
+    @classmethod
+    def validate_targets(cls, v: List[str]) -> List[str]:
+        if v is None:
+            return []
+        # Basic validation - could add IP/hostname validation here
+        return [t.strip() for t in v if t.strip()]
+
     @field_validator('ssh_ports', 'highlight_ports')
     @classmethod
     def validate_ports(cls, v: List[int]) -> List[int]:
@@ -89,6 +104,7 @@ class ScanConfigCreate(ScanConfigBase):
 class ScanConfigUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
+    targets: Optional[List[str]] = Field(None, description="List of IPs or hostnames to scan")
     masscan_rate: Optional[int] = Field(None, ge=100, le=100000)
     masscan_interface: Optional[str] = None
     nmap_args: Optional[List[str]] = None
@@ -119,6 +135,8 @@ class ScanConfigUpdate(BaseModel):
     highlight_ports: Optional[List[int]] = None
     email_on_completion: Optional[bool] = None
     email_on_changes_only: Optional[bool] = None
+    schedule: Optional[str] = Field(None, description="Cron expression for scheduled runs")
+    schedule_enabled: Optional[bool] = Field(None, description="Whether scheduled runs are enabled")
 
 class ScanConfigResponse(ScanConfigBase):
     id: str
@@ -128,6 +146,8 @@ class ScanConfigResponse(ScanConfigBase):
     updated_at: datetime
     is_default: bool
     is_preset: bool = False  # System presets cannot be edited/deleted
+    last_scheduled_run: Optional[datetime] = None
+    run_count: int = 0  # Number of scans run with this config
 
     class Config:
         from_attributes = True

@@ -77,6 +77,13 @@ async def create_comparison(
     if current.status != "completed":
         raise HTTPException(status_code=400, detail="Current scan is not completed")
 
+    # Both scans must be from the same configuration
+    if baseline.config_id != current.config_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot compare scans from different configurations. Both scans must use the same config to ensure meaningful comparison."
+        )
+
     # Get ports from both scans
     baseline_ports = await _get_ports_by_scan(db, baseline_scan_id)
     current_ports = await _get_ports_by_scan(db, current_scan_id)
