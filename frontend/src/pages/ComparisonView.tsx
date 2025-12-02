@@ -85,25 +85,25 @@ export function ComparisonView() {
 
           {/* Summary Stats */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4" data-component="ComparisonStats">
-            <div className="bg-red-50 p-4 rounded" data-testid="comparison-stat-new-ports">
-              <p className="text-sm text-gray-600">New Ports</p>
-              <p className="text-2xl font-bold text-red-600">{comparison.new_ports}</p>
+            <div className={`p-4 rounded ${comparison.new_ports === 0 ? 'bg-gray-50' : 'bg-red-50'}`} data-testid="comparison-stat-new-ports">
+              <p className={`text-sm ${comparison.new_ports === 0 ? 'text-gray-400' : 'text-gray-600'}`}>New Ports</p>
+              <p className={`text-2xl font-bold ${comparison.new_ports === 0 ? 'text-gray-300' : 'text-red-600'}`}>{comparison.new_ports}</p>
             </div>
-            <div className="bg-green-50 p-4 rounded" data-testid="comparison-stat-closed-ports">
-              <p className="text-sm text-gray-600">Closed Ports</p>
-              <p className="text-2xl font-bold text-green-600">{comparison.closed_ports}</p>
+            <div className={`p-4 rounded ${comparison.closed_ports === 0 ? 'bg-gray-50' : 'bg-green-50'}`} data-testid="comparison-stat-closed-ports">
+              <p className={`text-sm ${comparison.closed_ports === 0 ? 'text-gray-400' : 'text-gray-600'}`}>Closed Ports</p>
+              <p className={`text-2xl font-bold ${comparison.closed_ports === 0 ? 'text-gray-300' : 'text-green-600'}`}>{comparison.closed_ports}</p>
             </div>
-            <div className="bg-yellow-50 p-4 rounded" data-testid="comparison-stat-version-changes">
-              <p className="text-sm text-gray-600">Version Changes</p>
-              <p className="text-2xl font-bold text-yellow-600">{comparison.version_changes}</p>
+            <div className={`p-4 rounded ${comparison.version_changes === 0 ? 'bg-gray-50' : 'bg-yellow-50'}`} data-testid="comparison-stat-version-changes">
+              <p className={`text-sm ${comparison.version_changes === 0 ? 'text-gray-400' : 'text-gray-600'}`}>Version Changes</p>
+              <p className={`text-2xl font-bold ${comparison.version_changes === 0 ? 'text-gray-300' : 'text-yellow-600'}`}>{comparison.version_changes}</p>
             </div>
-            <div className="bg-red-50 p-4 rounded" data-testid="comparison-stat-new-vulns">
-              <p className="text-sm text-gray-600">New Vulnerabilities</p>
-              <p className="text-2xl font-bold text-red-600">{comparison.new_vulnerabilities}</p>
+            <div className={`p-4 rounded ${comparison.new_vulnerabilities === 0 ? 'bg-gray-50' : 'bg-red-50'}`} data-testid="comparison-stat-new-vulns">
+              <p className={`text-sm ${comparison.new_vulnerabilities === 0 ? 'text-gray-400' : 'text-gray-600'}`}>New Vulnerabilities</p>
+              <p className={`text-2xl font-bold ${comparison.new_vulnerabilities === 0 ? 'text-gray-300' : 'text-red-600'}`}>{comparison.new_vulnerabilities}</p>
             </div>
-            <div className="bg-green-50 p-4 rounded" data-testid="comparison-stat-fixed-vulns">
-              <p className="text-sm text-gray-600">Fixed Vulnerabilities</p>
-              <p className="text-2xl font-bold text-green-600">{comparison.fixed_vulnerabilities}</p>
+            <div className={`p-4 rounded ${comparison.fixed_vulnerabilities === 0 ? 'bg-gray-50' : 'bg-green-50'}`} data-testid="comparison-stat-fixed-vulns">
+              <p className={`text-sm ${comparison.fixed_vulnerabilities === 0 ? 'text-gray-400' : 'text-gray-600'}`}>Fixed Vulnerabilities</p>
+              <p className={`text-2xl font-bold ${comparison.fixed_vulnerabilities === 0 ? 'text-gray-300' : 'text-green-600'}`}>{comparison.fixed_vulnerabilities}</p>
             </div>
           </div>
 
@@ -131,11 +131,28 @@ export function ComparisonView() {
             )}
           </div>
 
-          {/* Summary Text */}
+          {/* Summary Text - parse and display cleanly */}
           <div className="mt-4 bg-gray-50 p-4 rounded">
-            <pre className="text-sm whitespace-pre-wrap font-mono">
-              {comparison.summary}
-            </pre>
+            {comparison.summary.split('\n').map((line, idx) => {
+              // First line is the comparison title - make it bold
+              if (idx === 0) {
+                return (
+                  <p key={idx} className="text-sm font-semibold text-gray-800">
+                    {line.replace('Comparison: ', '')}
+                  </p>
+                );
+              }
+              // Empty lines
+              if (!line.trim()) return null;
+              // Lines with emoji stats (duplicates of boxes above) - skip them
+              if (line.match(/^[📊🟢🔴🟡]/)) return null;
+              // Date lines
+              return (
+                <p key={idx} className="text-xs text-gray-500 mt-0.5">
+                  {line}
+                </p>
+              );
+            })}
           </div>
         </div>
 

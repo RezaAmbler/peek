@@ -4,6 +4,28 @@ interface ChangeCardProps {
   change: Change;
 }
 
+// Helper function to parse JSON reference arrays into clickable URLs
+const parseReferences = (ref: string | null | undefined): string[] => {
+  if (!ref || ref === 'null') return [];
+  try {
+    const parsed = JSON.parse(ref);
+    return Array.isArray(parsed) ? parsed.filter(Boolean) : [parsed];
+  } catch {
+    // If not JSON, treat as single URL if it starts with http
+    return ref.startsWith('http') ? [ref] : [];
+  }
+};
+
+// Helper to shorten URL for display
+const formatUrlForDisplay = (url: string): string => {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname + parsed.pathname;
+  } catch {
+    return url;
+  }
+};
+
 export function ChangeCard({ change }: ChangeCardProps) {
   const typeIcons: Record<string, string> = {
     NEW_PORT: '🔴',
@@ -64,7 +86,8 @@ export function ChangeCard({ change }: ChangeCardProps) {
                 <span className="text-xs font-mono bg-gray-200 px-2 py-1 rounded">
                   {change.template_id}
                 </span>
-                {change.matched_at && (
+                {/* Only show matched_at if it adds info beyond simple ip:port */}
+                {change.matched_at && !change.matched_at.match(/^\d+\.\d+\.\d+\.\d+:\d+$/) && (
                   <p className="text-xs text-gray-600 mt-1 break-all">
                     {change.matched_at}
                   </p>
@@ -74,12 +97,21 @@ export function ChangeCard({ change }: ChangeCardProps) {
                     {change.vuln_description}
                   </p>
                 )}
-                {change.reference && (
-                  <p className="text-xs text-blue-600 mt-1 break-all">
-                    <a href={change.reference} target="_blank" rel="noopener noreferrer" className="hover:underline">
-                      {change.reference}
-                    </a>
-                  </p>
+                {/* Parse and render references as clickable links */}
+                {parseReferences(change.reference).length > 0 && (
+                  <div className="mt-1">
+                    {parseReferences(change.reference).map((url, idx) => (
+                      <a
+                        key={idx}
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-blue-600 hover:underline block break-all"
+                      >
+                        {formatUrlForDisplay(url)}
+                      </a>
+                    ))}
+                  </div>
                 )}
               </div>
             )}
@@ -88,7 +120,7 @@ export function ChangeCard({ change }: ChangeCardProps) {
             {change.type === 'CLOSED_PORT' && change.associated_vulnerabilities && change.associated_vulnerabilities.length > 0 && (
               <div className="mt-3 p-2 bg-green-50 rounded border border-green-200">
                 <p className="text-xs font-semibold text-green-800 mb-1">
-                  🛡️ {change.associated_vulnerabilities.length} vulnerability(ies) also fixed:
+                  🛡️ {change.associated_vulnerabilities.length} {change.associated_vulnerabilities.length === 1 ? 'vulnerability' : 'vulnerabilities'} also fixed:
                 </p>
                 <ul className="text-xs text-green-700 space-y-1">
                   {change.associated_vulnerabilities.map((vuln, idx) => (

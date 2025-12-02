@@ -88,6 +88,45 @@ export function ScanDetail() {
     },
   });
 
+  // Query for run history (comparable scans from same config)
+  const { data: comparableData } = useQuery({
+    queryKey: ['scan-comparable', scanId],
+    queryFn: () => scansApi.getComparable(scanId),
+    enabled: !!scan?.config_id,
+  });
+
+  // Combine current scan with comparable scans for full run history
+  const runHistory = useMemo(() => {
+    if (!scan || !comparableData) return [];
+
+    // Create entry for current scan
+    const currentEntry = {
+      id: scan.id,
+      name: scan.name,
+      run_number: scan.run_number,
+      status: scan.status,
+      created_at: scan.created_at,
+      total_targets: scan.total_targets,
+      total_open_ports: scan.total_open_ports,
+      total_vulnerabilities: scan.total_vulnerabilities,
+    };
+
+    // Combine and sort by run_number descending
+    const allRuns = [currentEntry, ...comparableData.comparable_scans];
+    return allRuns.sort((a, b) => b.run_number - a.run_number);
+  }, [scan, comparableData]);
+
+  // Format date for run history dropdown
+  const formatRunDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
   // Query for user's other scans (potential baselines)
   const { data: userScans } = useQuery({
     queryKey: ['scans'],
@@ -408,6 +447,21 @@ export function ScanDetail() {
               >
                 {scan.status}
               </span>
+              {/* Run History Dropdown */}
+              {runHistory.length > 1 && (
+                <select
+                  value={scan.id}
+                  onChange={(e) => navigate({ to: `/scans/${e.target.value}` })}
+                  className="border border-gray-300 rounded-md px-3 py-1.5 text-sm bg-white focus:ring-indigo-500 focus:border-indigo-500 cursor-pointer"
+                  data-testid="run-history-select"
+                >
+                  {runHistory.map((run) => (
+                    <option key={run.id} value={run.id}>
+                      {run.id === scan.id ? '● ' : ''}Run #{run.run_number} — {formatRunDate(run.created_at)}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
             {scan.description && (
               <p className="mt-2 text-sm text-gray-600">{scan.description}</p>
