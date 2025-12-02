@@ -1,0 +1,75 @@
+# Production docker-compose - excludes ZAP to reduce disk usage
+# ZAP can be added later if more disk space is available
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./backend/config:/app/config
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+
+  celery:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.celery
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    volumes:
+      - ./data:/app/data
+      - ./backend/config:/app/config
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.celery
+    restart: unless-stopped
+    command: celery -A app.celery_app beat --loglevel=info
+    depends_on:
+      redis:
+        condition: service_healthy
+      celery:
+        condition: service_started
+    volumes:
+      - ./data:/app/data
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  redis_data:

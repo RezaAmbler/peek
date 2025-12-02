@@ -1,0 +1,26 @@
+# Deploy PEEK to Production Server
+
+Execute the deployment scripts to deploy PEEK.
+
+## Configuration
+- **Target IP**: 3.236.244.248
+- **SSH Key**: ~/Downloads/reza-testing.pem
+
+## Execute
+
+```bash
+./deploy/deploy.sh 3.236.244.248 ~/Downloads/reza-testing.pem
+```
+
+Wait for the script to complete. It handles everything: Docker setup, code sync, container builds, nginx config, and health checks.
+
+## Verify
+
+After deployment, confirm:
+1. http://3.236.244.248 loads the PEEK UI
+2. http://3.236.244.248/api/health returns OK
+
+## Notes
+- First deployment takes ~10-15 minutes (Docker builds)
+- Subsequent deployments are faster (cached layers)
+- To deploy to a different server, change the IP and SSH key path above
