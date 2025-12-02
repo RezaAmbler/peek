@@ -29,15 +29,26 @@ export interface Change {
   protocol?: string;
   service_name?: string;
   version?: string;
+  product?: string;
   old_version?: string;
   new_version?: string;
   template_id?: string;
   name?: string;
   vuln_severity?: string;
   matched_at?: string;
+  vuln_description?: string;
+  reference?: string;
   old_vuln_count?: number;
   new_vuln_count?: number;
   description: string;
+  associated_vulnerabilities?: AssociatedVulnerability[];
+}
+
+export interface AssociatedVulnerability {
+  name: string;
+  severity: string;
+  template_id: string;
+  matched_at: string;
 }
 
 export const comparisonsApi = {

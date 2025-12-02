@@ -90,6 +90,14 @@ async def create_comparison(
     baseline_port_keys = {f"{p['ip_address']}:{p['port']}:{p['protocol']}": p for p in baseline_ports}
     current_port_keys = {f"{p['ip_address']}:{p['port']}:{p['protocol']}": p for p in current_ports}
 
+    # Create a lookup of baseline vulnerabilities by IP:port for associated_vulnerabilities
+    baseline_vulns_by_ip_port: Dict[str, List[Dict[str, Any]]] = {}
+    for vuln in baseline_vulns:
+        ip_port_key = f"{vuln['ip_address']}:{vuln['port']}"
+        if ip_port_key not in baseline_vulns_by_ip_port:
+            baseline_vulns_by_ip_port[ip_port_key] = []
+        baseline_vulns_by_ip_port[ip_port_key].append(vuln)
+
     # New ports
     for key, port in current_port_keys.items():
         if key not in baseline_port_keys:
@@ -105,13 +113,27 @@ async def create_comparison(
     # Closed ports
     for key, port in baseline_port_keys.items():
         if key not in current_port_keys:
+            # Find associated vulnerabilities from baseline that were on this IP:port
+            ip_port_key = f"{port['ip_address']}:{port['port']}"
+            associated_vulns = baseline_vulns_by_ip_port.get(ip_port_key, [])
+            associated_vulnerabilities = [
+                {
+                    'name': v['name'],
+                    'severity': v['severity'],
+                    'template_id': v['template_id'],
+                    'matched_at': v['matched_at']
+                }
+                for v in associated_vulns
+            ]
+
             changes.append({
                 'type': 'CLOSED_PORT', 'severity': 'POSITIVE', 'category': 'port',
                 'ip_address': port['ip_address'], 'device_name': port['device_name'],
                 'port': port['port'], 'protocol': port['protocol'],
                 'service_name': port['service_name'], 'version': port['version'],
                 'product': port.get('product'),
-                'description': f"Port closed: {port['port']}/{port['protocol']}"
+                'description': f"Port closed: {port['port']}/{port['protocol']}",
+                'associated_vulnerabilities': associated_vulnerabilities if associated_vulnerabilities else None
             })
 
     # Compare vulnerabilities

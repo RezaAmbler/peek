@@ -40,6 +40,17 @@ export function ChangeCard({ change }: ChangeCardProps) {
               {change.port && `:${change.port}`}
             </p>
 
+            {/* Port details for NEW_PORT and CLOSED_PORT */}
+            {(change.type === 'NEW_PORT' || change.type === 'CLOSED_PORT') && (
+              <p className="text-sm mt-2 font-mono text-gray-700">
+                {change.port}/{change.protocol}
+                {(change.version || change.product || change.service_name) && ' — '}
+                {change.version && <span>{change.version}</span>}
+                {change.product && <span> {change.product}</span>}
+                {change.service_name && <span className="text-gray-500"> ({change.service_name})</span>}
+              </p>
+            )}
+
             {/* Version update details */}
             {change.type === 'VERSION_UPDATE' && (
               <p className="text-sm mt-2 font-mono">
@@ -58,6 +69,42 @@ export function ChangeCard({ change }: ChangeCardProps) {
                     {change.matched_at}
                   </p>
                 )}
+                {change.vuln_description && (
+                  <p className="text-sm text-gray-700 mt-2">
+                    {change.vuln_description}
+                  </p>
+                )}
+                {change.reference && (
+                  <p className="text-xs text-blue-600 mt-1 break-all">
+                    <a href={change.reference} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                      {change.reference}
+                    </a>
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Associated vulnerabilities for CLOSED_PORT */}
+            {change.type === 'CLOSED_PORT' && change.associated_vulnerabilities && change.associated_vulnerabilities.length > 0 && (
+              <div className="mt-3 p-2 bg-green-50 rounded border border-green-200">
+                <p className="text-xs font-semibold text-green-800 mb-1">
+                  🛡️ {change.associated_vulnerabilities.length} vulnerability(ies) also fixed:
+                </p>
+                <ul className="text-xs text-green-700 space-y-1">
+                  {change.associated_vulnerabilities.map((vuln, idx) => (
+                    <li key={idx} className="flex items-center space-x-2">
+                      <span className={`px-1 py-0.5 rounded text-xs font-medium ${
+                        vuln.severity === 'critical' ? 'bg-red-200 text-red-800' :
+                        vuln.severity === 'high' ? 'bg-orange-200 text-orange-800' :
+                        vuln.severity === 'medium' ? 'bg-yellow-200 text-yellow-800' :
+                        'bg-gray-200 text-gray-800'
+                      }`}>
+                        {vuln.severity}
+                      </span>
+                      <span>{vuln.name}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
 
