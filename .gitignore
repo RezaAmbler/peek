@@ -35,7 +35,6 @@ data/
 .cursor/
 .aider*
 .continue/
-CLAUDE.md
 
 # Python virtual environments
 venv/
