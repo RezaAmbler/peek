@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from contextlib import asynccontextmanager
 from datetime import datetime
+import os
+import subprocess
 from .core.config import settings
 from .database import init_db, AsyncSessionLocal
 from .routers import auth, users, configs, scans, comparisons, scheduled_scans, reports
@@ -185,6 +187,30 @@ app.include_router(comparisons.router, prefix="/api/comparisons", tags=["compari
 app.include_router(scheduled_scans.router, prefix="/api/scheduled-scans", tags=["scheduled-scans"])
 app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
 
+def get_git_branch() -> str:
+    """Get the current git branch name from env var or git command."""
+    # First check environment variable (set by docker-compose)
+    branch = os.environ.get("GIT_BRANCH")
+    if branch:
+        return branch
+    # Fall back to git command (works in local development)
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return "unknown"
+
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "version": settings.VERSION}
+    return {
+        "status": "ok",
+        "version": settings.VERSION,
+        "git_branch": get_git_branch()
+    }
