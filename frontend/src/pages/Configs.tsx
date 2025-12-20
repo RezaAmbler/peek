@@ -8,6 +8,7 @@ export function Configs() {
   const queryClient = useQueryClient();
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingConfig, setEditingConfig] = useState<ScanConfig | null>(null);
+  const [editingTargets, setEditingTargets] = useState<string>('');
 
   // Fetch configs
   const { data, isLoading } = useQuery({
@@ -71,6 +72,7 @@ export function Configs() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['configs'] });
       setEditingConfig(null);
+      setEditingTargets('');
       toast.success('Configuration updated');
     },
     onError: (error: unknown) => {
@@ -85,6 +87,7 @@ export function Configs() {
       configsApi.create({
         name: `${config.name} (Copy)`,
         description: config.description,
+        targets: config.targets,
         scan_mode: config.scan_mode,
         enable_nuclei: config.enable_nuclei,
         enable_ssh_audit: config.enable_ssh_audit,
@@ -102,6 +105,7 @@ export function Configs() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['configs'] });
       setEditingConfig(null);
+      setEditingTargets('');
       toast.success('Configuration cloned successfully');
     },
     onError: () => {
@@ -257,6 +261,12 @@ export function Configs() {
                 {/* Config Summary */}
                 <div className="text-xs text-gray-500 space-y-1 mb-4 bg-gray-50 p-3 rounded">
                   <div className="flex justify-between">
+                    <span>Targets:</span>
+                    <span className={`font-medium ${config.targets?.length > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                      {config.targets?.length || 0} configured
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
                     <span>Scan Mode:</span>
                     <span className={`font-medium ${config.scan_mode === 'deep' ? 'text-indigo-600' : 'text-amber-600'}`}>
                       {config.scan_mode === 'deep' ? 'Deep (All Ports)' : 'Fast (Top 1000)'}
@@ -301,7 +311,10 @@ export function Configs() {
                 {/* Actions */}
                 <div className="flex gap-2">
                   <button
-                    onClick={() => setEditingConfig(config)}
+                    onClick={() => {
+                      setEditingConfig(config);
+                      setEditingTargets(config.targets?.join('\n') || '');
+                    }}
                     className="flex-1 px-3 py-2 text-sm bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200"
                     data-testid="config-edit-button"
                   >
@@ -377,9 +390,14 @@ export function Configs() {
                   return;
                 }
                 const formData = new FormData(e.currentTarget);
+                const targets = editingTargets
+                  .split('\n')
+                  .map(t => t.trim())
+                  .filter(t => t.length > 0);
                 const data = {
                   name: formData.get('name') as string,
                   description: formData.get('description') as string,
+                  targets,
                   scan_mode: formData.get('scan_mode') as 'fast' | 'deep',
                   max_concurrent_hosts: parseInt(formData.get('max_concurrent_hosts') as string),
                   host_timeout_seconds: parseInt(formData.get('host_timeout_seconds') as string),
@@ -419,6 +437,28 @@ export function Configs() {
                       className="w-full px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100 disabled:text-gray-500"
                     />
                   </div>
+                </div>
+              </div>
+
+              {/* Targets */}
+              <div className="space-y-4">
+                <h4 className="font-medium text-gray-900 border-b pb-2">Scan Targets</h4>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    IP Addresses / Hostnames
+                  </label>
+                  <textarea
+                    name="targets"
+                    value={editingTargets}
+                    onChange={(e) => setEditingTargets(e.target.value)}
+                    disabled={editingConfig.is_preset}
+                    rows={5}
+                    placeholder="Enter one target per line, e.g.:&#10;192.168.1.1&#10;10.0.0.0/24&#10;example.com"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm disabled:bg-gray-100 disabled:text-gray-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    One IP address, CIDR range, or hostname per line. Currently: {editingTargets.split('\n').filter(t => t.trim()).length} target(s)
+                  </p>
                 </div>
               </div>
 
@@ -614,7 +654,10 @@ export function Configs() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setEditingConfig(null)}
+                      onClick={() => {
+                        setEditingConfig(null);
+                        setEditingTargets('');
+                      }}
                       className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
                       data-testid="config-modal-close-button"
                     >
@@ -633,7 +676,10 @@ export function Configs() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setEditingConfig(null)}
+                      onClick={() => {
+                        setEditingConfig(null);
+                        setEditingTargets('');
+                      }}
                       className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
                       data-testid="config-modal-cancel-button"
                     >
