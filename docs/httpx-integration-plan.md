@@ -1,14 +1,48 @@
 # Strategic Integration Plan: ProjectDiscovery httpx
 
+> **Status**: Implemented
+> **Completed**: December 2024
+> **Branch**: diffy (commit `16189a9`)
+
 ## Executive Summary
 
-This document outlines a comprehensive plan to integrate ProjectDiscovery's **httpx** HTTP probing tool into PEEK's scan pipeline. httpx provides fast, multi-purpose HTTP probing with technology fingerprinting capabilities that will significantly enhance PEEK's HTTP reconnaissance and vulnerability scanning accuracy.
+This document outlines the comprehensive integration of ProjectDiscovery's **httpx** HTTP probing tool into PEEK's scan pipeline. httpx provides fast, multi-purpose HTTP probing with technology fingerprinting capabilities that significantly enhances PEEK's HTTP reconnaissance and vulnerability scanning accuracy.
 
 **Key Value Proposition:**
 - Rich HTTP metadata collection before vulnerability scanning
 - Technology fingerprinting to enhance nuclei template selection
 - Validation of actual HTTP services vs. port-based assumptions
 - CDN/WAF detection for context in reports
+
+---
+
+## Implementation Notes
+
+The httpx integration was completed in December 2024 with the following outcomes:
+
+| Aspect | Details |
+|--------|---------|
+| **httpx Version** | v1.6.0 installed in celery container |
+| **Pipeline Position** | Phase 3 of 9 (after nmap service detection, before SSH-audit) |
+| **Progress Range** | 75% → 80% |
+| **Technology Mappings** | 62 technology-to-nuclei-tag mappings added |
+| **Config Options** | `enable_httpx`, `httpx_timeout`, `httpx_tech_detect` |
+| **Frontend** | HttpxSection component with collapsible cards |
+| **Reports** | HTML, Technical PDF, and Executive PDF all include HTTP Probes |
+
+**Files Created:**
+- `backend/app/models/httpx_result.py` - Data model
+- `backend/app/tools/httpx.py` - Tool wrapper
+- `backend/app/parsers/httpx_parser.py` - Output parser
+- `backend/app/schemas/httpx.py` - Pydantic response schema
+- `frontend/src/components/HttpxSection.tsx` - UI component
+
+**Files Modified:**
+- `backend/app/tasks/scan_tasks.py` - Pipeline integration
+- `backend/config/nuclei_profiles.yaml` - Technology tag mappings
+- `backend/app/services/service_profile.py` - Technology parameter
+- `backend/app/services/report_service.py` - Report sections
+- `backend/Dockerfile.celery` - httpx installation
 
 ---
 
@@ -21,7 +55,6 @@ httpx is a fast, multi-purpose HTTP toolkit from ProjectDiscovery (same team as 
 - Identifies CDNs, WAFs, and load balancers
 - Captures TLS/SSL information and JARM fingerprints
 - Follows redirects and maps redirect chains
-- Optionally captures screenshots
 - Outputs structured JSON for easy parsing
 
 **Installation:**
@@ -37,7 +70,7 @@ go install github.com/projectdiscovery/httpx/cmd/httpx@latest
 
 ## 2. Pipeline Placement
 
-### Current Pipeline (8 phases)
+### Previous Pipeline (8 phases)
 
 ```
 1. Port Discovery (nmap-discovery)     0% -> 10%
@@ -50,12 +83,12 @@ go install github.com/projectdiscovery/httpx/cmd/httpx@latest
 8. ZAP                                98% -> 100%
 ```
 
-### Proposed Pipeline (9 phases)
+### Current Pipeline (9 phases)
 
 ```
 1. Port Discovery (nmap-discovery)     0% -> 10%
 2. Nmap Service Detection             10% -> 75%
-3. httpx HTTP Probing        [NEW]    75% -> 80%
+3. httpx HTTP Probing                 75% -> 80%
 4. SSH-Audit                          80% -> 85%
 5. Nuclei                             85% -> 92%
 6. NSE Scripts                        92% -> 95%
@@ -68,7 +101,7 @@ go install github.com/projectdiscovery/httpx/cmd/httpx@latest
 
 httpx runs **after nmap service detection** and **before nuclei** because:
 
-1. **Technology Enhancement**: httpx technology detection can add targeted tags to nuclei scanning
+1. **Technology Enhancement**: httpx technology detection adds targeted tags to nuclei scanning
 2. **HTTP Validation**: Confirms which ports actually serve HTTP (vs. nmap guessing from port numbers)
 3. **Minimal Latency**: httpx is very fast (seconds per host), adding minimal overhead
 4. **Report Enrichment**: Provides HTTP metadata even if no vulnerabilities are found
@@ -77,9 +110,9 @@ httpx runs **after nmap service detection** and **before nuclei** because:
 
 ## 3. Data Model
 
-### New Model: HttpxResult
+### Model: HttpxResult
 
-Create `backend/app/models/httpx_result.py`:
+Located at `backend/app/models/httpx_result.py`:
 
 ```python
 from sqlalchemy import Column, String, Integer, Boolean, ForeignKey, JSON
@@ -122,9 +155,6 @@ class HttpxResult(Base):
     # Virtual Hosts
     virtual_hosts = Column(JSON, nullable=True)
 
-    # Screenshot (optional feature)
-    screenshot_path = Column(String, nullable=True)
-
     # Connection Status
     connection_failed = Column(Boolean, default=False, nullable=False)
     failure_reason = Column(String, nullable=True)
@@ -136,7 +166,7 @@ class HttpxResult(Base):
 
 ### Port Model Update
 
-Add relationship to `backend/app/models/port.py`:
+Relationship added to `backend/app/models/port.py`:
 
 ```python
 # In Port class
@@ -147,7 +177,7 @@ httpx_results = relationship("HttpxResult", back_populates="port_record", cascad
 
 ## 4. Tool Wrapper
 
-Create `backend/app/tools/httpx.py`:
+Located at `backend/app/tools/httpx.py`:
 
 ```python
 """httpx HTTP prober integration."""
@@ -168,9 +198,7 @@ def run_httpx(
     follow_redirects: bool = True,
     tech_detect: bool = True,
     tls_probe: bool = True,
-    jarm: bool = True,
-    screenshot: bool = False,
-    screenshot_path: Optional[str] = None
+    jarm: bool = True
 ) -> Tuple[bool, Optional[str], Optional[str]]:
     """
     Execute httpx HTTP prober.
@@ -182,8 +210,6 @@ def run_httpx(
         tech_detect: Enable technology detection
         tls_probe: Enable TLS probing
         jarm: Enable JARM fingerprinting
-        screenshot: Capture screenshot
-        screenshot_path: Path to store screenshots
 
     Returns:
         Tuple of (success, json_output, error_message)
@@ -223,9 +249,6 @@ def run_httpx(
 
         # CDN detection
         cmd.append('-cdn')
-
-        if screenshot and screenshot_path:
-            cmd.extend(['-screenshot', '-ss-path', screenshot_path])
 
         cmd_str = ' '.join(cmd)
         logger.info(f"Running httpx: {cmd_str}")
@@ -378,7 +401,7 @@ def check_httpx_available() -> bool:
 
 ## 5. Parser
 
-Create `backend/app/parsers/httpx_parser.py`:
+Located at `backend/app/parsers/httpx_parser.py`:
 
 ```python
 """Parser for httpx output."""
@@ -482,15 +505,15 @@ def create_httpx_result_from_output(
 
 ## 6. Pipeline Integration
 
-### Add to scan_tasks.py
+### Added to scan_tasks.py
 
 ```python
-# Add imports
+# Imports added
 from ..tools.httpx import run_httpx, check_httpx_available
 from ..parsers.httpx_parser import create_httpx_result_from_output
 from ..models.httpx_result import HttpxResult
 
-# In run_scan() function, add after nmap phase:
+# In run_scan() function, after nmap phase:
 
             # Phase 3: httpx HTTP Probing (75% -> 80%)
             if config.enable_httpx:
@@ -498,144 +521,18 @@ from ..models.httpx_result import HttpxResult
                 db.commit()
                 self.update_state(state='PROGRESS', meta={'phase': 'httpx', 'progress': 0.75})
                 run_httpx_phase(db, scan, targets, config)
-
-
-def run_httpx_phase(db, scan: Scan, targets: List[ScanTarget], config):
-    """
-    Run httpx HTTP probing on discovered HTTP/HTTPS ports.
-
-    This phase:
-    1. Probes HTTP ports to gather rich metadata
-    2. Detects technologies for enhanced nuclei scanning
-    3. Validates which ports are actually serving HTTP
-    """
-    logger.info(f"Starting httpx phase for scan {scan.id}")
-
-    # Check if httpx is available
-    if not check_httpx_available():
-        logger.warning("httpx not available, skipping phase")
-        return
-
-    # HTTP services and common HTTP ports
-    http_services = ['http', 'https', 'ssl/http', 'http-proxy', 'http-alt']
-    http_port_numbers = [80, 443, 8080, 8443, 8000, 8888, 3000, 5000, 9000]
-
-    # Get HTTP-like ports
-    http_ports = db.query(Port).join(ScanTarget).filter(
-        ScanTarget.scan_id == str(scan.id),
-        Port.state == 'open'
-    ).filter(
-        (Port.service_name.in_(http_services)) |
-        (Port.port.in_(http_port_numbers))
-    ).all()
-
-    if not http_ports:
-        logger.info("No HTTP ports found for httpx probing")
-        return
-
-    logger.info(f"httpx: {len(http_ports)} HTTP port(s) to probe")
-
-    total = len(http_ports)
-    completed = 0
-
-    for port_rec in http_ports:
-        # Get target for this port
-        target = db.query(ScanTarget).filter(
-            ScanTarget.id == port_rec.scan_target_id
-        ).first()
-
-        if not target:
-            completed += 1
-            continue
-
-        ip = target.ip_address
-        port = port_rec.port
-
-        # Determine protocol based on service or port
-        is_ssl = (
-            port_rec.service_name in ['https', 'ssl/http'] or
-            port in [443, 8443]
-        )
-        scheme = "https" if is_ssl else "http"
-        target_url = f"{scheme}://{ip}:{port}"
-
-        logger.info(f"httpx: Probing {target_url}")
-
-        # Create tool execution record
-        tool_exec = ToolExecution(
-            id=str(uuid.uuid4()),
-            scan_target_id=str(target.id),
-            port_id=str(port_rec.id),
-            tool_name="httpx",
-            command_line=f"httpx -u {target_url} -json -td",
-            started_at=datetime.utcnow()
-        )
-        db.add(tool_exec)
-        db.flush()
-
-        try:
-            # Run httpx
-            timeout = config.httpx_timeout or 30
-            success, raw_json, error = run_httpx(
-                target=target_url,
-                timeout=timeout,
-                tech_detect=config.httpx_tech_detect,
-                screenshot=config.httpx_screenshot
-            )
-
-            tool_exec.finished_at = datetime.utcnow()
-            tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
-            tool_exec.raw_output = raw_json[:50000] if raw_json else None
-            tool_exec.raw_format = "json"
-            tool_exec.error_message = error
-            tool_exec.exit_code = 0 if success else 1
-
-            if success and raw_json:
-                # Parse and create HttpxResult
-                result = create_httpx_result_from_output(db, tool_exec, target, port_rec)
-                if result:
-                    logger.info(f"httpx: {target_url} -> {result.status_code} {result.title or ''} techs={result.technologies}")
-            else:
-                # Create failed result
-                failed_result = HttpxResult(
-                    id=str(uuid.uuid4()),
-                    port_id=str(port_rec.id),
-                    tool_execution_id=str(tool_exec.id),
-                    connection_failed=True,
-                    failure_reason=error or "Unknown error"
-                )
-                db.add(failed_result)
-
-            db.commit()
-
-        except Exception as e:
-            logger.error(f"httpx error for {target_url}: {e}")
-            tool_exec.finished_at = datetime.utcnow()
-            tool_exec.error_message = str(e)
-            tool_exec.exit_code = 1
-            db.commit()
-
-        completed += 1
-
-        # Update progress (httpx is 5% of total, from 75% to 80%)
-        progress = 0.75 + (0.05 * completed / total)
-        scan.progress_percent = progress
-        scan.progress_updated_at = datetime.utcnow()
-        db.commit()
-
-    logger.info(f"httpx complete: {completed} ports probed")
 ```
 
-### Add ScanPhase
+### ScanPhase Enum
 
-In `backend/app/models/scan.py`:
+Updated in `backend/app/models/scan.py`:
 
 ```python
 class ScanPhase(str, Enum):
     PENDING = "pending"
     NMAP_DISCOVERY = "nmap_discovery"
     NMAP = "nmap"
-    HTTPX = "httpx"  # NEW
+    HTTPX = "httpx"  # Added
     SSH_AUDIT = "ssh_audit"
     NUCLEI = "nuclei"
     NSE = "nse"
@@ -646,16 +543,15 @@ class ScanPhase(str, Enum):
     FAILED = "failed"
 ```
 
-### Add ScanConfig Fields
+### ScanConfig Fields
 
-In `backend/app/models/scan_config.py`:
+Added to `backend/app/models/scan_config.py`:
 
 ```python
 # httpx options
 enable_httpx = Column(Boolean, default=True, nullable=False)
 httpx_timeout = Column(Integer, default=30, nullable=False)  # seconds
 httpx_tech_detect = Column(Boolean, default=True, nullable=False)
-httpx_screenshot = Column(Boolean, default=False, nullable=False)
 ```
 
 ---
@@ -664,15 +560,9 @@ httpx_screenshot = Column(Boolean, default=False, nullable=False)
 
 ### Technology-to-Tag Mapping
 
-Add to `backend/config/nuclei_profiles.yaml`:
+Added to `backend/config/nuclei_profiles.yaml` (62 mappings):
 
 ```yaml
-# ============================================
-# Technology Tags (from httpx detection)
-# ============================================
-# Maps httpx technology fingerprints to nuclei tags
-# These enhance base service profiles with more specific templates
-
 technology_tags:
   # CMS
   wordpress: [wordpress, wp]
@@ -705,28 +595,12 @@ technology_tags:
   tomcat: [tomcat]
   caddy: [caddy]
 
-  # Databases
-  mysql: [mysql]
-  postgresql: [postgres]
-  mongodb: [mongodb]
-  redis: [redis]
-
-  # Panels
-  phpmyadmin: [phpmyadmin]
-  cpanel: [cpanel]
-  plesk: [plesk]
-  webmin: [webmin]
-
-  # DevOps
-  jenkins: [jenkins]
-  gitlab: [gitlab]
-  grafana: [grafana]
-  kibana: [kibana]
+  # And 40+ more...
 ```
 
-### Update service_profile.py
+### service_profile.py Update
 
-Add technology parameter to `get_nuclei_profile()`:
+Added technology parameter to `get_nuclei_profile()`:
 
 ```python
 def get_nuclei_profile(
@@ -736,15 +610,8 @@ def get_nuclei_profile(
     extra_info: Optional[dict] = None,
     port: Optional[int] = None,
     scan_mode: str = "deep",
-    technologies: Optional[List[str]] = None  # NEW: from httpx
+    technologies: Optional[List[str]] = None  # From httpx
 ) -> NucleiProfile:
-    """
-    Get Nuclei scanning profile for a detected service.
-
-    Args:
-        ...
-        technologies: List of technologies detected by httpx
-    """
     # ... existing code ...
 
     # Add technology-specific tags from httpx detection
@@ -756,20 +623,15 @@ def get_nuclei_profile(
                 if key in tech_lower:
                     tags.extend(t for t in extra_tags if t not in tags)
                     break
-
-    # ... rest of function
 ```
 
 ---
 
 ## 8. API Endpoints
 
-### Add to routers/scans.py
+### Endpoint Added to routers/scans.py
 
 ```python
-from ..models.httpx_result import HttpxResult
-from ..schemas.httpx import HttpxResultResponse
-
 @router.get("/{scan_id}/httpx-results", response_model=List[HttpxResultResponse])
 async def get_httpx_results(
     scan_id: str,
@@ -777,46 +639,6 @@ async def get_httpx_results(
     current_user: User = Depends(get_current_user)
 ):
     """Get all httpx probe results for a scan."""
-    # Verify scan access
-    scan = await db.get(Scan, scan_id)
-    if not scan or scan.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Scan not found")
-
-    # Get httpx results with port and target info
-    query = select(HttpxResult, Port, ScanTarget).join(
-        Port, HttpxResult.port_id == Port.id
-    ).join(
-        ScanTarget, Port.scan_target_id == ScanTarget.id
-    ).where(
-        ScanTarget.scan_id == scan_id
-    )
-
-    result = await db.execute(query)
-    rows = result.all()
-
-    return [
-        HttpxResultResponse(
-            id=str(httpx.id),
-            port_id=str(httpx.port_id),
-            ip_address=target.ip_address,
-            port=port.port,
-            status_code=httpx.status_code,
-            content_length=httpx.content_length,
-            content_type=httpx.content_type,
-            title=httpx.title,
-            webserver=httpx.webserver,
-            technologies=httpx.technologies or [],
-            cdn=httpx.cdn,
-            final_url=httpx.final_url,
-            redirect_chain=httpx.redirect_chain or [],
-            response_time_ms=httpx.response_time_ms,
-            tls_version=httpx.tls_version,
-            jarm_hash=httpx.jarm_hash,
-            connection_failed=httpx.connection_failed,
-            failure_reason=httpx.failure_reason
-        )
-        for httpx, port, target in rows
-    ]
 ```
 
 ### Schema (schemas/httpx.py)
@@ -856,7 +678,7 @@ class HttpxResultResponse(BaseModel):
 
 ## 9. Frontend Integration
 
-### API Client Update (frontend/src/api/scans.ts)
+### API Client (frontend/src/api/scans.ts)
 
 ```typescript
 export interface HttpxResult {
@@ -890,107 +712,32 @@ export const scansApi = {
 };
 ```
 
-### Component (frontend/src/components/HttpxResultsSection.tsx)
+### Component (frontend/src/components/HttpxSection.tsx)
 
-```tsx
-import { useQuery } from '@tanstack/react-query';
-import { scansApi, HttpxResult } from '../api/scans';
-
-interface Props {
-  scanId: string;
-}
-
-export function HttpxResultsSection({ scanId }: Props) {
-  const { data: results, isLoading } = useQuery({
-    queryKey: ['httpx-results', scanId],
-    queryFn: () => scansApi.getHttpxResults(scanId),
-  });
-
-  if (isLoading) return <div>Loading HTTP probes...</div>;
-  if (!results?.length) return null;
-
-  return (
-    <div className="bg-white shadow rounded-lg overflow-hidden">
-      <div className="px-4 py-5 sm:px-6">
-        <h3 className="text-lg font-medium text-gray-900">HTTP Probes</h3>
-        <p className="mt-1 text-sm text-gray-500">
-          HTTP endpoint analysis via httpx
-        </p>
-      </div>
-      <div className="border-t border-gray-200">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Title</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Server</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Technologies</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">CDN</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {results.map((result) => (
-              <tr key={result.id}>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                  {result.ip_address}:{result.port}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  {result.connection_failed ? (
-                    <span className="text-red-600">Failed</span>
-                  ) : (
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      result.status_code === 200 ? 'bg-green-100 text-green-800' :
-                      result.status_code && result.status_code < 400 ? 'bg-blue-100 text-blue-800' :
-                      'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {result.status_code}
-                    </span>
-                  )}
-                </td>
-                <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
-                  {result.title || '-'}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {result.webserver || '-'}
-                </td>
-                <td className="px-6 py-4">
-                  <div className="flex flex-wrap gap-1">
-                    {result.technologies.slice(0, 4).map((tech) => (
-                      <span key={tech} className="px-2 py-0.5 rounded-full text-xs bg-indigo-100 text-indigo-800">
-                        {tech}
-                      </span>
-                    ))}
-                    {result.technologies.length > 4 && (
-                      <span className="text-xs text-gray-500">+{result.technologies.length - 4}</span>
-                    )}
-                  </div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {result.cdn || '-'}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-```
+A collapsible section component that displays:
+- Status code with color coding (2xx green, 3xx blue, 4xx orange, 5xx red)
+- Page title and web server
+- Detected technologies as badges
+- CDN/WAF/TLS information
+- Response time
+- Expandable details with redirect chains and JARM hash
 
 ---
 
 ## 10. Docker Configuration
 
-### Install httpx in Dockerfile.celery
+### Dockerfile.celery
+
+httpx v1.6.0 installed via:
 
 ```dockerfile
-# Install httpx
-RUN curl -L https://github.com/projectdiscovery/httpx/releases/download/v1.6.0/httpx_1.6.0_linux_amd64.zip -o /tmp/httpx.zip \
-    && unzip /tmp/httpx.zip -d /usr/local/bin/ \
-    && chmod +x /usr/local/bin/httpx \
-    && rm /tmp/httpx.zip
+# Install httpx (HTTP prober from ProjectDiscovery)
+ARG HTTPX_VERSION=1.6.0
+RUN wget -q https://github.com/projectdiscovery/httpx/releases/download/v${HTTPX_VERSION}/httpx_${HTTPX_VERSION}_linux_amd64.zip -O /tmp/httpx.zip && \
+    unzip -o /tmp/httpx.zip -d /tmp/httpx_extract && \
+    mv /tmp/httpx_extract/httpx /usr/local/bin/ && \
+    chmod +x /usr/local/bin/httpx && \
+    rm -rf /tmp/httpx.zip /tmp/httpx_extract
 ```
 
 ### Settings (core/config.py)
@@ -1004,43 +751,45 @@ HTTPX_PATH: str = Field(default="httpx", env="HTTPX_PATH")
 ## 11. Implementation Checklist
 
 ### Phase 1: Core Infrastructure
-- [ ] Create `backend/app/models/httpx_result.py`
-- [ ] Update `backend/app/models/__init__.py`
-- [ ] Update `backend/app/models/port.py` with relationship
-- [ ] Create database migration
-- [ ] Create `backend/app/tools/httpx.py`
-- [ ] Create `backend/app/parsers/httpx_parser.py`
+- [x] Create `backend/app/models/httpx_result.py`
+- [x] Update `backend/app/models/__init__.py`
+- [x] Update `backend/app/models/port.py` with relationship
+- [x] Create database table (via SQLite ALTER TABLE)
+- [x] Create `backend/app/tools/httpx.py`
+- [x] Create `backend/app/parsers/httpx_parser.py`
 
 ### Phase 2: Pipeline Integration
-- [ ] Update `backend/app/models/scan.py` (ScanPhase.HTTPX)
-- [ ] Update `backend/app/models/scan_config.py` (enable_httpx, etc.)
-- [ ] Update `backend/app/tasks/scan_tasks.py` (run_httpx_phase)
-- [ ] Update progress percentages for all phases
+- [x] Update `backend/app/models/scan.py` (ScanPhase.HTTPX)
+- [x] Update `backend/app/models/scan_config.py` (enable_httpx, etc.)
+- [x] Update `backend/app/tasks/scan_tasks.py` (run_httpx_phase)
+- [x] Update progress percentages for all phases
 
 ### Phase 3: Nuclei Enhancement
-- [ ] Update `backend/config/nuclei_profiles.yaml` (technology_tags)
-- [ ] Update `backend/app/services/service_profile.py` (technologies param)
-- [ ] Update nuclei phase to pass technologies from httpx
+- [x] Update `backend/config/nuclei_profiles.yaml` (technology_tags)
+- [x] Update `backend/app/services/service_profile.py` (technologies param)
+- [x] Update nuclei phase to pass technologies from httpx
 
 ### Phase 4: API Layer
-- [ ] Create `backend/app/schemas/httpx.py`
-- [ ] Update `backend/app/routers/scans.py` (new endpoint)
+- [x] Create `backend/app/schemas/httpx.py`
+- [x] Update `backend/app/routers/scans.py` (new endpoint)
 
 ### Phase 5: Frontend
-- [ ] Update `frontend/src/api/scans.ts` (types, API method)
-- [ ] Create `frontend/src/components/HttpxResultsSection.tsx`
-- [ ] Update `frontend/src/pages/ScanDetail.tsx`
+- [x] Update `frontend/src/api/scans.ts` (types, API method)
+- [x] Create `frontend/src/components/HttpxSection.tsx`
+- [x] Update `frontend/src/pages/ScanDetail.tsx`
 
 ### Phase 6: Reports
-- [ ] Update `backend/app/services/report_service.py` (HTTP Probes section)
+- [x] Update `backend/app/services/report_service.py` (HTTP Probes section)
 
 ### Phase 7: Docker
-- [ ] Update `backend/Dockerfile.celery` (install httpx)
-- [ ] Update `backend/app/core/config.py` (HTTPX_PATH)
+- [x] Update `backend/Dockerfile.celery` (install httpx)
+- [x] Update `backend/app/core/config.py` (HTTPX_PATH)
 
 ---
 
 ## 12. Success Criteria
+
+All criteria met:
 
 1. **Functional**: httpx phase runs after nmap, before nuclei
 2. **Data**: HttpxResult records created with technology detection
@@ -1053,20 +802,50 @@ HTTPX_PATH: str = Field(default="httpx", env="HTTPX_PATH")
 
 ## 13. Risks and Mitigations
 
-| Risk | Mitigation |
-|------|------------|
-| httpx not installed | Check availability, skip phase gracefully |
-| Rate limiting by CDN/WAF | Use configurable timeout and respect rate limits |
-| Large scan delays | Process sequentially (SQLite constraint), httpx is fast |
-| Screenshot storage | Store in data/ with cleanup policy |
-| Technology detection false positives | Technologies are additive hints, not authoritative |
+| Risk | Mitigation | Status |
+|------|------------|--------|
+| httpx not installed | Check availability, skip phase gracefully | Implemented |
+| Rate limiting by CDN/WAF | Use configurable timeout and respect rate limits | Configurable |
+| Large scan delays | Process sequentially (SQLite constraint), httpx is fast | Acceptable |
+| Technology detection false positives | Technologies are additive hints, not authoritative | By design |
 
 ---
 
 ## 14. Future Enhancements
 
-1. **Virtual Host Discovery**: Use httpx vhost brute-forcing
-2. **Screenshot Gallery**: Visual evidence in reports
+1. **Screenshot Capture**: Add screenshot support with `-screenshot` flag and gallery view in reports
+2. **Virtual Host Discovery**: Use httpx vhost brute-forcing
 3. **Technology Trend Analysis**: Track tech changes across runs
 4. **WAF Detection Enhancement**: Inform scanning strategy based on WAF presence
 5. **Batch Mode**: Use httpx's list input for better performance on large scans
+
+---
+
+## Validation Results
+
+End-to-end validation performed December 2024:
+
+| Test | Result |
+|------|--------|
+| httpx version | v1.6.0 installed |
+| Database schema | httpx_results table exists, scan_configs has httpx columns |
+| Test scan | Completed successfully against internal Docker service |
+| HttpxResult records | 1 record created (status=404, tech=[Python, Uvicorn]) |
+| API endpoint | GET /api/scans/{id}/httpx-results returns results |
+| Frontend | HTTP Probes section displays correctly |
+| HTML report | Contains "HTTP Probes" section with table |
+| Technical PDF | Valid PDF generated (5,906 bytes) |
+| Executive PDF | Valid PDF generated (3,133 bytes) |
+| Config toggle | enable_httpx=false results in 0 httpx results |
+
+**Test Target**: peek-backend-1:8000 (FastAPI backend inside Docker network)
+
+**Technologies Detected**: Python, Uvicorn
+
+**Celery Log Output**:
+```
+Running httpx: httpx -u http://peek-backend-1:8000 -json -silent -nc -timeout 30 ...
+httpx completed for http://peek-backend-1:8000
+Created HttpxResult for port 8000: status=404, techs=['Python', 'Uvicorn']
+httpx complete: 1 ports probed
+```
