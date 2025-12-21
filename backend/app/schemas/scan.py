@@ -8,12 +8,12 @@ import ipaddress
 class ScanCreate(BaseModel):
     """Create a new scan run from a configuration.
 
-    Targets are inherited from the config — no need to specify them here.
-    The scan will copy targets from config.targets at run time.
+    Targets can be specified here to override config.targets, or left empty to use config targets.
     """
-    config_id: UUID = Field(..., description="ID of the scan configuration to use (targets come from config)")
+    config_id: UUID = Field(..., description="ID of the scan configuration to use")
     name: Optional[str] = Field(None, max_length=200, description="Optional scan name. Auto-generated as 'Run #N — Date' if not provided")
     description: Optional[str] = Field(None, max_length=1000, description="Scan description")
+    targets: Optional[List[str]] = Field(None, description="Override targets. If not provided, uses config.targets")
 
 
 class ScanUpdate(BaseModel):

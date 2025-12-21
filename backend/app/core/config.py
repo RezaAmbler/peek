@@ -49,5 +49,6 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"  # Ignore frontend env vars like VITE_API_URL
 
 settings = Settings()

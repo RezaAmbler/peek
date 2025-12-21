@@ -25,6 +25,7 @@ export function NewScan() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [configId, setConfigId] = useState('');
+  const [targets, setTargets] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const { data: configsData, isLoading: configsLoading } = useQuery({
@@ -66,6 +67,17 @@ export function NewScan() {
     },
   });
 
+  // Parse targets from textarea
+  const parsedTargets = targets
+    .split('\n')
+    .map(t => t.trim())
+    .filter(t => t.length > 0);
+
+  // Check if we have targets from either source
+  const hasConfigTargets = selectedConfig?.targets && selectedConfig.targets.length > 0;
+  const hasOverrideTargets = parsedTargets.length > 0;
+  const hasAnyTargets = hasConfigTargets || hasOverrideTargets;
+
   const handleSubmit = async (startImmediately: boolean) => {
     setError(null);
 
@@ -74,8 +86,8 @@ export function NewScan() {
       return;
     }
 
-    if (!selectedConfig?.targets || selectedConfig.targets.length === 0) {
-      setError('Selected configuration has no targets. Please add targets to the configuration first.');
+    if (!hasAnyTargets) {
+      setError('No targets specified. Either add targets to the configuration or enter them below.');
       return;
     }
 
@@ -83,6 +95,7 @@ export function NewScan() {
       config_id: configId,
       name: name.trim() || undefined,  // Let backend auto-generate if empty
       description: description.trim() || undefined,
+      targets: hasOverrideTargets ? parsedTargets : undefined,  // Only send if overriding
     };
 
     if (startImmediately) {
@@ -101,7 +114,7 @@ export function NewScan() {
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-gray-900">Create New Scan</h1>
           <p className="mt-2 text-sm text-gray-700">
-            Run a scan using an existing configuration. Targets are defined in the configuration.
+            Run a scan using a configuration. You can use targets from the configuration or specify your own below.
           </p>
         </div>
 
@@ -168,13 +181,37 @@ export function NewScan() {
                   </span>
                 </div>
               )}
-              {(!selectedConfig.targets || selectedConfig.targets.length === 0) && (
+              {(!selectedConfig.targets || selectedConfig.targets.length === 0) && !hasOverrideTargets && (
                 <div className="mt-3 text-amber-600 text-sm">
-                  ⚠️ This configuration has no targets. Please add targets before running a scan.
+                  ⚠️ This configuration has no targets. Add targets below or update the configuration.
                 </div>
               )}
             </div>
           )}
+
+          {/* Targets Override */}
+          <div className="mb-6">
+            <label htmlFor="targets" className="block text-sm font-medium text-gray-700 mb-2">
+              Scan Targets {hasConfigTargets ? '(optional override)' : '(required)'}
+            </label>
+            <textarea
+              id="targets"
+              value={targets}
+              onChange={(e) => setTargets(e.target.value)}
+              rows={5}
+              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm font-mono"
+              placeholder="Enter one target per line, e.g.:&#10;192.168.1.1&#10;10.0.0.0/24&#10;example.com"
+              data-testid="input-targets"
+            />
+            <p className="mt-1 text-sm text-gray-500">
+              {hasOverrideTargets
+                ? `${parsedTargets.length} target(s) entered — will override config targets`
+                : hasConfigTargets
+                  ? `Leave empty to use ${selectedConfig?.targets?.length} target(s) from configuration`
+                  : 'Enter IP addresses, CIDR ranges, or hostnames (one per line)'
+              }
+            </p>
+          </div>
 
           {/* Scan Name (optional) */}
           <div className="mb-6">
@@ -224,7 +261,7 @@ export function NewScan() {
             <button
               type="button"
               onClick={() => handleSubmit(false)}
-              disabled={isPending || !selectedConfig?.targets?.length}
+              disabled={isPending || !hasAnyTargets}
               className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
               data-testid="create-scan-button"
             >
@@ -233,7 +270,7 @@ export function NewScan() {
             <button
               type="button"
               onClick={() => handleSubmit(true)}
-              disabled={isPending || !selectedConfig?.targets?.length}
+              disabled={isPending || !hasAnyTargets}
               className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-50"
               data-testid="create-start-scan-button"
             >

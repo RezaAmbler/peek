@@ -47,9 +47,10 @@ export interface ScanListResponse {
 }
 
 export interface CreateScanRequest {
-  config_id: string;  // Required - targets come from config
+  config_id: string;  // Required - scan settings come from config
   name?: string;  // Optional - auto-generated as "Run #N — Date" if not provided
   description?: string;
+  targets?: string[];  // Optional - override config targets with these
 }
 
 export interface UpdateScanRequest {

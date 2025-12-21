@@ -160,11 +160,19 @@ async def create_scan(
     if config.user_id != current_user.id and not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Not authorized to use this configuration")
 
-    # Validate config has targets
-    if not config.targets or len(config.targets) == 0:
+    # Determine targets: use request targets if provided, else fall back to config.targets
+    if scan_data.targets and len(scan_data.targets) > 0:
+        # Use targets from request (override)
+        targets_to_use = [t.strip() for t in scan_data.targets if t.strip()]
+    else:
+        # Fall back to config targets
+        targets_to_use = config.targets or []
+
+    # Validate at least one target exists
+    if not targets_to_use or len(targets_to_use) == 0:
         raise HTTPException(
             status_code=400,
-            detail="Configuration has no targets. Add targets to the config before creating a scan."
+            detail="No targets provided. Either add targets to the configuration or specify them in the request."
         )
 
     # Get next run number for this config
@@ -181,13 +189,13 @@ async def create_scan(
         name=scan_data.name or generate_scan_name(run_number, created_at),
         description=scan_data.description,
         created_at=created_at,
-        total_targets=len(config.targets)
+        total_targets=len(targets_to_use)
     )
     db.add(scan)
     await db.flush()  # Get scan.id
 
-    # Create targets from config.targets
-    for idx, target_ip in enumerate(config.targets):
+    # Create targets from determined target list
+    for idx, target_ip in enumerate(targets_to_use):
         scan_target = ScanTarget(
             scan_id=scan.id,
             ip_address=target_ip.strip(),
