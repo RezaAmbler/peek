@@ -3,10 +3,20 @@ from sqlalchemy.orm import declarative_base
 from sqlalchemy import text
 from .core.config import settings
 
+def get_connect_args():
+    """Get connection arguments based on database type"""
+    if "sqlite" not in settings.DATABASE_URL:
+        return {}
+    return {
+        "check_same_thread": False,
+        "timeout": 30,  # 30 second busy timeout for lock contention
+    }
+
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
-    connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}
+    connect_args=get_connect_args(),
+    pool_pre_ping=True,
 )
 
 AsyncSessionLocal = async_sessionmaker(
@@ -45,4 +55,4 @@ async def init_db():
         # Enable WAL mode for SQLite
         if "sqlite" in settings.DATABASE_URL:
             await conn.execute(text("PRAGMA journal_mode=WAL"))
-            await conn.execute(text("PRAGMA busy_timeout=5000"))
+            await conn.execute(text("PRAGMA busy_timeout=30000"))

@@ -79,4 +79,4 @@ class ScanConfig(Base):
 
     # Relationships
     user = relationship("User", back_populates="scan_configs")
-    scans = relationship("Scan", back_populates="config", order_by="desc(Scan.created_at)")
+    scans = relationship("Scan", back_populates="config", order_by="desc(Scan.created_at)", cascade="all, delete-orphan")
