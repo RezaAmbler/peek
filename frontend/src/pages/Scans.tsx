@@ -158,8 +158,11 @@ export function Scans() {
                         to={`/scans/${scan.id}`}
                         className="text-sm font-medium text-indigo-600 hover:text-indigo-900"
                       >
-                        {scan.name || `Run #${scan.run_number}`}
+                        {scan.config_name || scan.name || 'Unnamed Config'}
                       </Link>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Run #{scan.run_number} • {new Date(scan.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </p>
                       {scan.description && (
                         <p className="text-sm text-gray-500 mt-1">{scan.description}</p>
                       )}
@@ -259,7 +262,7 @@ export function Scans() {
                       )}
                       {scan.status !== 'running' && (
                         <button
-                          onClick={() => handleDelete(scan.id, scan.name || `Run #${scan.run_number}`)}
+                          onClick={() => handleDelete(scan.id, scan.config_name || scan.name || `Run #${scan.run_number}`)}
                           className="text-red-600 hover:text-red-900"
                           data-testid="scan-delete-button"
                         >

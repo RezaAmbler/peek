@@ -61,8 +61,42 @@ async def list_scans(
     result = await db.execute(query)
     scans = result.scalars().all()
 
+    # Fetch config names for all scans
+    config_ids = list(set(s.config_id for s in scans if s.config_id))
+    config_names = {}
+    if config_ids:
+        configs_result = await db.execute(
+            select(ScanConfig.id, ScanConfig.name).where(ScanConfig.id.in_(config_ids))
+        )
+        config_names = {str(row[0]): row[1] for row in configs_result}
+
+    # Build response with config_name included
+    scan_responses = []
+    for scan in scans:
+        scan_responses.append(ScanResponse(
+            id=scan.id,
+            user_id=scan.user_id,
+            created_by_id=scan.created_by_id,
+            config_id=scan.config_id,
+            config_name=config_names.get(str(scan.config_id), ""),
+            run_number=scan.run_number,
+            name=scan.name,
+            description=scan.description,
+            status=scan.status,
+            current_phase=scan.current_phase,
+            created_at=scan.created_at,
+            started_at=scan.started_at,
+            finished_at=scan.finished_at,
+            progress_percent=scan.progress_percent,
+            total_targets=scan.total_targets,
+            completed_targets=scan.completed_targets,
+            failed_targets=scan.failed_targets,
+            total_open_ports=scan.total_open_ports,
+            total_vulnerabilities=scan.total_vulnerabilities,
+        ))
+
     return ScanListResponse(
-        scans=scans,
+        scans=scan_responses,
         total=total,
         page=page,
         pages=(total + limit - 1) // limit
