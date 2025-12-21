@@ -6,6 +6,7 @@ from datetime import datetime
 import uuid
 from ..database import get_db
 from ..models import Scan, ScanTarget, ScanConfig, User, ScanStatus, Port, SSHAudit, Vulnerability, NseFinding, SslScanResult
+from ..models.httpx_result import HttpxResult
 from ..schemas.scan import (
     ScanCreate,
     ScanUpdate,
@@ -885,6 +886,83 @@ async def get_scan_sslscan_results(
             # Status
             "connection_failed": ssl_result.connection_failed,
             "failure_reason": ssl_result.failure_reason
+        })
+
+    return result_list
+
+
+@router.get("/{scan_id}/httpx-results", summary="Get HTTP probe results")
+async def get_scan_httpx_results(
+    scan_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get all httpx HTTP probe results for a scan.
+
+    Returns HTTP metadata including status codes, titles, technology detection,
+    CDN/WAF detection, and TLS information for each probed HTTP port.
+    """
+    # Verify scan access
+    result = await db.execute(select(Scan).where(Scan.id == scan_id))
+    scan = result.scalar_one_or_none()
+
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    if scan.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Get all httpx results for this scan
+    query = (
+        select(HttpxResult)
+        .join(Port, HttpxResult.port_id == Port.id)
+        .join(ScanTarget, Port.scan_target_id == ScanTarget.id)
+        .where(ScanTarget.scan_id == scan_id)
+    )
+
+    results = await db.execute(query)
+    httpx_results = results.scalars().all()
+
+    # Join with port and target info
+    result_list = []
+    for httpx_result in httpx_results:
+        port_result = await db.execute(
+            select(Port).where(Port.id == httpx_result.port_id)
+        )
+        port = port_result.scalar_one()
+
+        target_result = await db.execute(
+            select(ScanTarget).where(ScanTarget.id == port.scan_target_id)
+        )
+        target = target_result.scalar_one()
+
+        result_list.append({
+            "id": str(httpx_result.id),
+            "port_id": str(httpx_result.port_id),
+            "ip_address": target.ip_address,
+            "port": port.port,
+            # HTTP Response
+            "status_code": httpx_result.status_code,
+            "content_length": httpx_result.content_length,
+            "content_type": httpx_result.content_type,
+            "title": httpx_result.title,
+            "webserver": httpx_result.webserver,
+            # Technology detection
+            "technologies": httpx_result.technologies or [],
+            # Infrastructure
+            "cdn": httpx_result.cdn,
+            "waf": httpx_result.waf,
+            "final_url": httpx_result.final_url,
+            "redirect_chain": httpx_result.redirect_chain or [],
+            # Metadata
+            "response_time_ms": httpx_result.response_time_ms,
+            # TLS info
+            "tls_version": httpx_result.tls_version,
+            "jarm_hash": httpx_result.jarm_hash,
+            # Connection status
+            "connection_failed": httpx_result.connection_failed,
+            "failure_reason": httpx_result.failure_reason
         })
 
     return result_list

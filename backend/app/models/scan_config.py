@@ -41,6 +41,9 @@ class ScanConfig(Base):
     enable_nuclei = Column(Boolean, default=True, nullable=False)
     enable_nse = Column(Boolean, default=True, nullable=False)  # Nmap Scripting Engine
     enable_sslscan = Column(Boolean, default=True, nullable=False)  # SSL/TLS scanner
+    enable_httpx = Column(Boolean, default=True, nullable=False)  # HTTP probing with tech detection
+    httpx_timeout = Column(Integer, default=30, nullable=False)  # HTTP timeout in seconds
+    httpx_tech_detect = Column(Boolean, default=True, nullable=False)  # Enable technology fingerprinting
     nuclei_severity = Column(String, default="critical,high,medium,low,info", nullable=False)
     nuclei_templates = Column(String, nullable=True)  # Path to custom templates
     nuclei_timeout = Column(Integer, default=300, nullable=False)

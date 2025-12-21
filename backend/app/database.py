@@ -48,6 +48,9 @@ async def init_db():
     from .models.vulnerability import Vulnerability
     from .models.scan_comparison import ScanComparison
     from .models.scheduled_scan import ScheduledScan
+    from .models.nse_finding import NseFinding
+    from .models.sslscan_result import SslScanResult
+    from .models.httpx_result import HttpxResult
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

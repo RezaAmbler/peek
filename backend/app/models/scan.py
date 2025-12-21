@@ -17,6 +17,7 @@ class ScanPhase(str, enum.Enum):
     PENDING = "pending"
     NMAP_DISCOVERY = "nmap_discovery"
     NMAP = "nmap"
+    HTTPX = "httpx"  # HTTP probing with technology detection
     SSH_AUDIT = "ssh_audit"
     NUCLEI = "nuclei"
     NSE = "nse"

@@ -212,6 +212,34 @@ export interface SSLScanResult {
   failure_reason?: string;
 }
 
+export interface HttpxResult {
+  id: string;
+  port_id: string;
+  ip_address: string;
+  port: number;
+  // HTTP Response
+  status_code?: number;
+  content_length?: number;
+  content_type?: string;
+  title?: string;
+  webserver?: string;
+  // Technology detection
+  technologies: string[];
+  // Infrastructure
+  cdn?: string;
+  waf?: string;
+  final_url?: string;
+  redirect_chain: string[];
+  // Metadata
+  response_time_ms?: number;
+  // TLS info
+  tls_version?: string;
+  jarm_hash?: string;
+  // Connection status
+  connection_failed: boolean;
+  failure_reason?: string;
+}
+
 export const scansApi = {
   async list(page = 1, limit = 20, status?: string): Promise<ScanListResponse> {
     const params = new URLSearchParams({
@@ -286,6 +314,11 @@ export const scansApi = {
 
   async getComparable(scanId: string): Promise<ComparableScansResponse> {
     const { data } = await apiClient.get<ComparableScansResponse>(`/api/scans/${scanId}/comparable`);
+    return data;
+  },
+
+  async getHttpxResults(scanId: string): Promise<HttpxResult[]> {
+    const { data } = await apiClient.get<HttpxResult[]>(`/api/scans/${scanId}/httpx-results`);
     return data;
   },
 };

@@ -8,6 +8,7 @@ import { VulnerabilityCard } from '../components/VulnerabilityCard';
 import { ServiceIcon } from '../components/ServiceIcon';
 import { SSLScanSection } from '../components/SSLScanSection';
 import { NSEFindingsSection } from '../components/NSEFindingsSection';
+import { HttpxSection } from '../components/HttpxSection';
 import { useState, Fragment, useMemo } from 'react';
 import { Menu, Transition } from '@headlessui/react';
 import { Navigation } from '../components/Navigation';
@@ -162,6 +163,12 @@ export function ScanDetail() {
   const { data: sslscanResults } = useQuery({
     queryKey: ['scan-sslscan-results', scanId],
     queryFn: () => scansApi.getSSLScanResults(scanId),
+    enabled: !!scanId && scan?.status === 'completed',
+  });
+
+  const { data: httpxResults } = useQuery({
+    queryKey: ['scan-httpx-results', scanId],
+    queryFn: () => scansApi.getHttpxResults(scanId),
     enabled: !!scanId && scan?.status === 'completed',
   });
 
@@ -1143,6 +1150,11 @@ export function ScanDetail() {
       {/* SSL/TLS Analysis Section */}
       {sslscanResults && sslscanResults.length > 0 && (
         <SSLScanSection results={sslscanResults} hostFilter={hostFilter} />
+      )}
+
+      {/* HTTP Probe Results Section */}
+      {httpxResults && httpxResults.length > 0 && (
+        <HttpxSection results={httpxResults} hostFilter={hostFilter} />
       )}
 
       {/* NSE Script Results Section */}

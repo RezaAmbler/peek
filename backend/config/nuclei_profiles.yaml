@@ -40,6 +40,96 @@ scan_modes:
     description: "Deep scan - runs all applicable templates"
 
 # ============================================
+# Technology Tags (from httpx detection)
+# ============================================
+# Maps httpx technology fingerprints to nuclei tags.
+# These enhance base service profiles with more specific templates.
+# When httpx detects a technology, the corresponding tags are ADDED
+# to the nuclei scan for more targeted vulnerability detection.
+#
+# NOTE: Only applied when using tag-based scanning (not comprehensive mode)
+technology_tags:
+  # --- CMS ---
+  wordpress: [wordpress, wp]
+  drupal: [drupal]
+  joomla: [joomla]
+  magento: [magento]
+  ghost: [ghost]
+  strapi: [strapi]
+  typo3: [typo3]
+  prestashop: [prestashop]
+
+  # --- Frameworks ---
+  laravel: [laravel, php]
+  symfony: [symfony, php]
+  django: [django, python]
+  flask: [flask, python]
+  rails: [rails, ruby]
+  spring: [spring, java]
+  express: [express, node]
+  next.js: [nextjs, react]
+  nuxt: [nuxt, vue]
+  angular: [angular]
+  react: [react]
+  vue: [vue]
+
+  # --- Servers ---
+  nginx: [nginx]
+  apache: [apache]
+  iis: [iis]
+  tomcat: [tomcat]
+  caddy: [caddy]
+  litespeed: [litespeed]
+
+  # --- Databases (HTTP interfaces) ---
+  phpmyadmin: [phpmyadmin, mysql]
+  pgadmin: [pgadmin, postgres]
+  adminer: [adminer]
+  mongo-express: [mongodb]
+
+  # --- DevOps / CI/CD ---
+  jenkins: [jenkins]
+  gitlab: [gitlab]
+  gitea: [gitea]
+  bamboo: [bamboo]
+  teamcity: [teamcity]
+  artifactory: [artifactory]
+  sonarqube: [sonarqube]
+  nexus: [nexus]
+  harbor: [harbor]
+  argocd: [argocd]
+  drone: [drone]
+
+  # --- Monitoring / Observability ---
+  grafana: [grafana]
+  prometheus: [prometheus]
+  kibana: [kibana]
+  elasticsearch: [elasticsearch]
+  zabbix: [zabbix]
+  nagios: [nagios]
+  graylog: [graylog]
+
+  # --- Panels / Management ---
+  cpanel: [cpanel]
+  plesk: [plesk]
+  webmin: [webmin]
+  cockpit: [cockpit]
+  portainer: [portainer]
+  rancher: [rancher]
+
+  # --- Security / Identity ---
+  keycloak: [keycloak]
+  vault: [vault]
+  consul: [consul]
+
+  # --- Cloud / Infrastructure ---
+  kubernetes: [kubernetes, k8s]
+  docker: [docker]
+  minio: [minio]
+  nextcloud: [nextcloud]
+  owncloud: [owncloud]
+
+# ============================================
 # Port-Based Fallback Hints
 # ============================================
 # Used when nmap service detection fails but port is well-known

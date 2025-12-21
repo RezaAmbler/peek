@@ -11,6 +11,7 @@ from .scan_comparison import ScanComparison
 from .scheduled_scan import ScheduledScan
 from .nse_finding import NseFinding
 from .sslscan_result import SslScanResult
+from .httpx_result import HttpxResult
 
 __all__ = [
     "User",
@@ -31,4 +32,5 @@ __all__ = [
     "ScheduledScan",
     "NseFinding",
     "SslScanResult",
+    "HttpxResult",
 ]
