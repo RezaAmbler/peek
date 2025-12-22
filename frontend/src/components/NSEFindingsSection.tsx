@@ -6,13 +6,13 @@ interface NSEFindingsSectionProps {
   hostFilter?: string | null;
 }
 
-// Severity colors
+// Severity colors with dark mode
 const severityColors: Record<string, string> = {
-  critical: 'bg-red-100 text-red-800 border-red-300',
-  high: 'bg-orange-100 text-orange-800 border-orange-300',
-  medium: 'bg-yellow-100 text-yellow-800 border-yellow-300',
-  low: 'bg-blue-100 text-blue-800 border-blue-300',
-  info: 'bg-gray-100 text-gray-700 border-gray-300',
+  critical: 'bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-200 border-red-300 dark:border-red-700',
+  high: 'bg-orange-100 dark:bg-orange-900/40 text-orange-800 dark:text-orange-200 border-orange-300 dark:border-orange-700',
+  medium: 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-800 dark:text-yellow-200 border-yellow-300 dark:border-yellow-700',
+  low: 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200 border-blue-300 dark:border-blue-700',
+  info: 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600',
 };
 
 function NSEFindingCard({ finding }: { finding: NSEFinding }) {
@@ -27,17 +27,17 @@ function NSEFindingCard({ finding }: { finding: NSEFinding }) {
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
-            <span className="px-2 py-0.5 text-xs font-medium rounded bg-green-100 text-green-700">
+            <span className="px-2 py-0.5 text-xs font-medium rounded bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300">
               NSE
             </span>
-            <span className="font-semibold text-gray-900">{finding.script_id}</span>
+            <span className="font-semibold">{finding.script_id}</span>
             {finding.severity && (
               <span className={`px-2 py-0.5 text-xs font-medium rounded uppercase ${severityStyle}`}>
                 {finding.severity}
               </span>
             )}
           </div>
-          <p className="text-sm text-gray-600">
+          <p className="text-sm opacity-80">
             {finding.ip_address}:{finding.port}/{finding.protocol}
             {finding.service_name && ` (${finding.service_name})`}
             {finding.device_name && ` - ${finding.device_name}`}
@@ -46,7 +46,7 @@ function NSEFindingCard({ finding }: { finding: NSEFinding }) {
         {finding.raw_output && (
           <button
             onClick={() => setExpanded(!expanded)}
-            className="text-sm text-indigo-600 hover:text-indigo-800"
+            className="text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300"
           >
             {expanded ? 'Hide' : 'Show Output'}
           </button>
@@ -55,7 +55,7 @@ function NSEFindingCard({ finding }: { finding: NSEFinding }) {
 
       {/* Profile name */}
       {finding.profile_name && (
-        <p className="mt-2 text-xs text-gray-500">
+        <p className="mt-2 text-xs opacity-70">
           Profile: <span className="font-medium">{finding.profile_name}</span>
         </p>
       )}
@@ -72,12 +72,12 @@ function NSEFindingCard({ finding }: { finding: NSEFinding }) {
       {/* Elements (parsed key-value data) */}
       {finding.elements && Object.keys(finding.elements).length > 0 && (
         <div className="mt-3">
-          <p className="text-xs font-semibold text-gray-700 mb-1">Extracted Data:</p>
-          <div className="bg-gray-50 rounded p-2 text-xs">
+          <p className="text-xs font-semibold opacity-80 mb-1">Extracted Data:</p>
+          <div className="bg-gray-50 dark:bg-gray-800/50 rounded p-2 text-xs">
             {Object.entries(finding.elements).map(([key, value]) => (
               <div key={key} className="flex gap-2">
-                <span className="font-medium text-gray-600">{key}:</span>
-                <span className="text-gray-800 font-mono">
+                <span className="font-medium opacity-70">{key}:</span>
+                <span className="font-mono">
                   {typeof value === 'object' ? JSON.stringify(value) : String(value)}
                 </span>
               </div>
@@ -88,7 +88,7 @@ function NSEFindingCard({ finding }: { finding: NSEFinding }) {
 
       {/* Error */}
       {finding.error && (
-        <p className="mt-2 text-xs text-red-600">Error: {finding.error}</p>
+        <p className="mt-2 text-xs text-red-600 dark:text-red-400">Error: {finding.error}</p>
       )}
     </div>
   );
@@ -122,21 +122,21 @@ export function NSEFindingsSection({ findings, hostFilter }: NSEFindingsSectionP
   if (findings.length === 0) return null;
 
   return (
-    <div className="mt-6 bg-white shadow rounded-lg overflow-hidden" data-component="NSEFindingsSection">
+    <div className="mt-6 bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden" data-component="NSEFindingsSection">
       <button
         onClick={() => setShow(!show)}
-        className="w-full px-6 py-4 border-b border-gray-200 flex items-center justify-between hover:bg-gray-50 transition-colors"
+        className="w-full px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
       >
         <div className="flex items-center gap-3">
-          <h2 className="text-lg font-medium text-gray-900">
+          <h2 className="text-lg font-medium text-gray-900 dark:text-white">
             NSE Script Results ({hostFilter ? `${filteredFindings.length} of ${findings.length}` : findings.length})
           </h2>
-          <span className="px-2 py-0.5 text-xs font-medium rounded bg-green-100 text-green-700">
+          <span className="px-2 py-0.5 text-xs font-medium rounded bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300">
             NMAP SCRIPTS
           </span>
         </div>
         <svg
-          className={`w-5 h-5 text-gray-500 transform transition-transform ${show ? 'rotate-180' : ''}`}
+          className={`w-5 h-5 text-gray-500 dark:text-gray-400 transform transition-transform ${show ? 'rotate-180' : ''}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -150,12 +150,12 @@ export function NSEFindingsSection({ findings, hostFilter }: NSEFindingsSectionP
             <div className="space-y-6">
               {Object.entries(groupedByPort).map(([key, group]) => (
                 <div key={key}>
-                  <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
                     <span className="font-mono">{group.ip}:{group.port}/{group.protocol}</span>
                     {group.service && (
-                      <span className="px-2 py-0.5 text-xs bg-gray-100 rounded">{group.service}</span>
+                      <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded">{group.service}</span>
                     )}
-                    <span className="text-gray-400">({group.findings.length} scripts)</span>
+                    <span className="text-gray-400 dark:text-gray-500">({group.findings.length} scripts)</span>
                   </h3>
                   <div className="space-y-2 ml-4">
                     {group.findings.map(finding => (
@@ -166,7 +166,7 @@ export function NSEFindingsSection({ findings, hostFilter }: NSEFindingsSectionP
               ))}
             </div>
           ) : (
-            <p className="text-gray-500 text-center py-4">No NSE script results for selected host</p>
+            <p className="text-gray-500 dark:text-gray-400 text-center py-4">No NSE script results for selected host</p>
           )}
         </div>
       )}

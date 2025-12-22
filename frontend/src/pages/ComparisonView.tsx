@@ -40,10 +40,10 @@ export function ComparisonView() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
         <Navigation />
         <div className="max-w-7xl mx-auto py-6 px-4">
-          <p>Loading comparison...</p>
+          <p className="text-gray-500 dark:text-gray-400">Loading comparison...</p>
         </div>
       </div>
     );
@@ -51,10 +51,10 @@ export function ComparisonView() {
 
   if (!comparison) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
         <Navigation />
         <div className="max-w-7xl mx-auto py-6 px-4">
-          <p>Comparison not found</p>
+          <p className="text-gray-500 dark:text-gray-400">Comparison not found</p>
         </div>
       </div>
     );
@@ -67,43 +67,43 @@ export function ComparisonView() {
   const sshChanges = comparison.changes.filter(c => c.category === 'ssh');
 
   return (
-    <div className="min-h-screen bg-gray-50" data-component="ComparisonPage">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900" data-component="ComparisonPage">
       <Navigation />
       <main className="max-w-7xl mx-auto py-6 px-4">
         {/* Header */}
-        <div className="bg-white shadow rounded-lg p-6 mb-6" data-component="ComparisonSummary">
+        <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6 mb-6" data-component="ComparisonSummary">
           <div className="flex items-center justify-between mb-4">
-            <h1 className="text-2xl font-bold">Scan Comparison</h1>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Scan Comparison</h1>
             <button
               onClick={handleExport}
               className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm font-medium"
               data-testid="comparison-export-button"
             >
-              📄 Export PDF Report
+              Export PDF Report
             </button>
           </div>
 
           {/* Summary Stats */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4" data-component="ComparisonStats">
-            <div className={`p-4 rounded ${comparison.new_ports === 0 ? 'bg-gray-50' : 'bg-red-50'}`} data-testid="comparison-stat-new-ports">
-              <p className={`text-sm ${comparison.new_ports === 0 ? 'text-gray-400' : 'text-gray-600'}`}>New Ports</p>
-              <p className={`text-2xl font-bold ${comparison.new_ports === 0 ? 'text-gray-300' : 'text-red-600'}`}>{comparison.new_ports}</p>
+            <div className={`p-4 rounded ${comparison.new_ports === 0 ? 'bg-gray-50 dark:bg-gray-700' : 'bg-red-50 dark:bg-red-900/30'}`} data-testid="comparison-stat-new-ports">
+              <p className={`text-sm ${comparison.new_ports === 0 ? 'text-gray-400 dark:text-gray-500' : 'text-gray-600 dark:text-gray-300'}`}>New Ports</p>
+              <p className={`text-2xl font-bold ${comparison.new_ports === 0 ? 'text-gray-300 dark:text-gray-600' : 'text-red-600 dark:text-red-400'}`}>{comparison.new_ports}</p>
             </div>
-            <div className={`p-4 rounded ${comparison.closed_ports === 0 ? 'bg-gray-50' : 'bg-green-50'}`} data-testid="comparison-stat-closed-ports">
-              <p className={`text-sm ${comparison.closed_ports === 0 ? 'text-gray-400' : 'text-gray-600'}`}>Closed Ports</p>
-              <p className={`text-2xl font-bold ${comparison.closed_ports === 0 ? 'text-gray-300' : 'text-green-600'}`}>{comparison.closed_ports}</p>
+            <div className={`p-4 rounded ${comparison.closed_ports === 0 ? 'bg-gray-50 dark:bg-gray-700' : 'bg-green-50 dark:bg-green-900/30'}`} data-testid="comparison-stat-closed-ports">
+              <p className={`text-sm ${comparison.closed_ports === 0 ? 'text-gray-400 dark:text-gray-500' : 'text-gray-600 dark:text-gray-300'}`}>Closed Ports</p>
+              <p className={`text-2xl font-bold ${comparison.closed_ports === 0 ? 'text-gray-300 dark:text-gray-600' : 'text-green-600 dark:text-green-400'}`}>{comparison.closed_ports}</p>
             </div>
-            <div className={`p-4 rounded ${comparison.version_changes === 0 ? 'bg-gray-50' : 'bg-yellow-50'}`} data-testid="comparison-stat-version-changes">
-              <p className={`text-sm ${comparison.version_changes === 0 ? 'text-gray-400' : 'text-gray-600'}`}>Version Changes</p>
-              <p className={`text-2xl font-bold ${comparison.version_changes === 0 ? 'text-gray-300' : 'text-yellow-600'}`}>{comparison.version_changes}</p>
+            <div className={`p-4 rounded ${comparison.version_changes === 0 ? 'bg-gray-50 dark:bg-gray-700' : 'bg-yellow-50 dark:bg-yellow-900/30'}`} data-testid="comparison-stat-version-changes">
+              <p className={`text-sm ${comparison.version_changes === 0 ? 'text-gray-400 dark:text-gray-500' : 'text-gray-600 dark:text-gray-300'}`}>Version Changes</p>
+              <p className={`text-2xl font-bold ${comparison.version_changes === 0 ? 'text-gray-300 dark:text-gray-600' : 'text-yellow-600 dark:text-yellow-400'}`}>{comparison.version_changes}</p>
             </div>
-            <div className={`p-4 rounded ${comparison.new_vulnerabilities === 0 ? 'bg-gray-50' : 'bg-red-50'}`} data-testid="comparison-stat-new-vulns">
-              <p className={`text-sm ${comparison.new_vulnerabilities === 0 ? 'text-gray-400' : 'text-gray-600'}`}>New Vulnerabilities</p>
-              <p className={`text-2xl font-bold ${comparison.new_vulnerabilities === 0 ? 'text-gray-300' : 'text-red-600'}`}>{comparison.new_vulnerabilities}</p>
+            <div className={`p-4 rounded ${comparison.new_vulnerabilities === 0 ? 'bg-gray-50 dark:bg-gray-700' : 'bg-red-50 dark:bg-red-900/30'}`} data-testid="comparison-stat-new-vulns">
+              <p className={`text-sm ${comparison.new_vulnerabilities === 0 ? 'text-gray-400 dark:text-gray-500' : 'text-gray-600 dark:text-gray-300'}`}>New Vulnerabilities</p>
+              <p className={`text-2xl font-bold ${comparison.new_vulnerabilities === 0 ? 'text-gray-300 dark:text-gray-600' : 'text-red-600 dark:text-red-400'}`}>{comparison.new_vulnerabilities}</p>
             </div>
-            <div className={`p-4 rounded ${comparison.fixed_vulnerabilities === 0 ? 'bg-gray-50' : 'bg-green-50'}`} data-testid="comparison-stat-fixed-vulns">
-              <p className={`text-sm ${comparison.fixed_vulnerabilities === 0 ? 'text-gray-400' : 'text-gray-600'}`}>Fixed Vulnerabilities</p>
-              <p className={`text-2xl font-bold ${comparison.fixed_vulnerabilities === 0 ? 'text-gray-300' : 'text-green-600'}`}>{comparison.fixed_vulnerabilities}</p>
+            <div className={`p-4 rounded ${comparison.fixed_vulnerabilities === 0 ? 'bg-gray-50 dark:bg-gray-700' : 'bg-green-50 dark:bg-green-900/30'}`} data-testid="comparison-stat-fixed-vulns">
+              <p className={`text-sm ${comparison.fixed_vulnerabilities === 0 ? 'text-gray-400 dark:text-gray-500' : 'text-gray-600 dark:text-gray-300'}`}>Fixed Vulnerabilities</p>
+              <p className={`text-2xl font-bold ${comparison.fixed_vulnerabilities === 0 ? 'text-gray-300 dark:text-gray-600' : 'text-green-600 dark:text-green-400'}`}>{comparison.fixed_vulnerabilities}</p>
             </div>
           </div>
 
@@ -132,12 +132,12 @@ export function ComparisonView() {
           </div>
 
           {/* Summary Text - parse and display cleanly */}
-          <div className="mt-4 bg-gray-50 p-4 rounded">
+          <div className="mt-4 bg-gray-50 dark:bg-gray-700 p-4 rounded">
             {comparison.summary.split('\n').map((line, idx) => {
               // First line is the comparison title - make it bold
               if (idx === 0) {
                 return (
-                  <p key={idx} className="text-sm font-semibold text-gray-800">
+                  <p key={idx} className="text-sm font-semibold text-gray-800 dark:text-gray-100">
                     {line.replace('Comparison: ', '')}
                   </p>
                 );
@@ -148,7 +148,7 @@ export function ComparisonView() {
               if (line.match(/^[📊🟢🔴🟡]/)) return null;
               // Date lines
               return (
-                <p key={idx} className="text-xs text-gray-500 mt-0.5">
+                <p key={idx} className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                   {line}
                 </p>
               );
@@ -159,7 +159,7 @@ export function ComparisonView() {
         {/* Changes by Category */}
         {portChanges.length > 0 && (
           <div className="mb-6" data-component="ComparisonChangesList" data-testid="port-changes-section">
-            <h2 className="text-xl font-bold mb-4">Port Changes ({portChanges.length})</h2>
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Port Changes ({portChanges.length})</h2>
             <div className="space-y-3">
               {portChanges.map((change, idx) => (
                 <ChangeCard key={idx} change={change} />
@@ -170,7 +170,7 @@ export function ComparisonView() {
 
         {serviceChanges.length > 0 && (
           <div className="mb-6" data-testid="service-changes-section">
-            <h2 className="text-xl font-bold mb-4">Service Changes ({serviceChanges.length})</h2>
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Service Changes ({serviceChanges.length})</h2>
             <div className="space-y-3">
               {serviceChanges.map((change, idx) => (
                 <ChangeCard key={idx} change={change} />
@@ -181,7 +181,7 @@ export function ComparisonView() {
 
         {vulnChanges.length > 0 && (
           <div className="mb-6" data-testid="vuln-changes-section">
-            <h2 className="text-xl font-bold mb-4">Vulnerability Changes ({vulnChanges.length})</h2>
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Vulnerability Changes ({vulnChanges.length})</h2>
             <div className="space-y-3">
               {vulnChanges.map((change, idx) => (
                 <ChangeCard key={idx} change={change} />
@@ -192,7 +192,7 @@ export function ComparisonView() {
 
         {sshChanges.length > 0 && (
           <div className="mb-6" data-testid="ssh-changes-section">
-            <h2 className="text-xl font-bold mb-4">SSH Security Changes ({sshChanges.length})</h2>
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">SSH Security Changes ({sshChanges.length})</h2>
             <div className="space-y-3">
               {sshChanges.map((change, idx) => (
                 <ChangeCard key={idx} change={change} />
@@ -202,9 +202,9 @@ export function ComparisonView() {
         )}
 
         {comparison.total_changes === 0 && (
-          <div className="bg-white shadow rounded-lg p-6">
-            <p className="text-green-600 font-semibold text-center">
-              ✅ No changes detected between scans
+          <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+            <p className="text-green-600 dark:text-green-400 font-semibold text-center">
+              No changes detected between scans
             </p>
           </div>
         )}

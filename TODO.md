@@ -52,7 +52,7 @@
 
 | Backlog | In Progress | Done |
 |---------|-------------|------|
-| Dark mode toggle | - | Target input on New Scan page |
+| Dark mode (remaining pages) | Dark mode toggle | Target input on New Scan page |
 | Dashboard with scan overview | - | Scan comparison/diff feature |
 | Bulk actions (multi-select scans) | - | Report generation (HTML, PDF, CSV) |
 | Export configuration profiles | - | Real-time scan progress |

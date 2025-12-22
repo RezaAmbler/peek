@@ -127,38 +127,38 @@ export function ScheduledScanForm() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50" data-component="ScheduledScanFormPage">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900" data-component="ScheduledScanFormPage">
       <Navigation />
 
       <main className="max-w-4xl mx-auto py-6 px-4">
-        <h1 className="text-2xl font-bold mb-6">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
           {isNew ? 'New Scheduled Scan' : 'Edit Scheduled Scan'}
         </h1>
 
-        <form onSubmit={handleSubmit} className="bg-white shadow rounded-lg p-6 space-y-6" data-component="ScheduledScanForm">
+        <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-800 shadow rounded-lg p-6 space-y-6" data-component="ScheduledScanForm">
           {/* Basic Info */}
           <div>
-            <h2 className="text-lg font-semibold mb-4">Basic Information</h2>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Basic Information</h2>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Name *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name *</label>
                 <input
                   type="text"
                   required
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
                   data-testid="input-schedule-name"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">Description</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
                 <textarea
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   rows={2}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
                   data-testid="input-schedule-description"
                 />
               </div>
@@ -167,20 +167,20 @@ export function ScheduledScanForm() {
 
           {/* Schedule */}
           <div>
-            <h2 className="text-lg font-semibold mb-4">Schedule</h2>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Schedule</h2>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Cron Expression *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Cron Expression *</label>
                 <input
                   type="text"
                   required
                   value={formData.cron_expression}
                   onChange={(e) => setFormData({ ...formData, cron_expression: e.target.value })}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md font-mono"
+                  className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md font-mono dark:bg-gray-700 dark:text-white"
                   placeholder="0 2 * * 1"
                   data-testid="input-cron-expression"
                 />
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   Format: minute hour day month weekday (e.g., "0 2 * * 1" = Every Monday at 2 AM)
                 </p>
 
@@ -190,7 +190,7 @@ export function ScheduledScanForm() {
                       key={label}
                       type="button"
                       onClick={() => setFormData({ ...formData, cron_expression: cron })}
-                      className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+                      className="px-3 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
                       data-testid={`cron-preset-${label.toLowerCase().replace(/\s+/g, '-')}`}
                     >
                       {label}
@@ -200,12 +200,12 @@ export function ScheduledScanForm() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">Timezone</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Timezone</label>
                 <input
                   type="text"
                   value={formData.timezone}
                   onChange={(e) => setFormData({ ...formData, timezone: e.target.value })}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
                   placeholder="UTC, America/Los_Angeles, etc."
                   data-testid="select-timezone"
                 />
@@ -215,15 +215,15 @@ export function ScheduledScanForm() {
 
           {/* Scan Configuration */}
           <div>
-            <h2 className="text-lg font-semibold mb-4">Scan Configuration</h2>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Scan Configuration</h2>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Configuration *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Configuration *</label>
                 <select
                   required
                   value={formData.config_id}
                   onChange={(e) => setFormData({ ...formData, config_id: e.target.value })}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
                   data-testid="select-schedule-config"
                 >
                   <option value="">Select configuration...</option>
@@ -236,17 +236,17 @@ export function ScheduledScanForm() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">Targets *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Targets *</label>
                 <textarea
                   required
                   value={targetsText}
                   onChange={(e) => setTargetsText(e.target.value)}
                   rows={6}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm"
+                  className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md font-mono text-sm dark:bg-gray-700 dark:text-white"
                   placeholder="192.168.1.1&#10;Router,192.168.1.254&#10;Server,10.0.0.5"
                   data-testid="textarea-schedule-targets"
                 />
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   One target per line. Format: "ip_address" or "device_name,ip_address"
                 </p>
               </div>
@@ -255,17 +255,17 @@ export function ScheduledScanForm() {
 
           {/* Comparison Settings */}
           <div>
-            <h2 className="text-lg font-semibold mb-4">Comparison Settings</h2>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Comparison Settings</h2>
             <div className="space-y-3">
               <label className="flex items-center">
                 <input
                   type="checkbox"
                   checked={formData.auto_compare}
                   onChange={(e) => setFormData({ ...formData, auto_compare: e.target.checked })}
-                  className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                  className="h-4 w-4 text-indigo-600 border-gray-300 dark:border-gray-600 rounded"
                   data-testid="checkbox-auto-compare"
                 />
-                <span className="ml-2 text-sm text-gray-900">Auto-compare with previous scans</span>
+                <span className="ml-2 text-sm text-gray-900 dark:text-gray-100">Auto-compare with previous scans</span>
               </label>
 
               {formData.auto_compare && (
@@ -274,10 +274,10 @@ export function ScheduledScanForm() {
                     type="checkbox"
                     checked={formData.compare_with_previous}
                     onChange={(e) => setFormData({ ...formData, compare_with_previous: e.target.checked })}
-                    className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                    className="h-4 w-4 text-indigo-600 border-gray-300 dark:border-gray-600 rounded"
                     data-testid="checkbox-compare-previous"
                   />
-                  <span className="ml-2 text-sm text-gray-900">Compare with most recent run</span>
+                  <span className="ml-2 text-sm text-gray-900 dark:text-gray-100">Compare with most recent run</span>
                 </label>
               )}
             </div>
@@ -285,17 +285,17 @@ export function ScheduledScanForm() {
 
           {/* Notifications */}
           <div>
-            <h2 className="text-lg font-semibold mb-4">Notifications</h2>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Notifications</h2>
             <div className="space-y-3">
               <label className="flex items-center">
                 <input
                   type="checkbox"
                   checked={formData.email_on_completion}
                   onChange={(e) => setFormData({ ...formData, email_on_completion: e.target.checked })}
-                  className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                  className="h-4 w-4 text-indigo-600 border-gray-300 dark:border-gray-600 rounded"
                   data-testid="checkbox-email-completion"
                 />
-                <span className="ml-2 text-sm text-gray-900">Send email on completion</span>
+                <span className="ml-2 text-sm text-gray-900 dark:text-gray-100">Send email on completion</span>
               </label>
 
               <label className="flex items-center">
@@ -303,10 +303,10 @@ export function ScheduledScanForm() {
                   type="checkbox"
                   checked={formData.email_on_changes_only}
                   onChange={(e) => setFormData({ ...formData, email_on_changes_only: e.target.checked })}
-                  className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                  className="h-4 w-4 text-indigo-600 border-gray-300 dark:border-gray-600 rounded"
                   data-testid="checkbox-email-changes"
                 />
-                <span className="ml-2 text-sm text-gray-900">Email only when changes detected</span>
+                <span className="ml-2 text-sm text-gray-900 dark:text-gray-100">Email only when changes detected</span>
               </label>
 
               <label className="flex items-center">
@@ -314,9 +314,9 @@ export function ScheduledScanForm() {
                   type="checkbox"
                   checked={formData.alert_on_critical}
                   onChange={(e) => setFormData({ ...formData, alert_on_critical: e.target.checked })}
-                  className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                  className="h-4 w-4 text-indigo-600 border-gray-300 dark:border-gray-600 rounded"
                 />
-                <span className="ml-2 text-sm text-gray-900">Alert on critical findings</span>
+                <span className="ml-2 text-sm text-gray-900 dark:text-gray-100">Alert on critical findings</span>
               </label>
 
               <label className="flex items-center">
@@ -324,22 +324,22 @@ export function ScheduledScanForm() {
                   type="checkbox"
                   checked={formData.alert_on_new_vulns}
                   onChange={(e) => setFormData({ ...formData, alert_on_new_vulns: e.target.checked })}
-                  className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                  className="h-4 w-4 text-indigo-600 border-gray-300 dark:border-gray-600 rounded"
                 />
-                <span className="ml-2 text-sm text-gray-900">Alert on new vulnerabilities</span>
+                <span className="ml-2 text-sm text-gray-900 dark:text-gray-100">Alert on new vulnerabilities</span>
               </label>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">Email Recipients</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Email Recipients</label>
                 <input
                   type="text"
                   value={emailsText}
                   onChange={(e) => setEmailsText(e.target.value)}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
                   placeholder="email1@example.com, email2@example.com"
                   data-testid="input-email-recipients"
                 />
-                <p className="mt-1 text-xs text-gray-500">Comma-separated email addresses</p>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Comma-separated email addresses</p>
               </div>
             </div>
           </div>
@@ -351,10 +351,10 @@ export function ScheduledScanForm() {
                 type="checkbox"
                 checked={formData.is_active}
                 onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
-                className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                className="h-4 w-4 text-indigo-600 border-gray-300 dark:border-gray-600 rounded"
                 data-testid="checkbox-schedule-active"
               />
-              <span className="ml-2 text-sm text-gray-900">Active (scan will run on schedule)</span>
+              <span className="ml-2 text-sm text-gray-900 dark:text-gray-100">Active (scan will run on schedule)</span>
             </label>
           </div>
 
@@ -371,7 +371,7 @@ export function ScheduledScanForm() {
             <button
               type="button"
               onClick={() => navigate({ to: '/scheduled-scans' })}
-              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+              className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600"
               data-testid="schedule-cancel-button"
             >
               Cancel

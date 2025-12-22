@@ -71,10 +71,10 @@ export function ScanEdit() {
 
   if (scanLoading) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
         <Navigation />
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="text-center text-gray-500">Loading scan...</div>
+          <div className="text-center text-gray-500 dark:text-gray-400">Loading scan...</div>
         </div>
       </div>
     );
@@ -82,10 +82,10 @@ export function ScanEdit() {
 
   if (!scan) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
         <Navigation />
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="text-center text-red-500">Scan not found</div>
+          <div className="text-center text-red-500 dark:text-red-400">Scan not found</div>
         </div>
       </div>
     );
@@ -93,11 +93,11 @@ export function ScanEdit() {
 
   if (scan.status !== 'pending') {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
         <Navigation />
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4">
-            <p className="text-sm text-yellow-800">
+          <div className="bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-700 rounded-md p-4">
+            <p className="text-sm text-yellow-800 dark:text-yellow-200">
               Only scans in "pending" status can be edited. This scan is currently "{scan.status}".
             </p>
             <button
@@ -113,49 +113,49 @@ export function ScanEdit() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50" data-component="ScanEditPage">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900" data-component="ScanEditPage">
       <Navigation />
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">Edit Scan</h1>
-          <p className="mt-2 text-sm text-gray-700">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Edit Scan</h1>
+          <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
             Modify scan name and description. Configuration and targets cannot be changed after creation.
           </p>
         </div>
 
-        <div className="bg-white shadow-md rounded-lg p-6" data-component="ScanEditForm">
+        <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6" data-component="ScanEditForm">
           {error && (
-            <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md" data-testid="form-error-message">
-              <p className="text-sm text-red-800">{error}</p>
+            <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-md" data-testid="form-error-message">
+              <p className="text-sm text-red-800 dark:text-red-200">{error}</p>
             </div>
           )}
 
           {/* Scan Info (read-only) */}
-          <div className="mb-6 p-4 bg-gray-50 rounded-md border border-gray-200">
-            <h3 className="font-medium text-gray-900 mb-2">Scan Information</h3>
+          <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-md border border-gray-200 dark:border-gray-600">
+            <h3 className="font-medium text-gray-900 dark:text-white mb-2">Scan Information</h3>
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
-                <span className="text-gray-500">Config:</span>
-                <span className="ml-2 font-medium">{scan.config_name || scan.config_id}</span>
+                <span className="text-gray-500 dark:text-gray-400">Config:</span>
+                <span className="ml-2 font-medium text-gray-900 dark:text-white">{scan.config_name || scan.config_id}</span>
               </div>
               <div>
-                <span className="text-gray-500">Run #:</span>
-                <span className="ml-2 font-medium">{scan.run_number}</span>
+                <span className="text-gray-500 dark:text-gray-400">Run #:</span>
+                <span className="ml-2 font-medium text-gray-900 dark:text-white">{scan.run_number}</span>
               </div>
               <div>
-                <span className="text-gray-500">Targets:</span>
-                <span className="ml-2 font-medium">{scan.total_targets}</span>
+                <span className="text-gray-500 dark:text-gray-400">Targets:</span>
+                <span className="ml-2 font-medium text-gray-900 dark:text-white">{scan.total_targets}</span>
               </div>
               <div>
-                <span className="text-gray-500">Status:</span>
-                <span className="ml-2 font-medium">{scan.status}</span>
+                <span className="text-gray-500 dark:text-gray-400">Status:</span>
+                <span className="ml-2 font-medium text-gray-900 dark:text-white">{scan.status}</span>
               </div>
             </div>
           </div>
 
           {/* Scan Name */}
           <div className="mb-6">
-            <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Scan Name
             </label>
             <input
@@ -163,7 +163,7 @@ export function ScanEdit() {
               id="name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
               placeholder="Leave empty to use auto-generated name"
               data-testid="edit-scan-name"
             />
@@ -171,7 +171,7 @@ export function ScanEdit() {
 
           {/* Description */}
           <div className="mb-6">
-            <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Description (optional)
             </label>
             <textarea
@@ -179,7 +179,7 @@ export function ScanEdit() {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
               placeholder="Brief description of this scan..."
               data-testid="edit-scan-description"
             />
@@ -190,7 +190,7 @@ export function ScanEdit() {
             <button
               type="button"
               onClick={() => navigate({ to: `/scans/${scanId}` })}
-              className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600"
               data-testid="edit-scan-cancel-button"
             >
               Cancel

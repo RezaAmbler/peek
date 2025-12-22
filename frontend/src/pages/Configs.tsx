@@ -146,12 +146,12 @@ export function Configs() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
         <Navigation />
         <div className="flex items-center justify-center min-h-[calc(100vh-4rem)]">
           <div className="text-center">
             <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-            <p className="mt-2 text-gray-600">Loading configurations...</p>
+            <p className="mt-2 text-gray-600 dark:text-gray-400">Loading configurations...</p>
           </div>
         </div>
       </div>
@@ -159,21 +159,21 @@ export function Configs() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50" data-component="ConfigsPage">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900" data-component="ConfigsPage">
       <Navigation />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
       <div className="mb-8">
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Scan Configurations</h1>
-            <p className="mt-2 text-sm text-gray-600">
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Scan Configurations</h1>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
               Manage scanning parameters and tool settings
             </p>
           </div>
           <button
             onClick={() => setShowCreateForm(true)}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+            className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-gray-900"
             data-testid="new-config-button"
           >
             New Configuration
@@ -183,8 +183,8 @@ export function Configs() {
 
       {/* Create Form */}
       {showCreateForm && (
-        <div className="mb-6 bg-white shadow rounded-lg p-6">
-          <h3 className="text-lg font-medium mb-4">Create New Configuration</h3>
+        <div className="mb-6 bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+          <h3 className="text-lg font-medium mb-4 text-gray-900 dark:text-white">Create New Configuration</h3>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -199,7 +199,7 @@ export function Configs() {
               name="name"
               placeholder="Configuration name"
               required
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-md"
+              className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
             />
             <button
               type="submit"
@@ -211,7 +211,7 @@ export function Configs() {
             <button
               type="button"
               onClick={() => setShowCreateForm(false)}
-              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+              className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-300 dark:hover:bg-gray-500"
             >
               Cancel
             </button>
@@ -221,32 +221,32 @@ export function Configs() {
 
       {/* Configs Grid */}
       {data?.configs.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-lg shadow">
-          <p className="text-gray-600">No configurations found. Create one to get started!</p>
+        <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow">
+          <p className="text-gray-600 dark:text-gray-400">No configurations found. Create one to get started!</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" data-component="ConfigCardList">
           {data?.configs.map((config) => (
             <div
               key={config.id}
-              className={`bg-white rounded-lg shadow hover:shadow-lg transition-shadow ${config.is_preset ? 'border-2 border-indigo-200' : ''}`}
+              className={`bg-white dark:bg-gray-800 rounded-lg shadow hover:shadow-lg transition-shadow ${config.is_preset ? 'border-2 border-indigo-200 dark:border-indigo-700' : ''}`}
               data-component="ConfigCard"
               data-testid={`config-card-${config.id}`}
             >
               <div className="p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-gray-900">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                       {config.name}
                     </h3>
                     <div className="flex gap-2 mt-1 flex-wrap">
                       {config.is_preset && (
-                        <span className="inline-flex items-center px-2 py-1 text-xs font-medium rounded bg-indigo-100 text-indigo-800">
+                        <span className="inline-flex items-center px-2 py-1 text-xs font-medium rounded bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200">
                           SYSTEM PRESET
                         </span>
                       )}
                       {config.is_default && (
-                        <span className="inline-flex items-center px-2 py-1 text-xs font-medium rounded bg-blue-100 text-blue-800">
+                        <span className="inline-flex items-center px-2 py-1 text-xs font-medium rounded bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200">
                           DEFAULT
                         </span>
                       )}
@@ -254,21 +254,21 @@ export function Configs() {
                   </div>
                 </div>
 
-                <p className="text-sm text-gray-600 mb-4 line-clamp-2">
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 line-clamp-2">
                   {config.description || 'No description'}
                 </p>
 
                 {/* Config Summary */}
-                <div className="text-xs text-gray-500 space-y-1 mb-4 bg-gray-50 p-3 rounded">
+                <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1 mb-4 bg-gray-50 dark:bg-gray-700 p-3 rounded">
                   <div className="flex justify-between">
                     <span>Targets:</span>
-                    <span className={`font-medium ${config.targets?.length > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                    <span className={`font-medium ${config.targets?.length > 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-400 dark:text-gray-500'}`}>
                       {config.targets?.length || 0} configured
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Scan Mode:</span>
-                    <span className={`font-medium ${config.scan_mode === 'deep' ? 'text-indigo-600' : 'text-amber-600'}`}>
+                    <span className={`font-medium ${config.scan_mode === 'deep' ? 'text-indigo-600 dark:text-indigo-400' : 'text-amber-600 dark:text-amber-400'}`}>
                       {config.scan_mode === 'deep' ? 'Deep (All Ports)' : 'Fast (Top 1000)'}
                     </span>
                   </div>
@@ -284,27 +284,27 @@ export function Configs() {
 
                 {/* Tool Status Pills */}
                 <div className="flex flex-wrap gap-1 mb-4">
-                  <span className={`px-2 py-0.5 text-xs rounded ${config.enable_nuclei ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+                  <span className={`px-2 py-0.5 text-xs rounded ${config.enable_nuclei ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500'}`}>
                     Nuclei
                   </span>
-                  <span className={`px-2 py-0.5 text-xs rounded ${config.enable_nse ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+                  <span className={`px-2 py-0.5 text-xs rounded ${config.enable_nse ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500'}`}>
                     NSE
                   </span>
-                  <span className={`px-2 py-0.5 text-xs rounded ${config.enable_nikto ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+                  <span className={`px-2 py-0.5 text-xs rounded ${config.enable_nikto ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500'}`}>
                     Nikto
                   </span>
-                  <span className={`px-2 py-0.5 text-xs rounded ${config.enable_zap ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+                  <span className={`px-2 py-0.5 text-xs rounded ${config.enable_zap ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500'}`}>
                     ZAP
                   </span>
-                  <span className={`px-2 py-0.5 text-xs rounded ${config.enable_ssh_audit ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+                  <span className={`px-2 py-0.5 text-xs rounded ${config.enable_ssh_audit ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500'}`}>
                     SSH
                   </span>
-                  <span className={`px-2 py-0.5 text-xs rounded ${config.enable_sslscan ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+                  <span className={`px-2 py-0.5 text-xs rounded ${config.enable_sslscan ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500'}`}>
                     SSL
                   </span>
                 </div>
 
-                <div className="text-xs text-gray-400 mb-4">
+                <div className="text-xs text-gray-400 dark:text-gray-500 mb-4">
                   Created {formatDate(config.created_at)}
                 </div>
 
@@ -315,7 +315,7 @@ export function Configs() {
                       setEditingConfig(config);
                       setEditingTargets(config.targets?.join('\n') || '');
                     }}
-                    className="flex-1 px-3 py-2 text-sm bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200"
+                    className="flex-1 px-3 py-2 text-sm bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 rounded hover:bg-indigo-200 dark:hover:bg-indigo-800"
                     data-testid="config-edit-button"
                   >
                     {config.is_preset ? 'View' : 'Edit'}
@@ -323,7 +323,7 @@ export function Configs() {
                   {config.is_preset ? (
                     <button
                       onClick={() => handleClone(config)}
-                      className="flex-1 px-3 py-2 text-sm bg-green-100 text-green-700 rounded hover:bg-green-200"
+                      className="flex-1 px-3 py-2 text-sm bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded hover:bg-green-200 dark:hover:bg-green-800"
                       disabled={cloneMutation.isPending}
                       data-testid="config-clone-button"
                     >
@@ -334,7 +334,7 @@ export function Configs() {
                       {!config.is_default && (
                         <button
                           onClick={() => setDefaultMutation.mutate(config.id)}
-                          className="flex-1 px-3 py-2 text-sm bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                          className="flex-1 px-3 py-2 text-sm bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-800"
                           disabled={setDefaultMutation.isPending}
                           data-testid="config-set-default-button"
                         >
@@ -343,7 +343,7 @@ export function Configs() {
                       )}
                       <button
                         onClick={() => handleDelete(config)}
-                        className="px-3 py-2 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200"
+                        className="px-3 py-2 text-sm bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 rounded hover:bg-red-200 dark:hover:bg-red-800"
                         disabled={deleteMutation.isPending}
                         data-testid="config-delete-button"
                       >
@@ -361,22 +361,22 @@ export function Configs() {
       {/* Edit Modal */}
       {editingConfig && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" data-component="ConfigEditModal">
-          <div className="bg-white rounded-lg p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-semibold">
+              <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
                 {editingConfig.is_preset ? 'View Preset: ' : 'Edit Configuration: '}
                 {editingConfig.name}
               </h3>
               {editingConfig.is_preset && (
-                <span className="inline-flex items-center px-3 py-1 text-sm font-medium rounded bg-indigo-100 text-indigo-800">
+                <span className="inline-flex items-center px-3 py-1 text-sm font-medium rounded bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200">
                   SYSTEM PRESET
                 </span>
               )}
             </div>
 
             {editingConfig.is_preset && (
-              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-md">
-                <p className="text-sm text-amber-800">
+              <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded-md">
+                <p className="text-sm text-amber-800 dark:text-amber-200">
                   This is a system preset and cannot be modified. Clone it to create your own customized version.
                 </p>
               </div>
@@ -414,27 +414,27 @@ export function Configs() {
             >
               {/* Basic Info */}
               <div className="space-y-4">
-                <h4 className="font-medium text-gray-900 border-b pb-2">Basic Information</h4>
+                <h4 className="font-medium text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2">Basic Information</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
                     <input
                       type="text"
                       name="name"
                       defaultValue={editingConfig.name}
                       required
                       disabled={editingConfig.is_preset}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100 disabled:text-gray-500"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-600 disabled:text-gray-500 dark:disabled:text-gray-400"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
                     <input
                       type="text"
                       name="description"
                       defaultValue={editingConfig.description || ''}
                       disabled={editingConfig.is_preset}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100 disabled:text-gray-500"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-600 disabled:text-gray-500 dark:disabled:text-gray-400"
                     />
                   </div>
                 </div>
@@ -442,9 +442,9 @@ export function Configs() {
 
               {/* Targets */}
               <div className="space-y-4">
-                <h4 className="font-medium text-gray-900 border-b pb-2">Scan Targets</h4>
+                <h4 className="font-medium text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2">Scan Targets</h4>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     IP Addresses / Hostnames
                   </label>
                   <textarea
@@ -454,9 +454,9 @@ export function Configs() {
                     disabled={editingConfig.is_preset}
                     rows={5}
                     placeholder="Enter one target per line, e.g.:&#10;192.168.1.1&#10;10.0.0.0/24&#10;example.com"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm disabled:bg-gray-100 disabled:text-gray-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md font-mono text-sm dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 disabled:bg-gray-100 dark:disabled:bg-gray-600 disabled:text-gray-500 dark:disabled:text-gray-400"
                   />
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                     One IP address, CIDR range, or hostname per line. Currently: {editingTargets.split('\n').filter(t => t.trim()).length} target(s)
                   </p>
                 </div>
@@ -464,9 +464,9 @@ export function Configs() {
 
               {/* Scan Mode */}
               <div className="space-y-4">
-                <h4 className="font-medium text-gray-900 border-b pb-2">Scan Mode</h4>
+                <h4 className="font-medium text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2">Scan Mode</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <label className={`flex items-start p-4 border-2 rounded-lg cursor-pointer transition-colors ${editingConfig.scan_mode === 'fast' ? 'border-amber-500 bg-amber-50' : 'border-gray-200 hover:border-gray-300'} ${editingConfig.is_preset ? 'cursor-not-allowed' : ''}`}>
+                  <label className={`flex items-start p-4 border-2 rounded-lg cursor-pointer transition-colors ${editingConfig.scan_mode === 'fast' ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/30' : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500'} ${editingConfig.is_preset ? 'cursor-not-allowed' : ''}`}>
                     <input
                       type="radio"
                       name="scan_mode"
@@ -476,11 +476,11 @@ export function Configs() {
                       className="mt-1 mr-3"
                     />
                     <div>
-                      <div className="font-medium text-gray-900">Fast Scan</div>
-                      <div className="text-sm text-gray-500">Top 1000 ports + common services (~2-5 min). Good for quick assessments.</div>
+                      <div className="font-medium text-gray-900 dark:text-white">Fast Scan</div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400">Top 1000 ports + common services (~2-5 min). Good for quick assessments.</div>
                     </div>
                   </label>
-                  <label className={`flex items-start p-4 border-2 rounded-lg cursor-pointer transition-colors ${editingConfig.scan_mode === 'deep' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-gray-300'} ${editingConfig.is_preset ? 'cursor-not-allowed' : ''}`}>
+                  <label className={`flex items-start p-4 border-2 rounded-lg cursor-pointer transition-colors ${editingConfig.scan_mode === 'deep' ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30' : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500'} ${editingConfig.is_preset ? 'cursor-not-allowed' : ''}`}>
                     <input
                       type="radio"
                       name="scan_mode"
@@ -490,8 +490,8 @@ export function Configs() {
                       className="mt-1 mr-3"
                     />
                     <div>
-                      <div className="font-medium text-gray-900">Deep Scan</div>
-                      <div className="text-sm text-gray-500">All 65,535 TCP ports (~15-30 min). Comprehensive coverage.</div>
+                      <div className="font-medium text-gray-900 dark:text-white">Deep Scan</div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400">All 65,535 TCP ports (~15-30 min). Comprehensive coverage.</div>
                     </div>
                   </label>
                 </div>
@@ -499,13 +499,13 @@ export function Configs() {
 
               {/* Scanning Tools */}
               <div className="space-y-4">
-                <h4 className="font-medium text-gray-900 border-b pb-2">Scanning Tools</h4>
+                <h4 className="font-medium text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2">Scanning Tools</h4>
 
                 {/* Vulnerability Scanners */}
                 <div>
-                  <h5 className="text-sm font-medium text-gray-700 mb-2">Vulnerability Scanners</h5>
+                  <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Vulnerability Scanners</h5>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <label className="flex items-start p-3 border rounded-lg hover:bg-gray-50">
+                    <label className="flex items-start p-3 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
                       <input
                         type="checkbox"
                         name="enable_nuclei"
@@ -514,11 +514,11 @@ export function Configs() {
                         className="mt-1 mr-3"
                       />
                       <div>
-                        <div className="font-medium text-gray-900">Nuclei</div>
-                        <div className="text-xs text-gray-500">Template-based vulnerability detection for network services</div>
+                        <div className="font-medium text-gray-900 dark:text-white">Nuclei</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">Template-based vulnerability detection for network services</div>
                       </div>
                     </label>
-                    <label className="flex items-start p-3 border rounded-lg hover:bg-gray-50">
+                    <label className="flex items-start p-3 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
                       <input
                         type="checkbox"
                         name="enable_nse"
@@ -527,8 +527,8 @@ export function Configs() {
                         className="mt-1 mr-3"
                       />
                       <div>
-                        <div className="font-medium text-gray-900">NSE Scripts</div>
-                        <div className="text-xs text-gray-500">Nmap Scripting Engine for service-specific checks</div>
+                        <div className="font-medium text-gray-900 dark:text-white">NSE Scripts</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">Nmap Scripting Engine for service-specific checks</div>
                       </div>
                     </label>
                   </div>
@@ -536,9 +536,9 @@ export function Configs() {
 
                 {/* Web Application Scanners */}
                 <div>
-                  <h5 className="text-sm font-medium text-gray-700 mb-2">Web Application Scanners</h5>
+                  <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Web Application Scanners</h5>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <label className="flex items-start p-3 border rounded-lg hover:bg-gray-50">
+                    <label className="flex items-start p-3 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
                       <input
                         type="checkbox"
                         name="enable_nikto"
@@ -547,11 +547,11 @@ export function Configs() {
                         className="mt-1 mr-3"
                       />
                       <div>
-                        <div className="font-medium text-gray-900">Nikto</div>
-                        <div className="text-xs text-gray-500">Web server misconfiguration and vulnerability detection</div>
+                        <div className="font-medium text-gray-900 dark:text-white">Nikto</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">Web server misconfiguration and vulnerability detection</div>
                       </div>
                     </label>
-                    <label className="flex items-start p-3 border rounded-lg hover:bg-gray-50">
+                    <label className="flex items-start p-3 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
                       <input
                         type="checkbox"
                         name="enable_zap"
@@ -560,8 +560,8 @@ export function Configs() {
                         className="mt-1 mr-3"
                       />
                       <div>
-                        <div className="font-medium text-gray-900">OWASP ZAP</div>
-                        <div className="text-xs text-gray-500">Web application security scanner (passive mode)</div>
+                        <div className="font-medium text-gray-900 dark:text-white">OWASP ZAP</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">Web application security scanner (passive mode)</div>
                       </div>
                     </label>
                   </div>
@@ -569,9 +569,9 @@ export function Configs() {
 
                 {/* Security Audits */}
                 <div>
-                  <h5 className="text-sm font-medium text-gray-700 mb-2">Security Audits</h5>
+                  <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Security Audits</h5>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <label className="flex items-start p-3 border rounded-lg hover:bg-gray-50">
+                    <label className="flex items-start p-3 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
                       <input
                         type="checkbox"
                         name="enable_ssh_audit"
@@ -580,11 +580,11 @@ export function Configs() {
                         className="mt-1 mr-3"
                       />
                       <div>
-                        <div className="font-medium text-gray-900">SSH Audit</div>
-                        <div className="text-xs text-gray-500">SSH configuration and cryptographic algorithm analysis</div>
+                        <div className="font-medium text-gray-900 dark:text-white">SSH Audit</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">SSH configuration and cryptographic algorithm analysis</div>
                       </div>
                     </label>
-                    <label className="flex items-start p-3 border rounded-lg hover:bg-gray-50">
+                    <label className="flex items-start p-3 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
                       <input
                         type="checkbox"
                         name="enable_sslscan"
@@ -593,8 +593,8 @@ export function Configs() {
                         className="mt-1 mr-3"
                       />
                       <div>
-                        <div className="font-medium text-gray-900">SSLScan</div>
-                        <div className="text-xs text-gray-500">TLS/SSL configuration and certificate analysis</div>
+                        <div className="font-medium text-gray-900 dark:text-white">SSLScan</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">TLS/SSL configuration and certificate analysis</div>
                       </div>
                     </label>
                   </div>
@@ -603,10 +603,10 @@ export function Configs() {
 
               {/* Performance Settings */}
               <div className="space-y-4">
-                <h4 className="font-medium text-gray-900 border-b pb-2">Performance Settings</h4>
+                <h4 className="font-medium text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2">Performance Settings</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Max Concurrent Hosts
                     </label>
                     <input
@@ -617,12 +617,12 @@ export function Configs() {
                       min="1"
                       max="100"
                       disabled={editingConfig.is_preset}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100 disabled:text-gray-500"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-600 disabled:text-gray-500 dark:disabled:text-gray-400"
                     />
-                    <p className="text-xs text-gray-500 mt-1">Number of hosts to scan in parallel</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Number of hosts to scan in parallel</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Host Timeout (seconds)
                     </label>
                     <input
@@ -633,15 +633,15 @@ export function Configs() {
                       min="60"
                       max="7200"
                       disabled={editingConfig.is_preset}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100 disabled:text-gray-500"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-600 disabled:text-gray-500 dark:disabled:text-gray-400"
                     />
-                    <p className="text-xs text-gray-500 mt-1">Maximum time to spend on each host</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Maximum time to spend on each host</p>
                   </div>
                 </div>
               </div>
 
               {/* Actions */}
-              <div className="flex gap-3 pt-4 border-t">
+              <div className="flex gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
                 {editingConfig.is_preset ? (
                   <>
                     <button
@@ -658,7 +658,7 @@ export function Configs() {
                         setEditingConfig(null);
                         setEditingTargets('');
                       }}
-                      className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                      className="flex-1 px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-300 dark:hover:bg-gray-500"
                       data-testid="config-modal-close-button"
                     >
                       Close
@@ -680,7 +680,7 @@ export function Configs() {
                         setEditingConfig(null);
                         setEditingTargets('');
                       }}
-                      className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                      className="flex-1 px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-300 dark:hover:bg-gray-500"
                       data-testid="config-modal-cancel-button"
                     >
                       Cancel

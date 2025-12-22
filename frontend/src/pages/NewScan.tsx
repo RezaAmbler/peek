@@ -108,26 +108,26 @@ export function NewScan() {
   const isPending = createMutation.isPending || createAndStartMutation.isPending;
 
   return (
-    <div className="min-h-screen bg-gray-50" data-component="NewScanPage">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900" data-component="NewScanPage">
       <Navigation />
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">Create New Scan</h1>
-          <p className="mt-2 text-sm text-gray-700">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Create New Scan</h1>
+          <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
             Run a scan using a configuration. You can use targets from the configuration or specify your own below.
           </p>
         </div>
 
-        <div className="bg-white shadow-md rounded-lg p-6" data-component="NewScanForm">
+        <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6" data-component="NewScanForm">
           {error && (
-            <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md" data-testid="form-error-message">
-              <p className="text-sm text-red-800">{error}</p>
+            <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-md" data-testid="form-error-message">
+              <p className="text-sm text-red-800 dark:text-red-200">{error}</p>
             </div>
           )}
 
           {/* Config Selector */}
           <div className="mb-6">
-            <label htmlFor="config" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="config" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Configuration *
             </label>
             <select
@@ -135,7 +135,7 @@ export function NewScan() {
               value={configId}
               onChange={(e) => setConfigId(e.target.value)}
               disabled={configsLoading}
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm disabled:opacity-50"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm disabled:opacity-50 dark:bg-gray-700 dark:text-white"
               data-testid="select-config"
             >
               {configsLoading && <option value="">Loading configurations...</option>}
@@ -152,38 +152,38 @@ export function NewScan() {
 
           {/* Selected Config Info */}
           {selectedConfig && (
-            <div className="mb-6 p-4 bg-gray-50 rounded-md border border-gray-200">
-              <h3 className="font-medium text-gray-900 mb-2">Configuration Details</h3>
+            <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-md border border-gray-200 dark:border-gray-600">
+              <h3 className="font-medium text-gray-900 dark:text-white mb-2">Configuration Details</h3>
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <span className="text-gray-500">Scan Mode:</span>
-                  <span className="ml-2 font-medium">{selectedConfig.scan_mode}</span>
+                  <span className="text-gray-500 dark:text-gray-400">Scan Mode:</span>
+                  <span className="ml-2 font-medium text-gray-900 dark:text-white">{selectedConfig.scan_mode}</span>
                 </div>
                 <div>
-                  <span className="text-gray-500">Targets:</span>
-                  <span className="ml-2 font-medium">{selectedConfig.targets?.length || 0}</span>
+                  <span className="text-gray-500 dark:text-gray-400">Targets:</span>
+                  <span className="ml-2 font-medium text-gray-900 dark:text-white">{selectedConfig.targets?.length || 0}</span>
                 </div>
                 <div>
-                  <span className="text-gray-500">Nuclei:</span>
-                  <span className="ml-2 font-medium">{selectedConfig.enable_nuclei ? 'Enabled' : 'Disabled'}</span>
+                  <span className="text-gray-500 dark:text-gray-400">Nuclei:</span>
+                  <span className="ml-2 font-medium text-gray-900 dark:text-white">{selectedConfig.enable_nuclei ? 'Enabled' : 'Disabled'}</span>
                 </div>
                 <div>
-                  <span className="text-gray-500">SSH Audit:</span>
-                  <span className="ml-2 font-medium">{selectedConfig.enable_ssh_audit ? 'Enabled' : 'Disabled'}</span>
+                  <span className="text-gray-500 dark:text-gray-400">SSH Audit:</span>
+                  <span className="ml-2 font-medium text-gray-900 dark:text-white">{selectedConfig.enable_ssh_audit ? 'Enabled' : 'Disabled'}</span>
                 </div>
               </div>
               {selectedConfig.targets && selectedConfig.targets.length > 0 && (
                 <div className="mt-3">
-                  <span className="text-gray-500 text-sm">Targets: </span>
-                  <span className="text-sm font-mono text-gray-700">
+                  <span className="text-gray-500 dark:text-gray-400 text-sm">Targets: </span>
+                  <span className="text-sm font-mono text-gray-700 dark:text-gray-300">
                     {selectedConfig.targets.slice(0, 5).join(', ')}
                     {selectedConfig.targets.length > 5 && ` ... and ${selectedConfig.targets.length - 5} more`}
                   </span>
                 </div>
               )}
               {(!selectedConfig.targets || selectedConfig.targets.length === 0) && !hasOverrideTargets && (
-                <div className="mt-3 text-amber-600 text-sm">
-                  ⚠️ This configuration has no targets. Add targets below or update the configuration.
+                <div className="mt-3 text-amber-600 dark:text-amber-400 text-sm">
+                  This configuration has no targets. Add targets below or update the configuration.
                 </div>
               )}
             </div>
@@ -191,7 +191,7 @@ export function NewScan() {
 
           {/* Targets Override */}
           <div className="mb-6">
-            <label htmlFor="targets" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="targets" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Scan Targets {hasConfigTargets ? '(optional override)' : '(required)'}
             </label>
             <textarea
@@ -199,11 +199,11 @@ export function NewScan() {
               value={targets}
               onChange={(e) => setTargets(e.target.value)}
               rows={5}
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm font-mono"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm font-mono dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
               placeholder="Enter one target per line, e.g.:&#10;192.168.1.1&#10;10.0.0.0/24&#10;example.com"
               data-testid="input-targets"
             />
-            <p className="mt-1 text-sm text-gray-500">
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               {hasOverrideTargets
                 ? `${parsedTargets.length} target(s) entered — will override config targets`
                 : hasConfigTargets
@@ -215,7 +215,7 @@ export function NewScan() {
 
           {/* Scan Name (optional) */}
           <div className="mb-6">
-            <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Scan Name (optional)
             </label>
             <input
@@ -223,18 +223,18 @@ export function NewScan() {
               id="name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
               placeholder="Leave empty to auto-generate (Run #N — Date)"
               data-testid="input-scan-name"
             />
-            <p className="mt-1 text-sm text-gray-500">
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               If left empty, the scan will be named "Run #N — {new Date().toLocaleDateString()}"
             </p>
           </div>
 
           {/* Description (optional) */}
           <div className="mb-6">
-            <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Description (optional)
             </label>
             <textarea
@@ -242,7 +242,7 @@ export function NewScan() {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
               placeholder="Brief description of this scan..."
               data-testid="input-scan-description"
             />
@@ -253,7 +253,7 @@ export function NewScan() {
             <button
               type="button"
               onClick={() => navigate({ to: '/scans' })}
-              className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600"
               data-testid="new-scan-cancel-button"
             >
               Cancel
