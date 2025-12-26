@@ -13,6 +13,14 @@ import { useState, Fragment, useMemo } from 'react';
 import { Menu, Transition } from '@headlessui/react';
 import { Navigation } from '../components/Navigation';
 
+// Parse UTC timestamp from backend (may or may not have 'Z' suffix)
+function parseUTC(dateString: string): Date {
+  if (!dateString.endsWith('Z') && !dateString.includes('+')) {
+    return new Date(dateString + 'Z');
+  }
+  return new Date(dateString);
+}
+
 // Port type for sorting
 interface PortData {
   id: string;
@@ -788,15 +796,15 @@ export function ScanDetail() {
           <div>
             <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Created</dt>
             <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
-              {format(new Date(scan.created_at), 'PPpp')} (
-              {formatDistanceToNow(new Date(scan.created_at), { addSuffix: true })})
+              {format(parseUTC(scan.created_at), 'PPpp')} (
+              {formatDistanceToNow(parseUTC(scan.created_at), { addSuffix: true })})
             </dd>
           </div>
           {scan.started_at && (
             <div>
               <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Started</dt>
               <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
-                {format(new Date(scan.started_at), 'PPpp')}
+                {format(parseUTC(scan.started_at), 'PPpp')}
               </dd>
             </div>
           )}
@@ -804,7 +812,7 @@ export function ScanDetail() {
             <div>
               <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Finished</dt>
               <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
-                {format(new Date(scan.finished_at), 'PPpp')}
+                {format(parseUTC(scan.finished_at), 'PPpp')}
               </dd>
             </div>
           )}
@@ -813,7 +821,7 @@ export function ScanDetail() {
               <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Duration</dt>
               <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
                 {Math.round(
-                  (new Date(scan.finished_at).getTime() - new Date(scan.started_at).getTime()) /
+                  (parseUTC(scan.finished_at).getTime() - parseUTC(scan.started_at).getTime()) /
                     1000
                 )}{' '}
                 seconds

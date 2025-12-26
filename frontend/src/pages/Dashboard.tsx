@@ -4,6 +4,14 @@ import { Navigation } from '../components/Navigation';
 import { statsApi, DashboardStats } from '../api/stats';
 import { formatDistanceToNow } from 'date-fns';
 
+// Parse UTC timestamp from backend (may or may not have 'Z' suffix)
+function parseUTC(dateString: string): Date {
+  if (!dateString.endsWith('Z') && !dateString.includes('+')) {
+    return new Date(dateString + 'Z');
+  }
+  return new Date(dateString);
+}
+
 const statusColors: Record<string, { bg: string; text: string }> = {
   pending: { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-800 dark:text-gray-200' },
   queued: { bg: 'bg-blue-100 dark:bg-blue-900', text: 'text-blue-800 dark:text-blue-200' },
@@ -177,7 +185,7 @@ function RecentScansTable({ scans }: { scans: DashboardStats['recent_scans'] }) 
                     {scan.total_vulnerabilities}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                    {formatDistanceToNow(new Date(scan.created_at), { addSuffix: true })}
+                    {formatDistanceToNow(parseUTC(scan.created_at), { addSuffix: true })}
                   </td>
                 </tr>
               );

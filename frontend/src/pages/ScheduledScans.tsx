@@ -5,6 +5,14 @@ import { useNavigate } from '@tanstack/react-router';
 import toast from 'react-hot-toast';
 import { formatDistanceToNow } from 'date-fns';
 
+// Parse UTC timestamp from backend (may or may not have 'Z' suffix)
+function parseUTC(dateString: string): Date {
+  if (!dateString.endsWith('Z') && !dateString.includes('+')) {
+    return new Date(dateString + 'Z');
+  }
+  return new Date(dateString);
+}
+
 export function ScheduledScans() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -113,8 +121,8 @@ export function ScheduledScans() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100" data-testid="scheduled-scan-next-run">
                     {schedule.next_run_at ? (
-                      <span title={new Date(schedule.next_run_at).toLocaleString()}>
-                        {formatDistanceToNow(new Date(schedule.next_run_at), { addSuffix: true })}
+                      <span title={parseUTC(schedule.next_run_at).toLocaleString()}>
+                        {formatDistanceToNow(parseUTC(schedule.next_run_at), { addSuffix: true })}
                       </span>
                     ) : (
                       '-'
@@ -122,8 +130,8 @@ export function ScheduledScans() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                     {schedule.last_run_at ? (
-                      <span title={new Date(schedule.last_run_at).toLocaleString()}>
-                        {formatDistanceToNow(new Date(schedule.last_run_at), { addSuffix: true })}
+                      <span title={parseUTC(schedule.last_run_at).toLocaleString()}>
+                        {formatDistanceToNow(parseUTC(schedule.last_run_at), { addSuffix: true })}
                       </span>
                     ) : (
                       'Never'

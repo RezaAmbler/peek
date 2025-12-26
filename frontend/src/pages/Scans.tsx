@@ -5,6 +5,14 @@ import { scansApi } from '../api/scans';
 import { formatDistanceToNow } from 'date-fns';
 import { Navigation } from '../components/Navigation';
 
+// Parse UTC timestamp from backend (may or may not have 'Z' suffix)
+function parseUTC(dateString: string): Date {
+  if (!dateString.endsWith('Z') && !dateString.includes('+')) {
+    return new Date(dateString + 'Z');
+  }
+  return new Date(dateString);
+}
+
 const statusColors: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200',
   queued: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
@@ -161,7 +169,7 @@ export function Scans() {
                         {scan.config_name || scan.name || 'Unnamed Config'}
                       </Link>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                        Run #{scan.run_number} • {new Date(scan.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        Run #{scan.run_number} • {parseUTC(scan.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       </p>
                       {scan.description && (
                         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{scan.description}</p>
@@ -232,7 +240,7 @@ export function Scans() {
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                      {formatDistanceToNow(new Date(scan.created_at), { addSuffix: true })}
+                      {formatDistanceToNow(parseUTC(scan.created_at), { addSuffix: true })}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
                       <Link
