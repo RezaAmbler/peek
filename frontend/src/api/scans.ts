@@ -17,7 +17,9 @@ export interface Scan {
   user_id: string;
   created_by_id: string;
   config_id: string;
-  name: string;
+  config_name?: string;  // Denormalized for display
+  run_number: number;
+  name?: string;  // May be null, display as "Run #N — Date" if so
   description?: string;
   status: string;
   current_phase: string;
@@ -30,7 +32,6 @@ export interface Scan {
   failed_targets: number;
   total_open_ports: number;
   total_vulnerabilities: number;
-  baseline_scan_id?: string;
 }
 
 export interface ScanDetail extends Scan {
@@ -45,33 +46,42 @@ export interface ScanListResponse {
   pages: number;
 }
 
-export interface TargetInput {
-  ip_address: string;
-  device_name?: string;
-}
-
 export interface CreateScanRequest {
-  name: string;
+  config_id: string;  // Required - scan settings come from config
+  name?: string;  // Optional - auto-generated as "Run #N — Date" if not provided
   description?: string;
-  config_id: string;
-  targets: TargetInput[];
-  baseline_scan_id?: string;
-}
-
-export interface CreateScanFromCSVRequest {
-  name: string;
-  description?: string;
-  config_id: string;
-  targets_csv: string;
-  baseline_scan_id?: string;
+  targets?: string[];  // Optional - override config targets with these
 }
 
 export interface UpdateScanRequest {
   name?: string;
   description?: string;
-  config_id?: string;
-  targets?: TargetInput[];
-  baseline_scan_id?: string;
+}
+
+export interface ComparableScan {
+  id: string;
+  name?: string;
+  run_number: number;
+  status: string;
+  created_at: string;
+  total_targets: number;
+  total_open_ports: number;
+  total_vulnerabilities: number;
+}
+
+export interface ComparableScansResponse {
+  current_scan: {
+    id: string;
+    name?: string;
+    run_number: number;
+    config_id: string;
+    config_name?: string;
+    status: string;
+    created_at: string;
+    total_targets: number;
+  };
+  comparable_scans: ComparableScan[];
+  total_comparable: number;
 }
 
 export interface Port {
@@ -203,6 +213,34 @@ export interface SSLScanResult {
   failure_reason?: string;
 }
 
+export interface HttpxResult {
+  id: string;
+  port_id: string;
+  ip_address: string;
+  port: number;
+  // HTTP Response
+  status_code?: number;
+  content_length?: number;
+  content_type?: string;
+  title?: string;
+  webserver?: string;
+  // Technology detection
+  technologies: string[];
+  // Infrastructure
+  cdn?: string;
+  waf?: string;
+  final_url?: string;
+  redirect_chain: string[];
+  // Metadata
+  response_time_ms?: number;
+  // TLS info
+  tls_version?: string;
+  jarm_hash?: string;
+  // Connection status
+  connection_failed: boolean;
+  failure_reason?: string;
+}
+
 export const scansApi = {
   async list(page = 1, limit = 20, status?: string): Promise<ScanListResponse> {
     const params = new URLSearchParams({
@@ -222,11 +260,6 @@ export const scansApi = {
 
   async create(scan: CreateScanRequest): Promise<Scan> {
     const { data } = await apiClient.post<Scan>('/api/scans', scan);
-    return data;
-  },
-
-  async createFromCSV(scan: CreateScanFromCSVRequest): Promise<Scan> {
-    const { data } = await apiClient.post<Scan>('/api/scans/from-csv', scan);
     return data;
   },
 
@@ -277,6 +310,16 @@ export const scansApi = {
 
   async getSSLScanResults(scanId: string): Promise<SSLScanResult[]> {
     const { data } = await apiClient.get<SSLScanResult[]>(`/api/scans/${scanId}/sslscan-results`);
+    return data;
+  },
+
+  async getComparable(scanId: string): Promise<ComparableScansResponse> {
+    const { data } = await apiClient.get<ComparableScansResponse>(`/api/scans/${scanId}/comparable`);
+    return data;
+  },
+
+  async getHttpxResults(scanId: string): Promise<HttpxResult[]> {
+    const { data } = await apiClient.get<HttpxResult[]>(`/api/scans/${scanId}/httpx-results`);
     return data;
   },
 };

@@ -1,3 +1,4 @@
+import re
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +10,18 @@ from ..services.report_service import ReportService
 from ..db.sync_session import get_sync_db
 
 router = APIRouter()
+
+def sanitize_filename(name: str) -> str:
+    """Sanitize filename for use in HTTP headers (ASCII only)."""
+    # Replace common unicode dashes with ASCII hyphen
+    name = name.replace('\u2014', '-').replace('\u2013', '-')
+    # Remove any remaining non-ASCII characters
+    name = name.encode('ascii', 'ignore').decode('ascii')
+    # Replace spaces and special chars with underscores
+    name = re.sub(r'[^\w\-.]', '_', name)
+    # Collapse multiple underscores
+    name = re.sub(r'_+', '_', name)
+    return name.strip('_') or 'report'
 
 @router.get("/{scan_id}/pdf/executive", summary="Executive summary PDF")
 async def get_executive_summary_pdf(
@@ -32,7 +45,7 @@ async def get_executive_summary_pdf(
         service = ReportService(sync_db)
         buffer = service.generate_executive_summary_pdf(scan_id)
 
-    filename = f"executive_summary_{scan.name.replace(' ', '_')}.pdf"
+    filename = f"executive_summary_{sanitize_filename(scan.name)}.pdf"
 
     return StreamingResponse(
         buffer,
@@ -60,7 +73,7 @@ async def get_technical_report_pdf(
         service = ReportService(sync_db)
         buffer = service.generate_technical_report_pdf(scan_id)
 
-    filename = f"technical_report_{scan.name.replace(' ', '_')}.pdf"
+    filename = f"technical_report_{sanitize_filename(scan.name)}.pdf"
 
     return StreamingResponse(
         buffer,
@@ -147,7 +160,7 @@ async def export_vulnerabilities_csv(
         service = ReportService(sync_db)
         buffer = service.export_vulnerabilities_csv(scan_id)
 
-    filename = f"vulnerabilities_{scan.name.replace(' ', '_')}.csv"
+    filename = f"vulnerabilities_{sanitize_filename(scan.name)}.csv"
 
     return StreamingResponse(
         buffer,
@@ -175,7 +188,7 @@ async def export_ports_csv(
         service = ReportService(sync_db)
         buffer = service.export_ports_csv(scan_id)
 
-    filename = f"ports_{scan.name.replace(' ', '_')}.csv"
+    filename = f"ports_{sanitize_filename(scan.name)}.csv"
 
     return StreamingResponse(
         buffer,
@@ -203,7 +216,7 @@ async def export_summary_csv(
         service = ReportService(sync_db)
         buffer = service.export_scan_summary_csv(scan_id)
 
-    filename = f"scan_summary_{scan.name.replace(' ', '_')}.csv"
+    filename = f"scan_summary_{sanitize_filename(scan.name)}.csv"
 
     return StreamingResponse(
         buffer,

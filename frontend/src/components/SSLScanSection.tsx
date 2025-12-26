@@ -6,23 +6,23 @@ interface SSLScanSectionProps {
   hostFilter?: string | null;
 }
 
-// Grade colors
+// Grade colors with dark mode
 const gradeColors: Record<string, { bg: string; text: string; border: string }> = {
-  'A+': { bg: 'bg-green-100', text: 'text-green-800', border: 'border-green-500' },
-  'A': { bg: 'bg-green-100', text: 'text-green-800', border: 'border-green-500' },
-  'B': { bg: 'bg-lime-100', text: 'text-lime-800', border: 'border-lime-500' },
-  'C': { bg: 'bg-yellow-100', text: 'text-yellow-800', border: 'border-yellow-500' },
-  'D': { bg: 'bg-orange-100', text: 'text-orange-800', border: 'border-orange-500' },
-  'F': { bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-500' },
+  'A+': { bg: 'bg-green-100 dark:bg-green-900', text: 'text-green-800 dark:text-green-200', border: 'border-green-500' },
+  'A': { bg: 'bg-green-100 dark:bg-green-900', text: 'text-green-800 dark:text-green-200', border: 'border-green-500' },
+  'B': { bg: 'bg-lime-100 dark:bg-lime-900', text: 'text-lime-800 dark:text-lime-200', border: 'border-lime-500' },
+  'C': { bg: 'bg-yellow-100 dark:bg-yellow-900', text: 'text-yellow-800 dark:text-yellow-200', border: 'border-yellow-500' },
+  'D': { bg: 'bg-orange-100 dark:bg-orange-900', text: 'text-orange-800 dark:text-orange-200', border: 'border-orange-500' },
+  'F': { bg: 'bg-red-100 dark:bg-red-900', text: 'text-red-800 dark:text-red-200', border: 'border-red-500' },
 };
 
-// Severity colors for findings
+// Severity colors for findings with dark mode
 const findingSeverityColors: Record<string, string> = {
-  critical: 'bg-red-100 text-red-800 border-red-300',
-  high: 'bg-orange-100 text-orange-800 border-orange-300',
-  medium: 'bg-yellow-100 text-yellow-800 border-yellow-300',
-  low: 'bg-blue-100 text-blue-800 border-blue-300',
-  info: 'bg-gray-100 text-gray-800 border-gray-300',
+  critical: 'bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-200 border-red-300 dark:border-red-700',
+  high: 'bg-orange-100 dark:bg-orange-900/50 text-orange-800 dark:text-orange-200 border-orange-300 dark:border-orange-700',
+  medium: 'bg-yellow-100 dark:bg-yellow-900/50 text-yellow-800 dark:text-yellow-200 border-yellow-300 dark:border-yellow-700',
+  low: 'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 border-blue-300 dark:border-blue-700',
+  info: 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 border-gray-300 dark:border-gray-600',
 };
 
 function SSLScanCard({ result }: { result: SSLScanResult }) {
@@ -50,7 +50,7 @@ function SSLScanCard({ result }: { result: SSLScanResult }) {
 
   return (
     <div
-      className={`border-l-4 ${gradeStyle.border} bg-white rounded-lg shadow p-4`}
+      className={`border-l-4 ${gradeStyle.border} bg-white dark:bg-gray-800 rounded-lg shadow p-4`}
       data-component="SSLScanCard"
     >
       {/* Header */}
@@ -60,10 +60,10 @@ function SSLScanCard({ result }: { result: SSLScanResult }) {
             {result.grade || '?'}
           </span>
           <div>
-            <h4 className="font-semibold text-gray-900">
+            <h4 className="font-semibold text-gray-900 dark:text-white">
               {result.ip_address}:{result.port}
             </h4>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
               {result.service_name || 'SSL/TLS'}
               {result.device_name && ` - ${result.device_name}`}
             </p>
@@ -71,7 +71,7 @@ function SSLScanCard({ result }: { result: SSLScanResult }) {
         </div>
         <button
           onClick={() => setExpanded(!expanded)}
-          className="text-sm text-indigo-600 hover:text-indigo-800"
+          className="text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300"
         >
           {expanded ? 'Hide Details' : 'Show Details'}
         </button>
@@ -80,16 +80,16 @@ function SSLScanCard({ result }: { result: SSLScanResult }) {
       {/* Quick Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
         {/* Protocols */}
-        <div className="bg-gray-50 rounded p-2">
-          <p className="text-xs text-gray-500 mb-1">Protocols</p>
+        <div className="bg-gray-50 dark:bg-gray-700 rounded p-2">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Protocols</p>
           <div className="flex flex-wrap gap-1">
             {enabledProtocols.map(p => (
-              <span key={p} className="px-1.5 py-0.5 text-xs bg-green-100 text-green-700 rounded">
+              <span key={p} className="px-1.5 py-0.5 text-xs bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded">
                 {p}
               </span>
             ))}
             {deprecatedProtocols.map(p => (
-              <span key={p} className="px-1.5 py-0.5 text-xs bg-red-100 text-red-700 rounded">
+              <span key={p} className="px-1.5 py-0.5 text-xs bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 rounded">
                 {p}
               </span>
             ))}
@@ -97,34 +97,34 @@ function SSLScanCard({ result }: { result: SSLScanResult }) {
         </div>
 
         {/* Ciphers */}
-        <div className="bg-gray-50 rounded p-2">
-          <p className="text-xs text-gray-500 mb-1">Ciphers</p>
+        <div className="bg-gray-50 dark:bg-gray-700 rounded p-2">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Ciphers</p>
           <div className="flex gap-2 text-xs">
-            <span className="text-green-600">{cipherStats.strong} strong</span>
+            <span className="text-green-600 dark:text-green-400">{cipherStats.strong} strong</span>
             {cipherStats.weak > 0 && (
-              <span className="text-red-600">{cipherStats.weak} weak</span>
+              <span className="text-red-600 dark:text-red-400">{cipherStats.weak} weak</span>
             )}
           </div>
         </div>
 
         {/* Certificate */}
-        <div className="bg-gray-50 rounded p-2">
-          <p className="text-xs text-gray-500 mb-1">Certificate</p>
-          <p className="text-xs text-gray-700 truncate" title={result.cert_subject || ''}>
+        <div className="bg-gray-50 dark:bg-gray-700 rounded p-2">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Certificate</p>
+          <p className="text-xs text-gray-700 dark:text-gray-300 truncate" title={result.cert_subject || ''}>
             {result.cert_subject || 'N/A'}
           </p>
           {result.cert_self_signed && (
-            <span className="text-xs text-orange-600">Self-signed</span>
+            <span className="text-xs text-orange-600 dark:text-orange-400">Self-signed</span>
           )}
         </div>
 
         {/* Issues */}
-        <div className="bg-gray-50 rounded p-2">
-          <p className="text-xs text-gray-500 mb-1">Issues</p>
-          <p className="text-xs">
+        <div className="bg-gray-50 dark:bg-gray-700 rounded p-2">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Issues</p>
+          <p className="text-xs text-gray-700 dark:text-gray-300">
             {result.findings?.length || 0} findings
             {result.heartbleed_vulnerable && (
-              <span className="ml-1 text-red-600 font-semibold">HEARTBLEED!</span>
+              <span className="ml-1 text-red-600 dark:text-red-400 font-semibold">HEARTBLEED!</span>
             )}
           </p>
         </div>
@@ -147,10 +147,10 @@ function SSLScanCard({ result }: { result: SSLScanResult }) {
 
       {/* Expanded Details */}
       {expanded && (
-        <div className="mt-4 pt-4 border-t border-gray-200 space-y-4">
+        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 space-y-4">
           {/* Protocol Details */}
           <div>
-            <h5 className="text-sm font-semibold text-gray-700 mb-2">Protocol Support</h5>
+            <h5 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Protocol Support</h5>
             <div className="grid grid-cols-3 md:grid-cols-6 gap-2 text-xs">
               {[
                 { name: 'SSLv2', enabled: result.sslv2_enabled, bad: true },
@@ -165,9 +165,9 @@ function SSLScanCard({ result }: { result: SSLScanResult }) {
                   className={`p-2 rounded text-center ${
                     p.enabled
                       ? p.bad
-                        ? 'bg-red-100 text-red-700'
-                        : 'bg-green-100 text-green-700'
-                      : 'bg-gray-100 text-gray-400'
+                        ? 'bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300'
+                        : 'bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500'
                   }`}
                 >
                   {p.name}
@@ -181,36 +181,36 @@ function SSLScanCard({ result }: { result: SSLScanResult }) {
           {/* Certificate Details */}
           {result.cert_subject && (
             <div>
-              <h5 className="text-sm font-semibold text-gray-700 mb-2">Certificate</h5>
+              <h5 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Certificate</h5>
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
                 <div>
-                  <dt className="text-gray-500">Subject</dt>
-                  <dd className="text-gray-900">{result.cert_subject}</dd>
+                  <dt className="text-gray-500 dark:text-gray-400">Subject</dt>
+                  <dd className="text-gray-900 dark:text-white">{result.cert_subject}</dd>
                 </div>
                 <div>
-                  <dt className="text-gray-500">Issuer</dt>
-                  <dd className="text-gray-900">{result.cert_issuer}</dd>
+                  <dt className="text-gray-500 dark:text-gray-400">Issuer</dt>
+                  <dd className="text-gray-900 dark:text-white">{result.cert_issuer}</dd>
                 </div>
                 <div>
-                  <dt className="text-gray-500">Valid From</dt>
-                  <dd className="text-gray-900">{result.cert_not_before}</dd>
+                  <dt className="text-gray-500 dark:text-gray-400">Valid From</dt>
+                  <dd className="text-gray-900 dark:text-white">{result.cert_not_before}</dd>
                 </div>
                 <div>
-                  <dt className="text-gray-500">Valid Until</dt>
-                  <dd className={result.cert_expired ? 'text-red-600' : 'text-gray-900'}>
+                  <dt className="text-gray-500 dark:text-gray-400">Valid Until</dt>
+                  <dd className={result.cert_expired ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-white'}>
                     {result.cert_not_after}
                     {result.cert_expired && ' (EXPIRED)'}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-gray-500">Key</dt>
-                  <dd className={`text-gray-900 ${result.cert_key_bits && result.cert_key_bits < 2048 ? 'text-orange-600' : ''}`}>
+                  <dt className="text-gray-500 dark:text-gray-400">Key</dt>
+                  <dd className={`text-gray-900 dark:text-white ${result.cert_key_bits && result.cert_key_bits < 2048 ? 'text-orange-600 dark:text-orange-400' : ''}`}>
                     {result.cert_key_type} {result.cert_key_bits} bits
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-gray-500">Signature</dt>
-                  <dd className="text-gray-900">{result.cert_signature_algorithm}</dd>
+                  <dt className="text-gray-500 dark:text-gray-400">Signature</dt>
+                  <dd className="text-gray-900 dark:text-white">{result.cert_signature_algorithm}</dd>
                 </div>
               </dl>
             </div>
@@ -219,33 +219,33 @@ function SSLScanCard({ result }: { result: SSLScanResult }) {
           {/* Cipher Suites */}
           {result.ciphers && result.ciphers.length > 0 && (
             <div>
-              <h5 className="text-sm font-semibold text-gray-700 mb-2">
+              <h5 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                 Cipher Suites ({result.ciphers.length})
               </h5>
               <div className="max-h-48 overflow-y-auto">
                 <table className="w-full text-xs">
-                  <thead className="bg-gray-50 sticky top-0">
+                  <thead className="bg-gray-50 dark:bg-gray-700 sticky top-0">
                     <tr>
-                      <th className="text-left p-1">Cipher</th>
-                      <th className="text-left p-1">Version</th>
-                      <th className="text-left p-1">Bits</th>
-                      <th className="text-left p-1">Strength</th>
+                      <th className="text-left p-1 text-gray-700 dark:text-gray-300">Cipher</th>
+                      <th className="text-left p-1 text-gray-700 dark:text-gray-300">Version</th>
+                      <th className="text-left p-1 text-gray-700 dark:text-gray-300">Bits</th>
+                      <th className="text-left p-1 text-gray-700 dark:text-gray-300">Strength</th>
                     </tr>
                   </thead>
                   <tbody>
                     {result.ciphers.slice(0, 20).map((cipher, idx) => (
-                      <tr key={idx} className="border-t border-gray-100">
-                        <td className="p-1 font-mono">{cipher.cipher}</td>
-                        <td className="p-1">{cipher.sslversion}</td>
-                        <td className="p-1">{cipher.bits}</td>
+                      <tr key={idx} className="border-t border-gray-100 dark:border-gray-700">
+                        <td className="p-1 font-mono text-gray-800 dark:text-gray-200">{cipher.cipher}</td>
+                        <td className="p-1 text-gray-800 dark:text-gray-200">{cipher.sslversion}</td>
+                        <td className="p-1 text-gray-800 dark:text-gray-200">{cipher.bits}</td>
                         <td className="p-1">
                           <span
                             className={`px-1.5 py-0.5 rounded ${
                               cipher.strength === 'strong'
-                                ? 'bg-green-100 text-green-700'
+                                ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300'
                                 : cipher.strength === 'weak'
-                                ? 'bg-red-100 text-red-700'
-                                : 'bg-yellow-100 text-yellow-700'
+                                ? 'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300'
+                                : 'bg-yellow-100 dark:bg-yellow-900 text-yellow-700 dark:text-yellow-300'
                             }`}
                           >
                             {cipher.strength}
@@ -256,7 +256,7 @@ function SSLScanCard({ result }: { result: SSLScanResult }) {
                   </tbody>
                 </table>
                 {result.ciphers.length > 20 && (
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                     ...and {result.ciphers.length - 20} more
                   </p>
                 )}
@@ -280,21 +280,21 @@ export function SSLScanSection({ results, hostFilter }: SSLScanSectionProps) {
   if (results.length === 0) return null;
 
   return (
-    <div className="mt-6 bg-white shadow rounded-lg overflow-hidden" data-component="SSLScanSection">
+    <div className="mt-6 bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden" data-component="SSLScanSection">
       <button
         onClick={() => setShow(!show)}
-        className="w-full px-6 py-4 border-b border-gray-200 flex items-center justify-between hover:bg-gray-50 transition-colors"
+        className="w-full px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
       >
         <div className="flex items-center gap-3">
-          <h2 className="text-lg font-medium text-gray-900">
+          <h2 className="text-lg font-medium text-gray-900 dark:text-white">
             SSL/TLS Analysis ({hostFilter ? `${filteredResults.length} of ${results.length}` : results.length})
           </h2>
-          <span className="px-2 py-0.5 text-xs font-medium rounded bg-teal-100 text-teal-700">
+          <span className="px-2 py-0.5 text-xs font-medium rounded bg-teal-100 dark:bg-teal-900 text-teal-700 dark:text-teal-300">
             SSLSCAN
           </span>
         </div>
         <svg
-          className={`w-5 h-5 text-gray-500 transform transition-transform ${show ? 'rotate-180' : ''}`}
+          className={`w-5 h-5 text-gray-500 dark:text-gray-400 transform transition-transform ${show ? 'rotate-180' : ''}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -309,7 +309,7 @@ export function SSLScanSection({ results, hostFilter }: SSLScanSectionProps) {
               <SSLScanCard key={result.id} result={result} />
             ))
           ) : (
-            <p className="text-gray-500 text-center py-4">No SSL/TLS results for selected host</p>
+            <p className="text-gray-500 dark:text-gray-400 text-center py-4">No SSL/TLS results for selected host</p>
           )}
         </div>
       )}

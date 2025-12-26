@@ -17,6 +17,7 @@ class ScanPhase(str, enum.Enum):
     PENDING = "pending"
     NMAP_DISCOVERY = "nmap_discovery"
     NMAP = "nmap"
+    HTTPX = "httpx"  # HTTP probing with technology detection
     SSH_AUDIT = "ssh_audit"
     NUCLEI = "nuclei"
     NSE = "nse"
@@ -36,11 +37,14 @@ class Scan(Base):
     created_by_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=True, index=True)
 
-    # Configuration used for this scan (snapshot, not FK - config may change later)
-    config_id = Column(String(36), ForeignKey("scan_configs.id"), nullable=False)
+    # Configuration used for this scan
+    config_id = Column(String(36), ForeignKey("scan_configs.id"), nullable=False, index=True)
 
-    # Basic info
-    name = Column(String, nullable=False)
+    # Run tracking — auto-incremented per config
+    run_number = Column(Integer, nullable=False, default=1)
+
+    # Basic info — name is optional, auto-generated as "Run #N — Date" if not provided
+    name = Column(String, nullable=True)
     description = Column(String, nullable=True)
 
     # Status tracking
@@ -65,12 +69,8 @@ class Scan(Base):
     total_open_ports = Column(Integer, default=0, nullable=False)
     total_vulnerabilities = Column(Integer, default=0, nullable=False)
 
-    # Comparison reference
-    baseline_scan_id = Column(String(36), ForeignKey("scans.id"), nullable=True)
-
     # Relationships
     user = relationship("User", foreign_keys=[user_id], backref="scans")
     created_by = relationship("User", foreign_keys=[created_by_id])
-    config = relationship("ScanConfig")
+    config = relationship("ScanConfig", back_populates="scans")
     targets = relationship("ScanTarget", back_populates="scan", cascade="all, delete-orphan")
-    baseline_scan = relationship("Scan", remote_side=[id])

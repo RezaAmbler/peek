@@ -7,6 +7,9 @@ class ScanConfigBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="Configuration name", json_schema_extra={"example": "Production Scan Config"})
     description: Optional[str] = Field(None, max_length=500, description="Configuration description", json_schema_extra={"example": "Careful scan settings for production servers"})
 
+    # Targets — list of IPs or hostnames to scan
+    targets: List[str] = Field(default=[], description="List of IPs or hostnames to scan", json_schema_extra={"example": ["44.211.84.221", "10.0.0.1"]})
+
     # Scanning parameters
     masscan_rate: int = Field(default=1000, ge=100, le=100000, description="Masscan packets per second", json_schema_extra={"example": 1000})
     masscan_interface: Optional[str] = Field(None, max_length=50, description="Network interface for masscan", json_schema_extra={"example": "eth0"})
@@ -29,6 +32,9 @@ class ScanConfigBase(BaseModel):
     enable_nuclei: bool = Field(default=True, description="Run Nuclei vulnerability scanner")
     enable_nse: bool = Field(default=True, description="Run Nmap Scripting Engine (NSE) scripts")
     enable_sslscan: bool = Field(default=True, description="Run SSLScan for TLS/SSL analysis")
+    enable_httpx: bool = Field(default=True, description="Run httpx HTTP prober with technology detection")
+    httpx_timeout: int = Field(default=30, ge=5, le=120, description="httpx HTTP timeout per target (seconds)")
+    httpx_tech_detect: bool = Field(default=True, description="Enable httpx technology fingerprinting")
     nuclei_severity: str = Field(default="critical,high,medium,low,info", description="Nuclei severity filter", json_schema_extra={"example": "critical,high,medium,low,info"})
     nuclei_templates: Optional[str] = Field(None, description="Custom Nuclei template paths")
     nuclei_timeout: int = Field(default=300, ge=60, le=1800, description="Nuclei timeout per target (seconds)")
@@ -50,6 +56,18 @@ class ScanConfigBase(BaseModel):
     highlight_ports: List[int] = Field(default=[22, 80, 443, 3389, 8443])
     email_on_completion: bool = False
     email_on_changes_only: bool = False
+
+    # Scheduling (for automated recurring scans)
+    schedule: Optional[str] = Field(None, description="Cron expression for scheduled runs", json_schema_extra={"example": "0 2 * * 0"})
+    schedule_enabled: bool = Field(default=False, description="Whether scheduled runs are enabled")
+
+    @field_validator('targets')
+    @classmethod
+    def validate_targets(cls, v: List[str]) -> List[str]:
+        if v is None:
+            return []
+        # Basic validation - could add IP/hostname validation here
+        return [t.strip() for t in v if t.strip()]
 
     @field_validator('ssh_ports', 'highlight_ports')
     @classmethod
@@ -89,6 +107,7 @@ class ScanConfigCreate(ScanConfigBase):
 class ScanConfigUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
+    targets: Optional[List[str]] = Field(None, description="List of IPs or hostnames to scan")
     masscan_rate: Optional[int] = Field(None, ge=100, le=100000)
     masscan_interface: Optional[str] = None
     nmap_args: Optional[List[str]] = None
@@ -104,6 +123,9 @@ class ScanConfigUpdate(BaseModel):
     enable_nuclei: Optional[bool] = None
     enable_nse: Optional[bool] = None
     enable_sslscan: Optional[bool] = None
+    enable_httpx: Optional[bool] = None
+    httpx_timeout: Optional[int] = Field(None, ge=5, le=120)
+    httpx_tech_detect: Optional[bool] = None
     nuclei_severity: Optional[str] = None
     nuclei_templates: Optional[str] = None
     nuclei_timeout: Optional[int] = Field(None, ge=60, le=1800)
@@ -119,6 +141,8 @@ class ScanConfigUpdate(BaseModel):
     highlight_ports: Optional[List[int]] = None
     email_on_completion: Optional[bool] = None
     email_on_changes_only: Optional[bool] = None
+    schedule: Optional[str] = Field(None, description="Cron expression for scheduled runs")
+    schedule_enabled: Optional[bool] = Field(None, description="Whether scheduled runs are enabled")
 
 class ScanConfigResponse(ScanConfigBase):
     id: str
@@ -128,6 +152,8 @@ class ScanConfigResponse(ScanConfigBase):
     updated_at: datetime
     is_default: bool
     is_preset: bool = False  # System presets cannot be edited/deleted
+    last_scheduled_run: Optional[datetime] = None
+    run_count: int = 0  # Number of scans run with this config
 
     class Config:
         from_attributes = True

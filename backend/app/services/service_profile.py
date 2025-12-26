@@ -58,7 +58,8 @@ def get_nuclei_profile(
     version: Optional[str] = None,
     extra_info: Optional[dict] = None,
     port: Optional[int] = None,
-    scan_mode: str = "deep"
+    scan_mode: str = "deep",
+    technologies: Optional[List[str]] = None
 ) -> NucleiProfile:
     """
     Get Nuclei scanning profile for a detected service.
@@ -70,6 +71,7 @@ def get_nuclei_profile(
         extra_info: Additional Nmap data
         port: Port number for fallback hints when service_name is unknown
         scan_mode: "fast" or "deep" - affects HTTP tag selection
+        technologies: List of technologies detected by httpx (e.g., ['WordPress', 'PHP', 'nginx'])
 
     Returns:
         NucleiProfile with scan configuration
@@ -77,6 +79,7 @@ def get_nuclei_profile(
     config = load_config()
     profiles = config.get('service_profiles', {})
     product_tags = config.get('product_tags', {})
+    technology_tags = config.get('technology_tags', {})
     port_hints = config.get('port_hints', {})
     scan_modes = config.get('scan_modes', {})
     scan_unknown = config.get('scan_unknown_services', False)
@@ -142,6 +145,16 @@ def get_nuclei_profile(
             # In fast mode, use fast mode tags + any product-specific tags
             product_specific_tags = [t for t in tags if t not in ['http', 'https']]
             tags = list(http_tags) + product_specific_tags
+
+    # Add technology-specific tags from httpx detection
+    # Only applied when using tag-based scanning (not comprehensive mode with empty tags)
+    if technologies and tags:
+        for tech in technologies:
+            tech_lower = tech.lower()
+            for key, extra_tags in technology_tags.items():
+                if key in tech_lower:
+                    tags.extend(t for t in extra_tags if t not in tags)
+                    break  # Only match first matching technology key
 
     # Extract rate_limit from profile if available
     rate_limit = profile_data.get('rate_limit') if profile_data else None

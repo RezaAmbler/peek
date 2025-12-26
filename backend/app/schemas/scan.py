@@ -1,43 +1,25 @@
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from uuid import UUID
 from datetime import datetime
 from typing import Optional, List
 import ipaddress
 
-class TargetInput(BaseModel):
-    """A single IP target to scan."""
-    ip_address: str = Field(..., description="IPv4 address to scan", json_schema_extra={"example": "192.168.1.1"})
-    device_name: Optional[str] = Field(None, description="Friendly device name", json_schema_extra={"example": "web-server-01"})
-
-    @validator('ip_address')
-    def validate_ip(cls, v):
-        try:
-            ipaddress.IPv4Address(v)
-        except ipaddress.AddressValueError:
-            raise ValueError(f'Invalid IPv4 address: {v}')
-        return v
 
 class ScanCreate(BaseModel):
-    """Create a new security scan with target IPs."""
-    name: str = Field(..., min_length=1, max_length=200, description="Scan name", json_schema_extra={"example": "Weekly Network Scan"})
-    description: Optional[str] = Field(None, max_length=1000, description="Scan description", json_schema_extra={"example": "Scanning production servers for vulnerabilities"})
-    config_id: UUID = Field(..., description="ID of the scan configuration to use")
-    targets: List[TargetInput] = Field(..., min_length=1, max_length=1000, description="List of IP targets to scan")
-    baseline_scan_id: Optional[UUID] = Field(None, description="Compare results against this previous scan")
+    """Create a new scan run from a configuration.
 
-class ScanCreateFromCSV(BaseModel):
-    name: str = Field(..., min_length=1, max_length=200)
-    description: Optional[str] = Field(None, max_length=1000)
-    config_id: UUID
-    targets_csv: str  # CSV content: "device_name,ip_address\n..."
-    baseline_scan_id: Optional[UUID] = None
+    Targets can be specified here to override config.targets, or left empty to use config targets.
+    """
+    config_id: UUID = Field(..., description="ID of the scan configuration to use")
+    name: Optional[str] = Field(None, max_length=200, description="Optional scan name. Auto-generated as 'Run #N — Date' if not provided")
+    description: Optional[str] = Field(None, max_length=1000, description="Scan description")
+    targets: Optional[List[str]] = Field(None, description="Override targets. If not provided, uses config.targets")
+
 
 class ScanUpdate(BaseModel):
+    """Update scan metadata (limited — most properties are immutable)."""
     name: Optional[str] = Field(None, min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=1000)
-    config_id: Optional[UUID] = None
-    targets: Optional[List[TargetInput]] = Field(None, min_items=1, max_items=1000)
-    baseline_scan_id: Optional[UUID] = None
 
 class TargetResponse(BaseModel):
     id: UUID
@@ -58,7 +40,9 @@ class ScanResponse(BaseModel):
     user_id: UUID
     created_by_id: UUID
     config_id: UUID
-    name: str
+    config_name: str = ""  # Denormalized for display
+    run_number: int = 1
+    name: Optional[str]  # May be None, display as "Run #N — Date" if so
     description: Optional[str]
     status: str
     current_phase: str
@@ -71,10 +55,16 @@ class ScanResponse(BaseModel):
     failed_targets: int
     total_open_ports: int
     total_vulnerabilities: int
-    baseline_scan_id: Optional[UUID]
 
     class Config:
         from_attributes = True
+
+    @property
+    def display_name(self) -> str:
+        """Return name for display, auto-generating if not set."""
+        if self.name:
+            return self.name
+        return f"Run #{self.run_number} — {self.created_at.strftime('%b %d, %Y %H:%M')}"
 
 class ScanDetailResponse(ScanResponse):
     targets: List[TargetResponse]

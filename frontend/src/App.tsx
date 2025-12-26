@@ -12,6 +12,7 @@ import { ScanDetail } from './pages/ScanDetail';
 import { ComparisonView } from './pages/ComparisonView';
 import { ScheduledScans } from './pages/ScheduledScans';
 import { ScheduledScanForm } from './pages/ScheduledScanForm';
+import { Footer } from './components/Footer';
 import { useAuth } from './hooks/useAuth';
 
 const queryClient = new QueryClient();
@@ -182,6 +183,7 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
       <Toaster position="top-right" />
+      <Footer />
     </QueryClientProvider>
   );
 }

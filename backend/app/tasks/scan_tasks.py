@@ -20,11 +20,14 @@ from ..tools.nmap_nse import run_nmap_nse, parse_nse_output, determine_nse_sever
 from ..tools.sslscan import run_sslscan, parse_sslscan_output, analyze_ssl_security, calculate_ssl_grade
 from ..tools.nikto import run_nikto
 from ..tools.zap import run_zap_baseline, check_zap_available
+from ..tools.httpx import run_httpx, check_httpx_available
 from ..services.nse_profile import get_nse_profile_service
 from ..models.nse_finding import NseFinding
 from ..models.sslscan_result import SslScanResult
+from ..models.httpx_result import HttpxResult
 from ..parsers.nikto_parser import create_vulnerabilities_from_nikto
 from ..parsers.zap_parser import create_vulnerabilities_from_zap
+from ..parsers.httpx_parser import create_httpx_result_from_output
 from sqlalchemy import select
 import uuid
 import logging
@@ -47,10 +50,15 @@ def run_scan(self, scan_id: str):
     """
     Main scan orchestrator.
 
-    Phase 1: Run masscan on all targets (10% progress)
-    Phase 2: Run nmap on targets with open ports (70% progress)
-    Phase 3: Run ssh-audit (Phase 2D)
-    Phase 4: Run nuclei (Phase 2E)
+    Phase 1: Port Discovery (0% -> 10%)
+    Phase 2: Nmap Service Detection (10% -> 75%)
+    Phase 3: httpx HTTP Probing (75% -> 80%)
+    Phase 4: SSH-Audit (80% -> 85%)
+    Phase 5: Nuclei (85% -> 92%)
+    Phase 6: NSE Scripts (92% -> 95%)
+    Phase 7: SSLScan (95% -> 97%)
+    Phase 8: Nikto (97% -> 98%)
+    Phase 9: ZAP (98% -> 100%)
     """
     with get_sync_db() as db:
         self._db = db
@@ -89,44 +97,51 @@ def run_scan(self, scan_id: str):
             scan.total_open_ports = total_ports
             db.commit()
 
-            # Phase 2: Nmap (10% -> 80%)
+            # Phase 2: Nmap (10% -> 75%)
             scan.current_phase = ScanPhase.NMAP.value
             db.commit()
             self.update_state(state='PROGRESS', meta={'phase': 'nmap', 'progress': 0.1})
             run_nmap_phase(db, scan, targets, config)
 
-            # Phase 3: SSH-Audit (80% -> 90%)
+            # Phase 3: httpx HTTP probing (75% -> 80%)
+            if getattr(config, 'enable_httpx', True):
+                scan.current_phase = ScanPhase.HTTPX.value
+                db.commit()
+                self.update_state(state='PROGRESS', meta={'phase': 'httpx', 'progress': 0.75})
+                run_httpx_phase(db, scan, targets, config)
+
+            # Phase 4: SSH-Audit (80% -> 85%)
             if config.enable_ssh_audit:
                 scan.current_phase = ScanPhase.SSH_AUDIT.value
                 db.commit()
                 self.update_state(state='PROGRESS', meta={'phase': 'ssh-audit', 'progress': 0.8})
                 run_ssh_audit_phase(db, scan, targets, config)
 
-            # Phase 4: Nuclei (85% -> 90%)
+            # Phase 5: Nuclei (85% -> 92%)
             if config.enable_nuclei:
                 scan.current_phase = ScanPhase.NUCLEI.value
                 db.commit()
                 self.update_state(state='PROGRESS', meta={'phase': 'nuclei', 'progress': 0.85})
                 run_nuclei_phase(db, scan, targets, config)
 
-            # Phase 5: NSE Scripts (90% -> 95%)
+            # Phase 6: NSE Scripts (92% -> 95%)
             # NSE runs after nmap service detection to get detailed service info
-            self.update_state(state='PROGRESS', meta={'phase': 'nse', 'progress': 0.9})
+            self.update_state(state='PROGRESS', meta={'phase': 'nse', 'progress': 0.92})
             run_nse_phase(db, scan, targets, config)
 
-            # Phase 6: sslscan (95% -> 97%)
+            # Phase 7: sslscan (95% -> 97%)
             # sslscan runs on SSL/TLS ports for TLS posture analysis
             self.update_state(state='PROGRESS', meta={'phase': 'sslscan', 'progress': 0.95})
             run_sslscan_phase(db, scan, targets, config)
 
-            # Phase 7: Nikto (97% -> 98%)
+            # Phase 8: Nikto (97% -> 98%)
             if config.enable_nikto:
                 scan.current_phase = ScanPhase.NIKTO.value
                 db.commit()
                 self.update_state(state='PROGRESS', meta={'phase': 'nikto', 'progress': 0.97})
                 run_nikto_phase(db, scan, targets, config)
 
-            # Phase 8: ZAP (98% -> 100%)
+            # Phase 9: ZAP (98% -> 100%)
             if config.enable_zap:
                 scan.current_phase = ScanPhase.ZAP.value
                 db.commit()
@@ -641,6 +656,135 @@ def scan_target_with_nmap(db, target: ScanTarget, config):
 
     db.commit()
 
+
+def run_httpx_phase(db, scan: Scan, targets: List[ScanTarget], config):
+    """
+    Run httpx HTTP probing on discovered HTTP/HTTPS ports.
+
+    This phase:
+    1. Probes HTTP ports to gather rich metadata (status, title, headers)
+    2. Detects technologies for enhanced nuclei scanning
+    3. Validates which ports are actually serving HTTP
+    """
+    logger.info(f"Starting httpx phase for scan {scan.id}")
+
+    # Check if httpx is available
+    if not check_httpx_available():
+        logger.warning("httpx not available, skipping phase")
+        return
+
+    # HTTP services and common HTTP ports
+    http_services = ['http', 'https', 'ssl/http', 'http-proxy', 'http-alt']
+    http_port_numbers = [80, 443, 8080, 8443, 8000, 8888, 3000, 5000, 9000]
+
+    # Get HTTP-like ports (by service name OR port number)
+    http_ports = db.query(Port).join(ScanTarget).filter(
+        ScanTarget.scan_id == str(scan.id),
+        Port.state == 'open'
+    ).filter(
+        (Port.service_name.in_(http_services)) |
+        (Port.port.in_(http_port_numbers))
+    ).all()
+
+    if not http_ports:
+        logger.info("No HTTP ports found for httpx probing")
+        return
+
+    logger.info(f"httpx: {len(http_ports)} HTTP port(s) to probe")
+
+    total = len(http_ports)
+    completed = 0
+
+    for port_rec in http_ports:
+        # Get target for this port
+        target = db.query(ScanTarget).filter(
+            ScanTarget.id == port_rec.scan_target_id
+        ).first()
+
+        if not target:
+            completed += 1
+            continue
+
+        ip = target.ip_address
+        port = port_rec.port
+
+        # Determine protocol based on service or port
+        is_ssl = (
+            'ssl' in (port_rec.service_name or '') or
+            'https' in (port_rec.service_name or '') or
+            port in [443, 8443]
+        )
+        scheme = "https" if is_ssl else "http"
+        target_url = f"{scheme}://{ip}:{port}"
+
+        logger.info(f"httpx: Probing {target_url}")
+
+        # Create tool execution record
+        tool_exec = ToolExecution(
+            id=str(uuid.uuid4()),
+            scan_target_id=str(target.id),
+            port_id=str(port_rec.id),
+            tool_name="httpx",
+            command_line=f"httpx -u {target_url} -json -td",
+            started_at=datetime.utcnow()
+        )
+        db.add(tool_exec)
+        db.flush()
+
+        try:
+            # Run httpx
+            timeout = getattr(config, 'httpx_timeout', 30) or 30
+            tech_detect = getattr(config, 'httpx_tech_detect', True)
+
+            success, raw_json, error = run_httpx(
+                target=target_url,
+                timeout=timeout,
+                tech_detect=tech_detect
+            )
+
+            tool_exec.finished_at = datetime.utcnow()
+            tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
+            tool_exec.raw_output = raw_json[:50000] if raw_json else None
+            tool_exec.raw_format = "json"
+            tool_exec.error_message = error
+            tool_exec.exit_code = 0 if success else 1
+
+            if success and raw_json:
+                # Parse and create HttpxResult
+                result = create_httpx_result_from_output(db, tool_exec, target, port_rec)
+                if result:
+                    logger.info(f"httpx: {target_url} -> {result.status_code} {result.title or ''} techs={result.technologies}")
+            else:
+                # Create failed result
+                failed_result = HttpxResult(
+                    id=str(uuid.uuid4()),
+                    port_id=str(port_rec.id),
+                    tool_execution_id=str(tool_exec.id),
+                    connection_failed=True,
+                    failure_reason=error or "Unknown error"
+                )
+                db.add(failed_result)
+
+            db.commit()
+
+        except Exception as e:
+            logger.error(f"httpx error for {target_url}: {e}")
+            tool_exec.finished_at = datetime.utcnow()
+            tool_exec.error_message = str(e)
+            tool_exec.exit_code = 1
+            db.commit()
+
+        completed += 1
+
+        # Update progress (httpx is 5% of total, from 75% to 80%)
+        progress = 0.75 + (0.05 * completed / total)
+        scan.progress_percent = progress
+        scan.progress_updated_at = datetime.utcnow()
+        db.commit()
+
+    logger.info(f"httpx complete: {completed} ports probed")
+
+
 def run_ssh_audit_phase(db, scan: Scan, targets: List[ScanTarget], config):
     """
     Run ssh-audit on all SSH ports discovered.
@@ -768,14 +912,23 @@ def run_nuclei_phase(db, scan: Scan, targets: List[ScanTarget], config):
     scan_mode = getattr(config, 'scan_mode', 'deep') or 'deep'
     scannable_ports = []
     for port_rec in all_ports:
+        # Query httpx result for technology detection to enhance nuclei tags
+        httpx_result = db.query(HttpxResult).filter(
+            HttpxResult.port_id == str(port_rec.id)
+        ).first()
+        technologies = httpx_result.technologies if httpx_result and httpx_result.technologies else []
+
         profile = get_nuclei_profile(
             service_name=port_rec.service_name,
             product=port_rec.product,
             version=port_rec.version,
             port=port_rec.port,
-            scan_mode=scan_mode
+            scan_mode=scan_mode,
+            technologies=technologies
         )
         if profile.should_scan:
+            if technologies:
+                logger.info(f"Nuclei: port {port_rec.port} enhanced with technologies {technologies} -> tags {profile.tags}")
             scannable_ports.append((port_rec, profile))
 
     if not scannable_ports:

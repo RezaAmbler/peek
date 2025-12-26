@@ -41,6 +41,9 @@ class ScanConfig(Base):
     enable_nuclei = Column(Boolean, default=True, nullable=False)
     enable_nse = Column(Boolean, default=True, nullable=False)  # Nmap Scripting Engine
     enable_sslscan = Column(Boolean, default=True, nullable=False)  # SSL/TLS scanner
+    enable_httpx = Column(Boolean, default=True, nullable=False)  # HTTP probing with tech detection
+    httpx_timeout = Column(Integer, default=30, nullable=False)  # HTTP timeout in seconds
+    httpx_tech_detect = Column(Boolean, default=True, nullable=False)  # Enable technology fingerprinting
     nuclei_severity = Column(String, default="critical,high,medium,low,info", nullable=False)
     nuclei_templates = Column(String, nullable=True)  # Path to custom templates
     nuclei_timeout = Column(Integer, default=300, nullable=False)
@@ -53,6 +56,14 @@ class ScanConfig(Base):
     zap_timeout = Column(Integer, default=300, nullable=False)  # seconds
     nikto_timeout = Column(Integer, default=120, nullable=False)  # seconds
     target_urls = Column(JSON, nullable=True)  # ["https://example.com/app"]
+
+    # Targets — list of IPs or hostnames to scan
+    targets = Column(JSON, nullable=False, default=list)  # ["44.211.84.221", "10.0.0.1"]
+
+    # Scheduling (for automated recurring scans)
+    schedule = Column(String, nullable=True)  # Cron expression: "0 2 * * 0" = Sunday 2am
+    schedule_enabled = Column(Boolean, default=False, nullable=False)
+    last_scheduled_run = Column(DateTime, nullable=True)
 
     # Advanced timeouts
     global_tool_timeout_seconds = Column(Integer, nullable=True)
@@ -71,3 +82,4 @@ class ScanConfig(Base):
 
     # Relationships
     user = relationship("User", back_populates="scan_configs")
+    scans = relationship("Scan", back_populates="config", order_by="desc(Scan.created_at)", cascade="all, delete-orphan")

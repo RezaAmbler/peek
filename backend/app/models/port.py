@@ -31,6 +31,7 @@ class Port(Base):
     # Relationships
     target = relationship("ScanTarget", back_populates="ports")
     tool_execution = relationship("ToolExecution", foreign_keys=[tool_execution_id])
+    httpx_results = relationship("HttpxResult", back_populates="port_record", cascade="all, delete-orphan")
 
     # Composite unique constraint
     __table_args__ = (

@@ -51,12 +51,15 @@ class ComparisonService:
 
         changes = []
 
-        # 1. Compare ports
-        port_changes = self._compare_ports(baseline_scan_id, current_scan_id)
+        # Get baseline vulnerabilities first (needed for associated_vulnerabilities in closed ports)
+        baseline_vulns = self._get_vulnerabilities_by_scan(baseline_scan_id)
+
+        # 1. Compare ports (pass baseline_vulns for associated_vulnerabilities)
+        port_changes = self._compare_ports(baseline_scan_id, current_scan_id, baseline_vulns)
         changes.extend(port_changes)
 
         # 2. Compare vulnerabilities
-        vuln_changes = self._compare_vulnerabilities(baseline_scan_id, current_scan_id)
+        vuln_changes = self._compare_vulnerabilities(baseline_scan_id, current_scan_id, baseline_vulns)
         changes.extend(vuln_changes)
 
         # 3. Compare SSH audits (if applicable)
@@ -79,7 +82,7 @@ class ComparisonService:
 
         return comparison
 
-    def _compare_ports(self, baseline_scan_id: str, current_scan_id: str) -> List[Dict[str, Any]]:
+    def _compare_ports(self, baseline_scan_id: str, current_scan_id: str, baseline_vulns: List[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """Compare ports between two scans"""
         changes = []
 
@@ -90,6 +93,15 @@ class ComparisonService:
         # Create lookup keys: "ip:port:protocol"
         baseline_keys = {self._port_key(p): p for p in baseline_ports}
         current_keys = {self._port_key(p): p for p in current_ports}
+
+        # Create a lookup of baseline vulnerabilities by IP:port for associated_vulnerabilities
+        baseline_vulns_by_ip_port: Dict[str, List[Dict[str, Any]]] = {}
+        if baseline_vulns:
+            for vuln in baseline_vulns:
+                ip_port_key = f"{vuln['ip_address']}:{vuln['port']}"
+                if ip_port_key not in baseline_vulns_by_ip_port:
+                    baseline_vulns_by_ip_port[ip_port_key] = []
+                baseline_vulns_by_ip_port[ip_port_key].append(vuln)
 
         # Find new ports (in current but not in baseline)
         for key in current_keys:
@@ -105,6 +117,7 @@ class ComparisonService:
                     'protocol': port['protocol'],
                     'service_name': port['service_name'],
                     'version': port['version'],
+                    'product': port.get('product'),
                     'description': f"New open port: {port['port']}/{port['protocol']}"
                 })
 
@@ -112,6 +125,19 @@ class ComparisonService:
         for key in baseline_keys:
             if key not in current_keys:
                 port = baseline_keys[key]
+                # Find associated vulnerabilities from baseline that were on this IP:port
+                ip_port_key = f"{port['ip_address']}:{port['port']}"
+                associated_vulns = baseline_vulns_by_ip_port.get(ip_port_key, [])
+                associated_vulnerabilities = [
+                    {
+                        'name': v['name'],
+                        'severity': v['severity'],
+                        'template_id': v['template_id'],
+                        'matched_at': v['matched_at']
+                    }
+                    for v in associated_vulns
+                ]
+
                 changes.append({
                     'type': 'CLOSED_PORT',
                     'severity': 'POSITIVE',
@@ -121,7 +147,10 @@ class ComparisonService:
                     'port': port['port'],
                     'protocol': port['protocol'],
                     'service_name': port['service_name'],
-                    'description': f"Port closed: {port['port']}/{port['protocol']}"
+                    'version': port['version'],
+                    'product': port.get('product'),
+                    'description': f"Port closed: {port['port']}/{port['protocol']}",
+                    'associated_vulnerabilities': associated_vulnerabilities if associated_vulnerabilities else None
                 })
 
         # Find version changes (same port, different version)
@@ -151,12 +180,13 @@ class ComparisonService:
 
         return changes
 
-    def _compare_vulnerabilities(self, baseline_scan_id: str, current_scan_id: str) -> List[Dict[str, Any]]:
+    def _compare_vulnerabilities(self, baseline_scan_id: str, current_scan_id: str, baseline_vulns: List[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """Compare vulnerabilities between two scans"""
         changes = []
 
         # Get all vulnerabilities from both scans
-        baseline_vulns = self._get_vulnerabilities_by_scan(baseline_scan_id)
+        if baseline_vulns is None:
+            baseline_vulns = self._get_vulnerabilities_by_scan(baseline_scan_id)
         current_vulns = self._get_vulnerabilities_by_scan(current_scan_id)
 
         # Create lookup keys: "ip:template_id:port"
@@ -188,6 +218,8 @@ class ComparisonService:
                     'name': vuln['name'],
                     'vuln_severity': vuln['severity'],
                     'matched_at': vuln['matched_at'],
+                    'vuln_description': vuln.get('description'),
+                    'reference': vuln.get('reference'),
                     'description': f"New {vuln['severity']} vulnerability: {vuln['name']}"
                 })
 
@@ -205,6 +237,9 @@ class ComparisonService:
                     'template_id': vuln['template_id'],
                     'name': vuln['name'],
                     'vuln_severity': vuln['severity'],
+                    'matched_at': vuln['matched_at'],
+                    'vuln_description': vuln.get('description'),
+                    'reference': vuln.get('reference'),
                     'description': f"Fixed {vuln['severity']} vulnerability: {vuln['name']}"
                 })
 
@@ -345,7 +380,8 @@ class ComparisonService:
                 p.protocol,
                 p.state,
                 p.service_name,
-                p.version
+                p.version,
+                p.product
             FROM ports p
             JOIN scan_targets st ON p.scan_target_id = st.id
             WHERE st.scan_id = :scan_id
@@ -363,7 +399,8 @@ class ComparisonService:
                 'protocol': row[3],
                 'state': row[4],
                 'service_name': row[5],
-                'version': row[6]
+                'version': row[6],
+                'product': row[7]
             })
 
         return ports
@@ -378,7 +415,9 @@ class ComparisonService:
                 v.name,
                 v.severity,
                 v.port,
-                v.matched_at
+                v.matched_at,
+                v.description,
+                v.reference
             FROM vulnerabilities v
             JOIN scan_targets st ON v.scan_target_id = st.id
             WHERE st.scan_id = :scan_id
@@ -395,7 +434,9 @@ class ComparisonService:
                 'name': row[3],
                 'severity': row[4],
                 'port': row[5],
-                'matched_at': row[6]
+                'matched_at': row[6],
+                'description': row[7],
+                'reference': row[8]
             })
 
         return vulns

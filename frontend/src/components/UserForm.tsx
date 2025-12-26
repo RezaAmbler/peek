@@ -92,7 +92,7 @@ export function UserForm({ mode, user, onSubmit, onCancel, loading = false }: Us
     <form onSubmit={handleSubmit} className="space-y-4" data-component="UserForm">
       {/* Email */}
       <div>
-        <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+        <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
           Email
         </label>
         <input
@@ -100,21 +100,21 @@ export function UserForm({ mode, user, onSubmit, onCancel, loading = false }: Us
           id="email"
           value={formData.email}
           onChange={(e) => handleChange('email', e.target.value)}
-          className={`mt-1 block w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm ${
-            errors.email ? 'border-red-300' : 'border-gray-300'
+          className={`mt-1 block w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-700 dark:text-white ${
+            errors.email ? 'border-red-300 dark:border-red-500' : 'border-gray-300 dark:border-gray-600'
           }`}
           disabled={loading}
           data-testid="user-email-input"
         />
         {errors.email && (
-          <p className="mt-1 text-sm text-red-600">{errors.email}</p>
+          <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.email}</p>
         )}
       </div>
 
       {/* Username (only for create) */}
       {mode === 'create' && (
         <div>
-          <label htmlFor="username" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Username
           </label>
           <input
@@ -122,14 +122,14 @@ export function UserForm({ mode, user, onSubmit, onCancel, loading = false }: Us
             id="username"
             value={formData.username}
             onChange={(e) => handleChange('username', e.target.value)}
-            className={`mt-1 block w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm ${
-              errors.username ? 'border-red-300' : 'border-gray-300'
+            className={`mt-1 block w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-700 dark:text-white ${
+              errors.username ? 'border-red-300 dark:border-red-500' : 'border-gray-300 dark:border-gray-600'
             }`}
             disabled={loading}
             data-testid="user-username-input"
           />
           {errors.username && (
-            <p className="mt-1 text-sm text-red-600">{errors.username}</p>
+            <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.username}</p>
           )}
         </div>
       )}
@@ -137,7 +137,7 @@ export function UserForm({ mode, user, onSubmit, onCancel, loading = false }: Us
       {/* Password (only for create) */}
       {mode === 'create' && (
         <div>
-          <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Password
           </label>
           <input
@@ -145,14 +145,14 @@ export function UserForm({ mode, user, onSubmit, onCancel, loading = false }: Us
             id="password"
             value={formData.password}
             onChange={(e) => handleChange('password', e.target.value)}
-            className={`mt-1 block w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm ${
-              errors.password ? 'border-red-300' : 'border-gray-300'
+            className={`mt-1 block w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-700 dark:text-white ${
+              errors.password ? 'border-red-300 dark:border-red-500' : 'border-gray-300 dark:border-gray-600'
             }`}
             disabled={loading}
             data-testid="user-password-input"
           />
           {errors.password && (
-            <p className="mt-1 text-sm text-red-600">{errors.password}</p>
+            <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.password}</p>
           )}
         </div>
       )}
@@ -164,11 +164,11 @@ export function UserForm({ mode, user, onSubmit, onCancel, loading = false }: Us
           id="is_admin"
           checked={formData.is_admin}
           onChange={(e) => handleChange('is_admin', e.target.checked)}
-          className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+          className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 dark:border-gray-600 rounded"
           disabled={loading}
           data-testid="user-admin-checkbox"
         />
-        <label htmlFor="is_admin" className="ml-2 block text-sm text-gray-900">
+        <label htmlFor="is_admin" className="ml-2 block text-sm text-gray-900 dark:text-gray-100">
           Admin user
         </label>
       </div>
@@ -181,11 +181,11 @@ export function UserForm({ mode, user, onSubmit, onCancel, loading = false }: Us
             id="is_active"
             checked={formData.is_active}
             onChange={(e) => handleChange('is_active', e.target.checked)}
-            className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+            className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 dark:border-gray-600 rounded"
             disabled={loading}
             data-testid="user-active-checkbox"
           />
-          <label htmlFor="is_active" className="ml-2 block text-sm text-gray-900">
+          <label htmlFor="is_active" className="ml-2 block text-sm text-gray-900 dark:text-gray-100">
             Active user
           </label>
         </div>
@@ -196,7 +196,7 @@ export function UserForm({ mode, user, onSubmit, onCancel, loading = false }: Us
         <button
           type="button"
           onClick={onCancel}
-          className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
           disabled={loading}
           data-testid="user-form-cancel-button"
         >

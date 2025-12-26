@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     NMAP_PATH: str = "nmap"
     SSH_AUDIT_PATH: str = "ssh-audit"
     NUCLEI_PATH: str = "nuclei"
+    HTTPX_PATH: str = "httpx"
 
     # Debug output (saves raw tool output to files when DEBUG=True)
     DEBUG_OUTPUT_DIR: str = "/app/data/debug"  # Inside container, maps to ./data/debug on host
@@ -48,5 +49,6 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"  # Ignore frontend env vars like VITE_API_URL
 
 settings = Settings()

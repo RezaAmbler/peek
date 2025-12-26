@@ -14,7 +14,7 @@ router = APIRouter()
 async def _get_ports_by_scan(db: AsyncSession, scan_id: str) -> List[Dict[str, Any]]:
     """Get all open ports for a scan"""
     query = text("""
-        SELECT st.ip_address, st.device_name, p.port, p.protocol, p.state, p.service_name, p.version
+        SELECT st.ip_address, st.device_name, p.port, p.protocol, p.state, p.service_name, p.version, p.product
         FROM ports p
         JOIN scan_targets st ON p.scan_target_id = st.id
         WHERE st.scan_id = :scan_id AND p.state = 'open'
@@ -22,7 +22,7 @@ async def _get_ports_by_scan(db: AsyncSession, scan_id: str) -> List[Dict[str, A
     result = await db.execute(query, {'scan_id': scan_id})
     return [
         {'ip_address': r[0], 'device_name': r[1], 'port': r[2], 'protocol': r[3],
-         'state': r[4], 'service_name': r[5], 'version': r[6]}
+         'state': r[4], 'service_name': r[5], 'version': r[6], 'product': r[7]}
         for r in result
     ]
 
@@ -30,7 +30,7 @@ async def _get_ports_by_scan(db: AsyncSession, scan_id: str) -> List[Dict[str, A
 async def _get_vulnerabilities_by_scan(db: AsyncSession, scan_id: str) -> List[Dict[str, Any]]:
     """Get all vulnerabilities for a scan"""
     query = text("""
-        SELECT st.ip_address, st.device_name, v.template_id, v.name, v.severity, v.port, v.matched_at
+        SELECT st.ip_address, st.device_name, v.template_id, v.name, v.severity, v.port, v.matched_at, v.description, v.reference
         FROM vulnerabilities v
         JOIN scan_targets st ON v.scan_target_id = st.id
         WHERE st.scan_id = :scan_id
@@ -38,7 +38,7 @@ async def _get_vulnerabilities_by_scan(db: AsyncSession, scan_id: str) -> List[D
     result = await db.execute(query, {'scan_id': scan_id})
     return [
         {'ip_address': r[0], 'device_name': r[1], 'template_id': r[2], 'name': r[3],
-         'severity': r[4], 'port': r[5], 'matched_at': r[6]}
+         'severity': r[4], 'port': r[5], 'matched_at': r[6], 'description': r[7], 'reference': r[8]}
         for r in result
     ]
 
@@ -77,6 +77,13 @@ async def create_comparison(
     if current.status != "completed":
         raise HTTPException(status_code=400, detail="Current scan is not completed")
 
+    # Both scans must be from the same configuration
+    if baseline.config_id != current.config_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot compare scans from different configurations. Both scans must use the same config to ensure meaningful comparison."
+        )
+
     # Get ports from both scans
     baseline_ports = await _get_ports_by_scan(db, baseline_scan_id)
     current_ports = await _get_ports_by_scan(db, current_scan_id)
@@ -90,6 +97,14 @@ async def create_comparison(
     baseline_port_keys = {f"{p['ip_address']}:{p['port']}:{p['protocol']}": p for p in baseline_ports}
     current_port_keys = {f"{p['ip_address']}:{p['port']}:{p['protocol']}": p for p in current_ports}
 
+    # Create a lookup of baseline vulnerabilities by IP:port for associated_vulnerabilities
+    baseline_vulns_by_ip_port: Dict[str, List[Dict[str, Any]]] = {}
+    for vuln in baseline_vulns:
+        ip_port_key = f"{vuln['ip_address']}:{vuln['port']}"
+        if ip_port_key not in baseline_vulns_by_ip_port:
+            baseline_vulns_by_ip_port[ip_port_key] = []
+        baseline_vulns_by_ip_port[ip_port_key].append(vuln)
+
     # New ports
     for key, port in current_port_keys.items():
         if key not in baseline_port_keys:
@@ -98,18 +113,34 @@ async def create_comparison(
                 'ip_address': port['ip_address'], 'device_name': port['device_name'],
                 'port': port['port'], 'protocol': port['protocol'],
                 'service_name': port['service_name'], 'version': port['version'],
+                'product': port.get('product'),
                 'description': f"New open port: {port['port']}/{port['protocol']}"
             })
 
     # Closed ports
     for key, port in baseline_port_keys.items():
         if key not in current_port_keys:
+            # Find associated vulnerabilities from baseline that were on this IP:port
+            ip_port_key = f"{port['ip_address']}:{port['port']}"
+            associated_vulns = baseline_vulns_by_ip_port.get(ip_port_key, [])
+            associated_vulnerabilities = [
+                {
+                    'name': v['name'],
+                    'severity': v['severity'],
+                    'template_id': v['template_id'],
+                    'matched_at': v['matched_at']
+                }
+                for v in associated_vulns
+            ]
+
             changes.append({
                 'type': 'CLOSED_PORT', 'severity': 'POSITIVE', 'category': 'port',
                 'ip_address': port['ip_address'], 'device_name': port['device_name'],
                 'port': port['port'], 'protocol': port['protocol'],
-                'service_name': port['service_name'],
-                'description': f"Port closed: {port['port']}/{port['protocol']}"
+                'service_name': port['service_name'], 'version': port['version'],
+                'product': port.get('product'),
+                'description': f"Port closed: {port['port']}/{port['protocol']}",
+                'associated_vulnerabilities': associated_vulnerabilities if associated_vulnerabilities else None
             })
 
     # Compare vulnerabilities
@@ -125,7 +156,9 @@ async def create_comparison(
                 'category': 'vulnerability', 'ip_address': vuln['ip_address'],
                 'device_name': vuln['device_name'], 'port': vuln['port'],
                 'template_id': vuln['template_id'], 'name': vuln['name'],
-                'vuln_severity': vuln['severity'],
+                'vuln_severity': vuln['severity'], 'matched_at': vuln['matched_at'],
+                'vuln_description': vuln.get('description'),
+                'reference': vuln.get('reference'),
                 'description': f"New {vuln['severity']} vulnerability: {vuln['name']}"
             })
 
@@ -136,7 +169,9 @@ async def create_comparison(
                 'type': 'FIXED_VULNERABILITY', 'severity': 'POSITIVE', 'category': 'vulnerability',
                 'ip_address': vuln['ip_address'], 'device_name': vuln['device_name'],
                 'port': vuln['port'], 'template_id': vuln['template_id'], 'name': vuln['name'],
-                'vuln_severity': vuln['severity'],
+                'vuln_severity': vuln['severity'], 'matched_at': vuln['matched_at'],
+                'vuln_description': vuln.get('description'),
+                'reference': vuln.get('reference'),
                 'description': f"Fixed {vuln['severity']} vulnerability: {vuln['name']}"
             })
 

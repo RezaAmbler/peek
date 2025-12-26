@@ -1,89 +1,116 @@
-# TODO.md - PEEK V2 Roadmap & Known Issues
+# PEEK TODO
 
-## Roadmap Phases
-
-### Phase 1-4: Single-User Mode (Current)
-Core scanning functionality is complete:
-- Port discovery (Nmap/Masscan)
-- Service detection
-- Vulnerability scanning (Nuclei)
-- SSH hardening analysis (ssh-audit)
-- Historical comparison
-- Report generation (PDF/HTML/CSV)
-- Scheduled scans (Celery Beat)
-- User authentication (JWT)
-
-### Phase 2B: Pending Improvements
-- [ ] **Celery task cancellation** - Currently only updates DB status, doesn't actually revoke the Celery task
-  - Location: `backend/app/routers/scans.py:309`
-  - Requires: Use `scan.celery_task_id` to call `celery.control.revoke()`
-
-### Phase 5+: Multi-Organization Support
-Infrastructure is stubbed but not activated:
-- [ ] Activate `organization_id` filtering in queries
-  - `backend/app/routers/scans.py:50` - NOTE comment marks the spot
-- [ ] Implement organization model relationships
-  - `backend/app/models/organization.py` - Placeholder exists
-- [ ] Add organization-level permissions and billing
-
-**Stubbed fields (all currently NULL):**
-- `User.organization_id`
-- `Scan.organization_id`
-- `ScanConfig.organization_id`
+> **Port Enumeration & Evaluation Kit** - Development Roadmap
 
 ---
 
-## Known Bugs
+## ☁️ SaaS Infrastructure
 
-| Priority | Issue | Location | Fix |
-|----------|-------|----------|-----|
-| High | Celery task cancellation is a no-op | `backend/app/routers/scans.py:309` | Implement `revoke()` call |
-| Medium | `alert_on_critical` triggers on ANY vulns, not just critical | `backend/app/tasks/scheduled_scan_tasks.py:226` | Filter by severity before alerting |
-
----
-
-## Feature Toggle Status
-
-| Feature | Default | Enable Via | Notes |
-|---------|---------|------------|-------|
-| NSE Scripts | Off | `config/nse_profiles.yaml` + `NseProfileService.is_enabled()` | Nmap scripting engine |
-| SSH-Audit | Off | `ScanConfig.enable_ssh_audit` | SSH hardening checks |
-| Email/SMTP | Off | `settings.SMTP_ENABLED` | Scan completion notifications |
-| ZAP | Off | `check_zap_available()` | OWASP ZAP web scanning |
-| Nikto | Available | Not integrated in main pipeline | Web server scanning |
-| SSLscan | Available | Via scan config | SSL/TLS assessment |
+| Backlog | In Progress | Done |
+|---------|-------------|------|
+| PostgreSQL migration | - | - |
+| Multi-tenant architecture | - | - |
+| Stripe billing integration | - | - |
+| Self-service onboarding flow | - | - |
+| Rate limiting | - | - |
+| Audit logging | - | - |
+| HTTPS auto-configuration | - | - |
+| Email infrastructure (notifications) | - | - |
 
 ---
 
-## Configuration Notes
+## 🔧 Scanner Enhancements
 
-### Nuclei Profiles (`config/nuclei_profiles.yaml`)
-- Avoid broad tags like `tech` that match thousands of templates (causes timeouts)
-- Service-specific tag combinations are more reliable
-- Rate limits are per-profile to avoid overwhelming targets
-
-### NSE Profiles (`config/nse_profiles.yaml`)
-- Requires explicit enablement
-- Scripts grouped by service type
-
----
-
-## Tool Integration Status
-
-| Tool | Status | Phase | Notes |
-|------|--------|-------|-------|
-| Nmap | Complete | Discovery + Service Detection | Core functionality |
-| Nuclei | Complete | Vulnerability Scanning | Profile-based targeting |
-| ssh-audit | Complete | SSH Analysis | Optional per-config |
-| SSLscan | Complete | TLS Assessment | Optional |
-| Masscan | Available | Fast Discovery | Alternative to Nmap discovery |
-| Nikto | Available | Web Scanning | Not in main pipeline |
-| OWASP ZAP | Available | Web App Testing | Requires ZAP daemon |
+| Backlog | In Progress | Done |
+|---------|-------------|------|
+| httpx screenshot capture | - | httpx HTTP prober integration |
+| httpx vhost discovery | - | Nuclei vulnerability scanning |
+| Technology trend analysis across scans | - | ssh-audit integration |
+| WAF detection → adjusted scanning strategy | - | sslscan TLS analysis |
+| Batch mode for large scans | - | NSE script integration |
+| Plugin architecture for custom scanners | - | Nikto web server scanning |
+| Masscan fast discovery mode | - | OWASP ZAP integration |
+| Asset tagging / device naming | - | Service-aware template selection |
 
 ---
 
-## Documentation
+## 📦 Open Source Release
 
-- `CLAUDE.md` - Development reference
-- `NAR_OVERVIEW.md` - Narrative project overview
-- `docs/` - Detailed documentation (scan lifecycle, architecture, data model)
+| Backlog | In Progress | Done |
+|---------|-------------|------|
+| README with screenshots/GIFs | - | CLAUDE.md development guide |
+| LICENSE file (MIT) | - | API documentation |
+| CONTRIBUTING.md | - | Architecture documentation |
+| GitHub Actions CI | - | Troubleshooting guide |
+| Demo video | - | Usage guide |
+| Security policy (SECURITY.md) | - | - |
+| Issue templates | - | - |
+
+---
+
+## 🌐 Web UI
+
+| Backlog | In Progress | Done |
+|---------|-------------|------|
+| Dashboard with scan overview | - | Dark mode with user toggle |
+| Bulk actions (multi-select scans) | - | Target input on New Scan page |
+| Export configuration profiles | - | Scan comparison/diff feature |
+| Import/export scan results | - | Report generation (HTML, PDF, CSV) |
+| Keyboard shortcuts | - | Real-time scan progress |
+| - | - | Git branch indicator in footer |
+| - | - | Config-centric architecture |
+
+---
+
+## 🛠️ Infrastructure & DevOps
+
+| Backlog | In Progress | Done |
+|---------|-------------|------|
+| Kubernetes Helm chart | - | Docker Compose deployment |
+| Terraform modules | - | Production deployment scripts |
+| Health check endpoints for k8s | - | SQLite WAL mode + lock fixes |
+| Prometheus metrics export | - | Celery worker configuration |
+| Grafana dashboard templates | - | Redis broker setup |
+
+---
+
+## Changelog
+
+Recent completed work (newest first):
+
+| Date | Commit | Description |
+|------|--------|-------------|
+| Dec 2024 | `46c762b` | feat(frontend): add dark mode support with user-controlled toggle |
+| Dec 2024 | `1b56828` | feat(scans): Add target input to New Scan page |
+| Dec 2024 | `16189a9` | feat: integrate httpx HTTP prober into scan pipeline |
+| Dec 2024 | `9e3ea31` | feat: display config name as primary identifier in scans list |
+| Dec 2024 | `fc24b63` | feat: comprehensive report generation improvements |
+| Dec 2024 | `7a03ad3` | fix: resolve SQLite lock contention and config deletion errors |
+| Dec 2024 | `8358a30` | feat: add git branch indicator to web UI footer |
+| Dec 2024 | `e43f2c1` | feat: scan comparison/diff feature with enriched output |
+| Dec 2024 | `ed3b9bb` | feat: Config-centric architecture — targets on config |
+| Dec 2024 | `9135303` | fix: Resolve duplicate vulnerability bugs and stuck scan detection |
+| Dec 2024 | `a76e712` | feat(ui): Add tool-specific sections and source badges |
+| Dec 2024 | `a5962e5` | feat(scanner): Add Nikto and ZAP web scanning integration |
+| Dec 2024 | `62a5127` | feat(scanner): Add NSE scripts and sslscan integration |
+| Dec 2024 | `7507ec6` | Add Phase 4-5 developer docs |
+| Dec 2024 | `c8c853c` | Add nuclei scanning enhancements: exclusions, tag validation |
+| Dec 2024 | `e03d35c` | Add PEEK v2 full-stack implementation |
+
+---
+
+## How to Use This Board
+
+**Moving items:**
+1. Cut the item text from one column
+2. Paste into the new column
+3. Replace `-` placeholder if needed
+
+**Adding items:**
+- Add new row to the appropriate table
+- Use `|` separators between columns
+
+**Conventions:**
+- One item per cell
+- Use `-` for empty cells
+- Keep descriptions concise (< 40 chars)

@@ -1,0 +1,4915 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "PEEK V2 API",
+    "description": "\n## Network Security Scanner API\n\nPEEK V2 scans networks for open ports, services, and vulnerabilities using:\n- **Nmap** - Port discovery and service detection\n- **SSH-Audit** - SSH security analysis\n- **Nuclei** - Vulnerability scanning\n\n### Authentication\nMost endpoints require JWT authentication.\n1. Call `POST /api/auth/login` with username/password\n2. Copy the `access_token` from response\n3. Click the **Authorize** button above and enter: `Bearer <your_token>`\n\n### Quick Start\n1. **Login** to get token (default: admin/admin)\n2. **Create a scan configuration** (or use default)\n3. **Create and start a scan** with target IPs\n4. **Monitor progress** and view results\n\n### Scan Workflow\n```\nPOST /api/scans          → Create scan (status: pending)\nPOST /api/scans/{id}/start → Queue scan (status: queued → running)\nGET /api/scans/{id}      → Monitor progress\nGET /api/scans/{id}/ports → View discovered ports\nGET /api/scans/{id}/vulnerabilities → View vulnerabilities\n```\n",
+    "version": "2.0.0"
+  },
+  "paths": {
+    "/api/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Login and get JWT token",
+        "description": "Authenticate user and return a JWT access token.\n\n**Default credentials**: admin / admin\n\nUse the returned `access_token` in the Authorization header:\n`Authorization: Bearer <token>`",
+        "operationId": "login_api_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_login_api_auth_login_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Token"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Get current user info",
+        "description": "Get the currently authenticated user's profile information.",
+        "operationId": "get_current_user_info_api_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__schemas__auth__UserResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/api/users": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "List Users",
+        "description": "List all users with pagination and optional search",
+        "operationId": "list_users_api_users_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Create User",
+        "description": "Create a new user",
+        "operationId": "create_user_api_users_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__schemas__user__UserResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/{user_id}": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Get User",
+        "description": "Get a single user by ID",
+        "operationId": "get_user_api_users__user_id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__schemas__user__UserResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Update User",
+        "description": "Update a user",
+        "operationId": "update_user_api_users__user_id__patch",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__schemas__user__UserResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Delete User",
+        "description": "Delete a user (soft delete by setting is_active=false)",
+        "operationId": "delete_user_api_users__user_id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/{user_id}/reset-password": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Reset Password",
+        "description": "Reset a user's password",
+        "operationId": "reset_password_api_users__user_id__reset_password_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordReset"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/configs": {
+      "get": {
+        "tags": [
+          "configs"
+        ],
+        "summary": "List configurations",
+        "description": "List all scan configurations for the current user, plus system presets visible to everyone.",
+        "operationId": "list_configs_api_configs_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by user ID (admin only)",
+              "title": "User Id"
+            },
+            "description": "Filter by user ID (admin only)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanConfigListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "configs"
+        ],
+        "summary": "Create configuration",
+        "description": "Create a new scan configuration profile.\n\nConfigurations define scan parameters like masscan rate, nmap arguments, and Nuclei settings.",
+        "operationId": "create_config_api_configs_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanConfigCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanConfigResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/configs/{config_id}": {
+      "get": {
+        "tags": [
+          "configs"
+        ],
+        "summary": "Get Config",
+        "description": "Get a single configuration by ID",
+        "operationId": "get_config_api_configs__config_id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "config_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Config Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanConfigResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "configs"
+        ],
+        "summary": "Update Config",
+        "description": "Update an existing configuration",
+        "operationId": "update_config_api_configs__config_id__patch",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "config_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Config Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanConfigUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanConfigResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "configs"
+        ],
+        "summary": "Delete Config",
+        "description": "Delete a configuration",
+        "operationId": "delete_config_api_configs__config_id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "config_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Config Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/configs/{config_id}/set-default": {
+      "post": {
+        "tags": [
+          "configs"
+        ],
+        "summary": "Set Default Config",
+        "description": "Set a configuration as the default for the user",
+        "operationId": "set_default_config_api_configs__config_id__set_default_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "config_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Config Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanConfigResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scans": {
+      "get": {
+        "tags": [
+          "scans"
+        ],
+        "summary": "List all scans",
+        "description": "List all scans for the current user with pagination and optional status filter.",
+        "operationId": "list_scans_api_scans_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Page number",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "Page number"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Items per page",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "Items per page"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by status: pending, queued, running, completed, failed, cancelled",
+              "title": "Status"
+            },
+            "description": "Filter by status: pending, queued, running, completed, failed, cancelled"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "scans"
+        ],
+        "summary": "Create a new scan",
+        "description": "Create a new scan run from a configuration.\n\nTargets are inherited from the config — they are copied to ScanTarget rows at scan creation.\nThe scan is created in **pending** status. Call `POST /api/scans/{id}/start` to queue it for execution.",
+        "operationId": "create_scan_api_scans_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scans/{scan_id}": {
+      "get": {
+        "tags": [
+          "scans"
+        ],
+        "summary": "Get scan details",
+        "description": "Get detailed information about a specific scan including its targets.",
+        "operationId": "get_scan_api_scans__scan_id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "scans"
+        ],
+        "summary": "Delete Scan",
+        "description": "Delete a scan",
+        "operationId": "delete_scan_api_scans__scan_id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scan Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "scans"
+        ],
+        "summary": "Update Scan",
+        "description": "Update scan metadata (name, description only). Config and targets cannot be changed after creation.",
+        "operationId": "update_scan_api_scans__scan_id__patch",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scan Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scans/{scan_id}/cancel": {
+      "post": {
+        "tags": [
+          "scans"
+        ],
+        "summary": "Cancel Scan",
+        "description": "Cancel a running or pending scan",
+        "operationId": "cancel_scan_api_scans__scan_id__cancel_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scans/{scan_id}/start": {
+      "post": {
+        "tags": [
+          "scans"
+        ],
+        "summary": "Start a scan",
+        "description": "Queue a pending scan for execution.\n\nThe scan will be picked up by the Celery worker and progress through:\n**queued** → **running** → **completed** (or **failed**)",
+        "operationId": "start_scan_api_scans__scan_id__start_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scans/{scan_id}/restart": {
+      "post": {
+        "tags": [
+          "scans"
+        ],
+        "summary": "Restart Scan",
+        "description": "Restart a failed/completed/cancelled scan by creating a new run of the same configuration.\n\nCreates a new scan with:\n- Next run_number for the config\n- Auto-generated name (or with \" (retry)\" suffix if original had custom name)\n- Same configuration\n- Fresh targets from config\n- Automatically starts the new scan\n\nReturns the new scan object.",
+        "operationId": "restart_scan_api_scans__scan_id__restart_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scan Id"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scans/{scan_id}/comparable": {
+      "get": {
+        "tags": [
+          "scans"
+        ],
+        "summary": "Get comparable scans",
+        "description": "Get scans that can be compared with this one (same config_id).\n\nOnly completed scans from the same configuration are returned,\nas meaningful comparisons require the same targets and scan settings.",
+        "operationId": "get_comparable_scans_api_scans__scan_id__comparable_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scans/{scan_id}/ports": {
+      "get": {
+        "tags": [
+          "scans"
+        ],
+        "summary": "Get discovered ports",
+        "description": "Get ports discovered during the scan, including service and version info from nmap.\n\nBy default, only **open** ports are returned. Use `state=all` to see filtered/closed ports.",
+        "operationId": "get_scan_ports_api_scans__scan_id__ports_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scan Id"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by port state: open, filtered, closed, or 'all' for no filter",
+              "default": "open",
+              "title": "State"
+            },
+            "description": "Filter by port state: open, filtered, closed, or 'all' for no filter"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scans/{scan_id}/ssh-audits": {
+      "get": {
+        "tags": [
+          "scans"
+        ],
+        "summary": "Get Scan Ssh Audits",
+        "description": "Get all SSH audit results for a scan",
+        "operationId": "get_scan_ssh_audits_api_scans__scan_id__ssh_audits_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scans/{scan_id}/vulnerabilities": {
+      "get": {
+        "tags": [
+          "scans"
+        ],
+        "summary": "Get vulnerabilities",
+        "description": "Get all vulnerabilities found during the scan, sorted by severity. Supports filtering by tool (nuclei, nikto, zap, nse).",
+        "operationId": "get_scan_vulnerabilities_api_scans__scan_id__vulnerabilities_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scan Id"
+            }
+          },
+          {
+            "name": "severity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by severity: critical,high,medium,low,info (comma-separated)",
+              "title": "Severity"
+            },
+            "description": "Filter by severity: critical,high,medium,low,info (comma-separated)"
+          },
+          {
+            "name": "source_tool",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by source tool: nuclei,nikto,zap,nse (comma-separated)",
+              "title": "Source Tool"
+            },
+            "description": "Filter by source tool: nuclei,nikto,zap,nse (comma-separated)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scans/{scan_id}/nse-findings": {
+      "get": {
+        "tags": [
+          "scans"
+        ],
+        "summary": "Get NSE script findings",
+        "description": "Get all NSE script findings for a scan, sorted by severity.",
+        "operationId": "get_scan_nse_findings_api_scans__scan_id__nse_findings_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scan Id"
+            }
+          },
+          {
+            "name": "severity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by severity: critical,high,medium,low,info (comma-separated)",
+              "title": "Severity"
+            },
+            "description": "Filter by severity: critical,high,medium,low,info (comma-separated)"
+          },
+          {
+            "name": "script_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by script ID (e.g., rdp-enum-encryption)",
+              "title": "Script Id"
+            },
+            "description": "Filter by script ID (e.g., rdp-enum-encryption)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scans/{scan_id}/sslscan-results": {
+      "get": {
+        "tags": [
+          "scans"
+        ],
+        "summary": "Get SSL/TLS scan results",
+        "description": "Get all SSL/TLS scan results for a scan, including protocol support, ciphers, and certificate info.",
+        "operationId": "get_scan_sslscan_results_api_scans__scan_id__sslscan_results_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/comparisons/compare": {
+      "post": {
+        "tags": [
+          "comparisons"
+        ],
+        "summary": "Create Comparison",
+        "description": "Compare two scans and generate a comparison report.",
+        "operationId": "create_comparison_api_comparisons_compare_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "baseline_scan_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Baseline Scan Id"
+            }
+          },
+          {
+            "name": "current_scan_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Current Scan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/comparisons/{comparison_id}": {
+      "get": {
+        "tags": [
+          "comparisons"
+        ],
+        "summary": "Get Comparison",
+        "description": "Get a comparison by ID",
+        "operationId": "get_comparison_api_comparisons__comparison_id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "comparison_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Comparison Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/comparisons/scan/{scan_id}": {
+      "get": {
+        "tags": [
+          "comparisons"
+        ],
+        "summary": "List Comparisons For Scan",
+        "description": "List all comparisons involving a specific scan",
+        "operationId": "list_comparisons_for_scan_api_comparisons_scan__scan_id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scheduled-scans": {
+      "get": {
+        "tags": [
+          "scheduled-scans"
+        ],
+        "summary": "List Scheduled Scans",
+        "description": "List all scheduled scans for the current user",
+        "operationId": "list_scheduled_scans_api_scheduled_scans_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledScanListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "scheduled-scans"
+        ],
+        "summary": "Create Scheduled Scan",
+        "description": "Create a new scheduled scan",
+        "operationId": "create_scheduled_scan_api_scheduled_scans_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduledScanCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledScanResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/api/scheduled-scans/{scheduled_scan_id}": {
+      "get": {
+        "tags": [
+          "scheduled-scans"
+        ],
+        "summary": "Get Scheduled Scan",
+        "description": "Get a single scheduled scan by ID",
+        "operationId": "get_scheduled_scan_api_scheduled_scans__scheduled_scan_id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scheduled_scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scheduled Scan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledScanResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "scheduled-scans"
+        ],
+        "summary": "Update Scheduled Scan",
+        "description": "Update a scheduled scan",
+        "operationId": "update_scheduled_scan_api_scheduled_scans__scheduled_scan_id__patch",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scheduled_scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scheduled Scan Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduledScanUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledScanResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "scheduled-scans"
+        ],
+        "summary": "Delete Scheduled Scan",
+        "description": "Delete a scheduled scan",
+        "operationId": "delete_scheduled_scan_api_scheduled_scans__scheduled_scan_id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scheduled_scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scheduled Scan Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scheduled-scans/{scheduled_scan_id}/pause": {
+      "post": {
+        "tags": [
+          "scheduled-scans"
+        ],
+        "summary": "Pause Scheduled Scan",
+        "description": "Pause a scheduled scan",
+        "operationId": "pause_scheduled_scan_api_scheduled_scans__scheduled_scan_id__pause_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scheduled_scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scheduled Scan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledScanResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scheduled-scans/{scheduled_scan_id}/resume": {
+      "post": {
+        "tags": [
+          "scheduled-scans"
+        ],
+        "summary": "Resume Scheduled Scan",
+        "description": "Resume a paused scheduled scan",
+        "operationId": "resume_scheduled_scan_api_scheduled_scans__scheduled_scan_id__resume_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scheduled_scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scheduled Scan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledScanResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scheduled-scans/{scheduled_scan_id}/run-now": {
+      "post": {
+        "tags": [
+          "scheduled-scans"
+        ],
+        "summary": "Run Scheduled Scan Now",
+        "description": "Manually trigger a scheduled scan to run immediately",
+        "operationId": "run_scheduled_scan_now_api_scheduled_scans__scheduled_scan_id__run_now_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scheduled_scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scheduled Scan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Run Scheduled Scan Now Api Scheduled Scans  Scheduled Scan Id  Run Now Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reports/{scan_id}/pdf/executive": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Executive summary PDF",
+        "description": "Generate a high-level executive summary PDF suitable for management reporting.",
+        "operationId": "get_executive_summary_pdf_api_reports__scan_id__pdf_executive_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reports/{scan_id}/pdf/technical": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Technical report PDF",
+        "description": "Generate a detailed technical PDF with all ports, services, and vulnerabilities.",
+        "operationId": "get_technical_report_pdf_api_reports__scan_id__pdf_technical_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reports/comparison/{comparison_id}/pdf": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Get Comparison Report Pdf",
+        "description": "Generate comparison report PDF",
+        "operationId": "get_comparison_report_pdf_api_reports_comparison__comparison_id__pdf_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "comparison_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Comparison Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reports/{scan_id}/html": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Get Html Report",
+        "description": "Generate HTML report",
+        "operationId": "get_html_report_api_reports__scan_id__html_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reports/{scan_id}/csv/vulnerabilities": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Export vulnerabilities CSV",
+        "description": "Export all discovered vulnerabilities to a CSV file.",
+        "operationId": "export_vulnerabilities_csv_api_reports__scan_id__csv_vulnerabilities_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reports/{scan_id}/csv/ports": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Export ports CSV",
+        "description": "Export all discovered ports and services to a CSV file.",
+        "operationId": "export_ports_csv_api_reports__scan_id__csv_ports_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reports/{scan_id}/csv/summary": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Export Summary Csv",
+        "description": "Export scan summary to CSV",
+        "operationId": "export_summary_csv_api_reports__scan_id__csv_summary_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "summary": "Health Check",
+        "operationId": "health_check_api_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Body_login_api_auth_login_post": {
+        "properties": {
+          "grant_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "password"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grant Type"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          },
+          "scope": {
+            "type": "string",
+            "title": "Scope",
+            "default": ""
+          },
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "client_secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Secret"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "Body_login_api_auth_login_post"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "PasswordReset": {
+        "properties": {
+          "new_password": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 8,
+            "title": "New Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "new_password"
+        ],
+        "title": "PasswordReset"
+      },
+      "ScanConfigCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "description": "Configuration name",
+            "example": "Production Scan Config"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "Configuration description",
+            "example": "Careful scan settings for production servers"
+          },
+          "targets": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Targets",
+            "description": "List of IPs or hostnames to scan",
+            "default": [],
+            "example": [
+              "44.211.84.221",
+              "10.0.0.1"
+            ]
+          },
+          "masscan_rate": {
+            "type": "integer",
+            "maximum": 100000.0,
+            "minimum": 100.0,
+            "title": "Masscan Rate",
+            "description": "Masscan packets per second",
+            "default": 1000,
+            "example": 1000
+          },
+          "masscan_interface": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Masscan Interface",
+            "description": "Network interface for masscan",
+            "example": "eth0"
+          },
+          "nmap_args": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Nmap Args",
+            "description": "Nmap command arguments",
+            "default": [
+              "-sS",
+              "-sV",
+              "-sC",
+              "-T2",
+              "-Pn"
+            ],
+            "example": [
+              "-sS",
+              "-sV",
+              "-sC",
+              "-T2",
+              "-Pn"
+            ]
+          },
+          "ssh_ports": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Ssh Ports",
+            "description": "Ports to run ssh-audit on",
+            "default": [
+              22,
+              830
+            ],
+            "example": [
+              22,
+              830
+            ]
+          },
+          "discovery_top_ports": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 100.0,
+            "title": "Discovery Top Ports",
+            "description": "Number of top ports to scan during discovery",
+            "default": 1000
+          },
+          "additional_ports": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Additional Ports",
+            "description": "Comma-separated list of additional ports to always scan",
+            "default": "6379,11211,9200,27017,5984,9042,2375,2376,5672,15672,8080,8443,9000"
+          },
+          "max_concurrent_hosts": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Max Concurrent Hosts",
+            "default": 10
+          },
+          "max_concurrent_scans": {
+            "type": "integer",
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Max Concurrent Scans",
+            "default": 3
+          },
+          "host_timeout_seconds": {
+            "type": "integer",
+            "maximum": 7200.0,
+            "minimum": 60.0,
+            "title": "Host Timeout Seconds",
+            "default": 1200
+          },
+          "masscan_timeout_percent": {
+            "type": "number",
+            "maximum": 0.5,
+            "minimum": 0.05,
+            "title": "Masscan Timeout Percent",
+            "default": 0.2
+          },
+          "nmap_timeout_percent": {
+            "type": "number",
+            "maximum": 0.9,
+            "minimum": 0.2,
+            "title": "Nmap Timeout Percent",
+            "default": 0.7
+          },
+          "enable_ssh_audit": {
+            "type": "boolean",
+            "title": "Enable Ssh Audit",
+            "description": "Run ssh-audit on SSH ports",
+            "default": true
+          },
+          "enable_nuclei": {
+            "type": "boolean",
+            "title": "Enable Nuclei",
+            "description": "Run Nuclei vulnerability scanner",
+            "default": true
+          },
+          "enable_nse": {
+            "type": "boolean",
+            "title": "Enable Nse",
+            "description": "Run Nmap Scripting Engine (NSE) scripts",
+            "default": true
+          },
+          "enable_sslscan": {
+            "type": "boolean",
+            "title": "Enable Sslscan",
+            "description": "Run SSLScan for TLS/SSL analysis",
+            "default": true
+          },
+          "nuclei_severity": {
+            "type": "string",
+            "title": "Nuclei Severity",
+            "description": "Nuclei severity filter",
+            "default": "critical,high,medium,low,info",
+            "example": "critical,high,medium,low,info"
+          },
+          "nuclei_templates": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nuclei Templates",
+            "description": "Custom Nuclei template paths"
+          },
+          "nuclei_timeout": {
+            "type": "integer",
+            "maximum": 1800.0,
+            "minimum": 60.0,
+            "title": "Nuclei Timeout",
+            "description": "Nuclei timeout per target (seconds)",
+            "default": 300
+          },
+          "scan_mode": {
+            "type": "string",
+            "title": "Scan Mode",
+            "description": "Scan mode: 'fast' (targeted CVEs) or 'deep' (comprehensive)",
+            "default": "deep",
+            "example": "deep"
+          },
+          "enable_nikto": {
+            "type": "boolean",
+            "title": "Enable Nikto",
+            "description": "Run Nikto web server scanner",
+            "default": false
+          },
+          "enable_zap": {
+            "type": "boolean",
+            "title": "Enable Zap",
+            "description": "Run OWASP ZAP web application scanner",
+            "default": false
+          },
+          "zap_scan_type": {
+            "type": "string",
+            "title": "Zap Scan Type",
+            "description": "ZAP scan type: 'baseline' or 'api'",
+            "default": "baseline"
+          },
+          "zap_timeout": {
+            "type": "integer",
+            "maximum": 1800.0,
+            "minimum": 60.0,
+            "title": "Zap Timeout",
+            "description": "ZAP scan timeout (seconds)",
+            "default": 300
+          },
+          "nikto_timeout": {
+            "type": "integer",
+            "maximum": 600.0,
+            "minimum": 30.0,
+            "title": "Nikto Timeout",
+            "description": "Nikto scan timeout (seconds)",
+            "default": 120
+          },
+          "target_urls": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Urls",
+            "description": "URLs for web scanning (if different from discovered HTTP services)"
+          },
+          "global_tool_timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 7200.0,
+                "minimum": 60.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Global Tool Timeout Seconds"
+          },
+          "parallelism_limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 50.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parallelism Limit"
+          },
+          "highlight_ports": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Highlight Ports",
+            "default": [
+              22,
+              80,
+              443,
+              3389,
+              8443
+            ]
+          },
+          "email_on_completion": {
+            "type": "boolean",
+            "title": "Email On Completion",
+            "default": false
+          },
+          "email_on_changes_only": {
+            "type": "boolean",
+            "title": "Email On Changes Only",
+            "default": false
+          },
+          "schedule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule",
+            "description": "Cron expression for scheduled runs",
+            "example": "0 2 * * 0"
+          },
+          "schedule_enabled": {
+            "type": "boolean",
+            "title": "Schedule Enabled",
+            "description": "Whether scheduled runs are enabled",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "ScanConfigCreate"
+      },
+      "ScanConfigListResponse": {
+        "properties": {
+          "configs": {
+            "items": {
+              "$ref": "#/components/schemas/ScanConfigResponse"
+            },
+            "type": "array",
+            "title": "Configs"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "configs",
+          "total"
+        ],
+        "title": "ScanConfigListResponse"
+      },
+      "ScanConfigResponse": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "description": "Configuration name",
+            "example": "Production Scan Config"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "Configuration description",
+            "example": "Careful scan settings for production servers"
+          },
+          "targets": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Targets",
+            "description": "List of IPs or hostnames to scan",
+            "default": [],
+            "example": [
+              "44.211.84.221",
+              "10.0.0.1"
+            ]
+          },
+          "masscan_rate": {
+            "type": "integer",
+            "maximum": 100000.0,
+            "minimum": 100.0,
+            "title": "Masscan Rate",
+            "description": "Masscan packets per second",
+            "default": 1000,
+            "example": 1000
+          },
+          "masscan_interface": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Masscan Interface",
+            "description": "Network interface for masscan",
+            "example": "eth0"
+          },
+          "nmap_args": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Nmap Args",
+            "description": "Nmap command arguments",
+            "default": [
+              "-sS",
+              "-sV",
+              "-sC",
+              "-T2",
+              "-Pn"
+            ],
+            "example": [
+              "-sS",
+              "-sV",
+              "-sC",
+              "-T2",
+              "-Pn"
+            ]
+          },
+          "ssh_ports": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Ssh Ports",
+            "description": "Ports to run ssh-audit on",
+            "default": [
+              22,
+              830
+            ],
+            "example": [
+              22,
+              830
+            ]
+          },
+          "discovery_top_ports": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 100.0,
+            "title": "Discovery Top Ports",
+            "description": "Number of top ports to scan during discovery",
+            "default": 1000
+          },
+          "additional_ports": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Additional Ports",
+            "description": "Comma-separated list of additional ports to always scan",
+            "default": "6379,11211,9200,27017,5984,9042,2375,2376,5672,15672,8080,8443,9000"
+          },
+          "max_concurrent_hosts": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Max Concurrent Hosts",
+            "default": 10
+          },
+          "max_concurrent_scans": {
+            "type": "integer",
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Max Concurrent Scans",
+            "default": 3
+          },
+          "host_timeout_seconds": {
+            "type": "integer",
+            "maximum": 7200.0,
+            "minimum": 60.0,
+            "title": "Host Timeout Seconds",
+            "default": 1200
+          },
+          "masscan_timeout_percent": {
+            "type": "number",
+            "maximum": 0.5,
+            "minimum": 0.05,
+            "title": "Masscan Timeout Percent",
+            "default": 0.2
+          },
+          "nmap_timeout_percent": {
+            "type": "number",
+            "maximum": 0.9,
+            "minimum": 0.2,
+            "title": "Nmap Timeout Percent",
+            "default": 0.7
+          },
+          "enable_ssh_audit": {
+            "type": "boolean",
+            "title": "Enable Ssh Audit",
+            "description": "Run ssh-audit on SSH ports",
+            "default": true
+          },
+          "enable_nuclei": {
+            "type": "boolean",
+            "title": "Enable Nuclei",
+            "description": "Run Nuclei vulnerability scanner",
+            "default": true
+          },
+          "enable_nse": {
+            "type": "boolean",
+            "title": "Enable Nse",
+            "description": "Run Nmap Scripting Engine (NSE) scripts",
+            "default": true
+          },
+          "enable_sslscan": {
+            "type": "boolean",
+            "title": "Enable Sslscan",
+            "description": "Run SSLScan for TLS/SSL analysis",
+            "default": true
+          },
+          "nuclei_severity": {
+            "type": "string",
+            "title": "Nuclei Severity",
+            "description": "Nuclei severity filter",
+            "default": "critical,high,medium,low,info",
+            "example": "critical,high,medium,low,info"
+          },
+          "nuclei_templates": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nuclei Templates",
+            "description": "Custom Nuclei template paths"
+          },
+          "nuclei_timeout": {
+            "type": "integer",
+            "maximum": 1800.0,
+            "minimum": 60.0,
+            "title": "Nuclei Timeout",
+            "description": "Nuclei timeout per target (seconds)",
+            "default": 300
+          },
+          "scan_mode": {
+            "type": "string",
+            "title": "Scan Mode",
+            "description": "Scan mode: 'fast' (targeted CVEs) or 'deep' (comprehensive)",
+            "default": "deep",
+            "example": "deep"
+          },
+          "enable_nikto": {
+            "type": "boolean",
+            "title": "Enable Nikto",
+            "description": "Run Nikto web server scanner",
+            "default": false
+          },
+          "enable_zap": {
+            "type": "boolean",
+            "title": "Enable Zap",
+            "description": "Run OWASP ZAP web application scanner",
+            "default": false
+          },
+          "zap_scan_type": {
+            "type": "string",
+            "title": "Zap Scan Type",
+            "description": "ZAP scan type: 'baseline' or 'api'",
+            "default": "baseline"
+          },
+          "zap_timeout": {
+            "type": "integer",
+            "maximum": 1800.0,
+            "minimum": 60.0,
+            "title": "Zap Timeout",
+            "description": "ZAP scan timeout (seconds)",
+            "default": 300
+          },
+          "nikto_timeout": {
+            "type": "integer",
+            "maximum": 600.0,
+            "minimum": 30.0,
+            "title": "Nikto Timeout",
+            "description": "Nikto scan timeout (seconds)",
+            "default": 120
+          },
+          "target_urls": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Urls",
+            "description": "URLs for web scanning (if different from discovered HTTP services)"
+          },
+          "global_tool_timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 7200.0,
+                "minimum": 60.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Global Tool Timeout Seconds"
+          },
+          "parallelism_limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 50.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parallelism Limit"
+          },
+          "highlight_ports": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Highlight Ports",
+            "default": [
+              22,
+              80,
+              443,
+              3389,
+              8443
+            ]
+          },
+          "email_on_completion": {
+            "type": "boolean",
+            "title": "Email On Completion",
+            "default": false
+          },
+          "email_on_changes_only": {
+            "type": "boolean",
+            "title": "Email On Changes Only",
+            "default": false
+          },
+          "schedule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule",
+            "description": "Cron expression for scheduled runs",
+            "example": "0 2 * * 0"
+          },
+          "schedule_enabled": {
+            "type": "boolean",
+            "title": "Schedule Enabled",
+            "description": "Whether scheduled runs are enabled",
+            "default": false
+          },
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "user_id": {
+            "type": "string",
+            "title": "User Id"
+          },
+          "organization_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "is_default": {
+            "type": "boolean",
+            "title": "Is Default"
+          },
+          "is_preset": {
+            "type": "boolean",
+            "title": "Is Preset",
+            "default": false
+          },
+          "last_scheduled_run": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Scheduled Run"
+          },
+          "run_count": {
+            "type": "integer",
+            "title": "Run Count",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "id",
+          "user_id",
+          "created_at",
+          "updated_at",
+          "is_default"
+        ],
+        "title": "ScanConfigResponse"
+      },
+      "ScanConfigUpdate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "targets": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Targets",
+            "description": "List of IPs or hostnames to scan"
+          },
+          "masscan_rate": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100000.0,
+                "minimum": 100.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Masscan Rate"
+          },
+          "masscan_interface": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Masscan Interface"
+          },
+          "nmap_args": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nmap Args"
+          },
+          "ssh_ports": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ssh Ports"
+          },
+          "discovery_top_ports": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 10000.0,
+                "minimum": 100.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discovery Top Ports"
+          },
+          "additional_ports": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Additional Ports"
+          },
+          "max_concurrent_hosts": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Concurrent Hosts"
+          },
+          "max_concurrent_scans": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 10.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Concurrent Scans"
+          },
+          "host_timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 7200.0,
+                "minimum": 60.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host Timeout Seconds"
+          },
+          "masscan_timeout_percent": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 0.5,
+                "minimum": 0.05
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Masscan Timeout Percent"
+          },
+          "nmap_timeout_percent": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 0.9,
+                "minimum": 0.2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nmap Timeout Percent"
+          },
+          "enable_ssh_audit": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enable Ssh Audit"
+          },
+          "enable_nuclei": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enable Nuclei"
+          },
+          "enable_nse": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enable Nse"
+          },
+          "enable_sslscan": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enable Sslscan"
+          },
+          "nuclei_severity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nuclei Severity"
+          },
+          "nuclei_templates": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nuclei Templates"
+          },
+          "nuclei_timeout": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1800.0,
+                "minimum": 60.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nuclei Timeout"
+          },
+          "scan_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scan Mode"
+          },
+          "enable_nikto": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enable Nikto"
+          },
+          "enable_zap": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enable Zap"
+          },
+          "zap_scan_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zap Scan Type"
+          },
+          "zap_timeout": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1800.0,
+                "minimum": 60.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zap Timeout"
+          },
+          "nikto_timeout": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 600.0,
+                "minimum": 30.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nikto Timeout"
+          },
+          "target_urls": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Urls"
+          },
+          "global_tool_timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 7200.0,
+                "minimum": 60.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Global Tool Timeout Seconds"
+          },
+          "parallelism_limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 50.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parallelism Limit"
+          },
+          "highlight_ports": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Highlight Ports"
+          },
+          "email_on_completion": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email On Completion"
+          },
+          "email_on_changes_only": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email On Changes Only"
+          },
+          "schedule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule",
+            "description": "Cron expression for scheduled runs"
+          },
+          "schedule_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Enabled",
+            "description": "Whether scheduled runs are enabled"
+          }
+        },
+        "type": "object",
+        "title": "ScanConfigUpdate"
+      },
+      "ScanCreate": {
+        "properties": {
+          "config_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Config Id",
+            "description": "ID of the scan configuration to use (targets come from config)"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "Optional scan name. Auto-generated as 'Run #N — Date' if not provided"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "Scan description"
+          }
+        },
+        "type": "object",
+        "required": [
+          "config_id"
+        ],
+        "title": "ScanCreate",
+        "description": "Create a new scan run from a configuration.\n\nTargets are inherited from the config — no need to specify them here.\nThe scan will copy targets from config.targets at run time."
+      },
+      "ScanDetailResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "created_by_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Created By Id"
+          },
+          "config_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Config Id"
+          },
+          "config_name": {
+            "type": "string",
+            "title": "Config Name",
+            "default": ""
+          },
+          "run_number": {
+            "type": "integer",
+            "title": "Run Number",
+            "default": 1
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "current_phase": {
+            "type": "string",
+            "title": "Current Phase"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "progress_percent": {
+            "type": "number",
+            "title": "Progress Percent"
+          },
+          "total_targets": {
+            "type": "integer",
+            "title": "Total Targets"
+          },
+          "completed_targets": {
+            "type": "integer",
+            "title": "Completed Targets"
+          },
+          "failed_targets": {
+            "type": "integer",
+            "title": "Failed Targets"
+          },
+          "total_open_ports": {
+            "type": "integer",
+            "title": "Total Open Ports"
+          },
+          "total_vulnerabilities": {
+            "type": "integer",
+            "title": "Total Vulnerabilities"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/TargetResponse"
+            },
+            "type": "array",
+            "title": "Targets"
+          },
+          "phase_stats": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase Stats"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "user_id",
+          "created_by_id",
+          "config_id",
+          "name",
+          "description",
+          "status",
+          "current_phase",
+          "created_at",
+          "started_at",
+          "finished_at",
+          "progress_percent",
+          "total_targets",
+          "completed_targets",
+          "failed_targets",
+          "total_open_ports",
+          "total_vulnerabilities",
+          "targets",
+          "phase_stats"
+        ],
+        "title": "ScanDetailResponse"
+      },
+      "ScanListResponse": {
+        "properties": {
+          "scans": {
+            "items": {
+              "$ref": "#/components/schemas/ScanResponse"
+            },
+            "type": "array",
+            "title": "Scans"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "pages": {
+            "type": "integer",
+            "title": "Pages"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scans",
+          "total",
+          "page",
+          "pages"
+        ],
+        "title": "ScanListResponse"
+      },
+      "ScanResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "created_by_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Created By Id"
+          },
+          "config_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Config Id"
+          },
+          "config_name": {
+            "type": "string",
+            "title": "Config Name",
+            "default": ""
+          },
+          "run_number": {
+            "type": "integer",
+            "title": "Run Number",
+            "default": 1
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "current_phase": {
+            "type": "string",
+            "title": "Current Phase"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "progress_percent": {
+            "type": "number",
+            "title": "Progress Percent"
+          },
+          "total_targets": {
+            "type": "integer",
+            "title": "Total Targets"
+          },
+          "completed_targets": {
+            "type": "integer",
+            "title": "Completed Targets"
+          },
+          "failed_targets": {
+            "type": "integer",
+            "title": "Failed Targets"
+          },
+          "total_open_ports": {
+            "type": "integer",
+            "title": "Total Open Ports"
+          },
+          "total_vulnerabilities": {
+            "type": "integer",
+            "title": "Total Vulnerabilities"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "user_id",
+          "created_by_id",
+          "config_id",
+          "name",
+          "description",
+          "status",
+          "current_phase",
+          "created_at",
+          "started_at",
+          "finished_at",
+          "progress_percent",
+          "total_targets",
+          "completed_targets",
+          "failed_targets",
+          "total_open_ports",
+          "total_vulnerabilities"
+        ],
+        "title": "ScanResponse"
+      },
+      "ScanUpdate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          }
+        },
+        "type": "object",
+        "title": "ScanUpdate",
+        "description": "Update scan metadata (limited — most properties are immutable)."
+      },
+      "ScheduledScanCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "cron_expression": {
+            "type": "string",
+            "title": "Cron Expression"
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone",
+            "default": "UTC"
+          },
+          "config_id": {
+            "type": "string",
+            "title": "Config Id"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/TargetInput"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Targets"
+          },
+          "auto_compare": {
+            "type": "boolean",
+            "title": "Auto Compare",
+            "default": true
+          },
+          "baseline_scan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Scan Id"
+          },
+          "compare_with_previous": {
+            "type": "boolean",
+            "title": "Compare With Previous",
+            "default": true
+          },
+          "email_on_completion": {
+            "type": "boolean",
+            "title": "Email On Completion",
+            "default": false
+          },
+          "email_on_changes_only": {
+            "type": "boolean",
+            "title": "Email On Changes Only",
+            "default": true
+          },
+          "email_recipients": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email Recipients"
+          },
+          "alert_on_critical": {
+            "type": "boolean",
+            "title": "Alert On Critical",
+            "default": true
+          },
+          "alert_on_new_vulns": {
+            "type": "boolean",
+            "title": "Alert On New Vulns",
+            "default": true
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "cron_expression",
+          "config_id",
+          "targets"
+        ],
+        "title": "ScheduledScanCreate"
+      },
+      "ScheduledScanListResponse": {
+        "properties": {
+          "scheduled_scans": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduledScanResponse"
+            },
+            "type": "array",
+            "title": "Scheduled Scans"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scheduled_scans",
+          "total"
+        ],
+        "title": "ScheduledScanListResponse"
+      },
+      "ScheduledScanResponse": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "cron_expression": {
+            "type": "string",
+            "title": "Cron Expression"
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone",
+            "default": "UTC"
+          },
+          "config_id": {
+            "type": "string",
+            "title": "Config Id"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/TargetInput"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Targets"
+          },
+          "auto_compare": {
+            "type": "boolean",
+            "title": "Auto Compare",
+            "default": true
+          },
+          "baseline_scan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Scan Id"
+          },
+          "compare_with_previous": {
+            "type": "boolean",
+            "title": "Compare With Previous",
+            "default": true
+          },
+          "email_on_completion": {
+            "type": "boolean",
+            "title": "Email On Completion",
+            "default": false
+          },
+          "email_on_changes_only": {
+            "type": "boolean",
+            "title": "Email On Changes Only",
+            "default": true
+          },
+          "email_recipients": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email Recipients"
+          },
+          "alert_on_critical": {
+            "type": "boolean",
+            "title": "Alert On Critical",
+            "default": true
+          },
+          "alert_on_new_vulns": {
+            "type": "boolean",
+            "title": "Alert On New Vulns",
+            "default": true
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active",
+            "default": true
+          },
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "user_id": {
+            "type": "string",
+            "title": "User Id"
+          },
+          "created_by_id": {
+            "type": "string",
+            "title": "Created By Id"
+          },
+          "organization_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization Id"
+          },
+          "last_run_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Run At"
+          },
+          "last_run_scan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Run Scan Id"
+          },
+          "next_run_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Run At"
+          },
+          "total_runs": {
+            "type": "integer",
+            "title": "Total Runs"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "cron_expression",
+          "config_id",
+          "targets",
+          "id",
+          "user_id",
+          "created_by_id",
+          "organization_id",
+          "last_run_at",
+          "last_run_scan_id",
+          "next_run_at",
+          "total_runs",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ScheduledScanResponse"
+      },
+      "ScheduledScanUpdate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "cron_expression": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cron Expression"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          },
+          "config_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Id"
+          },
+          "targets": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/TargetInput"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Targets"
+          },
+          "auto_compare": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Compare"
+          },
+          "baseline_scan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Scan Id"
+          },
+          "compare_with_previous": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compare With Previous"
+          },
+          "email_on_completion": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email On Completion"
+          },
+          "email_on_changes_only": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email On Changes Only"
+          },
+          "email_recipients": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email Recipients"
+          },
+          "alert_on_critical": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alert On Critical"
+          },
+          "alert_on_new_vulns": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alert On New Vulns"
+          },
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          }
+        },
+        "type": "object",
+        "title": "ScheduledScanUpdate"
+      },
+      "TargetInput": {
+        "properties": {
+          "ip_address": {
+            "type": "string",
+            "title": "Ip Address"
+          },
+          "device_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ip_address"
+        ],
+        "title": "TargetInput"
+      },
+      "TargetResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "device_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Name"
+          },
+          "ip_address": {
+            "type": "string",
+            "title": "Ip Address"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
+          },
+          "sequence": {
+            "type": "integer",
+            "title": "Sequence"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "device_name",
+          "ip_address",
+          "status",
+          "error_message",
+          "started_at",
+          "finished_at",
+          "duration_seconds",
+          "sequence"
+        ],
+        "title": "TargetResponse"
+      },
+      "Token": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type"
+          },
+          "user": {
+            "$ref": "#/components/schemas/app__schemas__auth__UserResponse"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "token_type",
+          "user"
+        ],
+        "title": "Token"
+      },
+      "UserCreate": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "username": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 3,
+            "title": "Username"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 8,
+            "title": "Password"
+          },
+          "is_admin": {
+            "type": "boolean",
+            "title": "Is Admin",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "username",
+          "password"
+        ],
+        "title": "UserCreate"
+      },
+      "UserListResponse": {
+        "properties": {
+          "users": {
+            "items": {
+              "$ref": "#/components/schemas/app__schemas__user__UserResponse"
+            },
+            "type": "array",
+            "title": "Users"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "pages": {
+            "type": "integer",
+            "title": "Pages"
+          }
+        },
+        "type": "object",
+        "required": [
+          "users",
+          "total",
+          "page",
+          "pages"
+        ],
+        "title": "UserListResponse"
+      },
+      "UserUpdate": {
+        "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "is_admin": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Admin"
+          },
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          }
+        },
+        "type": "object",
+        "title": "UserUpdate"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "app__schemas__auth__UserResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "is_admin": {
+            "type": "boolean",
+            "title": "Is Admin"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "username",
+          "is_admin",
+          "is_active",
+          "created_at"
+        ],
+        "title": "UserResponse"
+      },
+      "app__schemas__user__UserResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "is_admin": {
+            "type": "boolean",
+            "title": "Is Admin"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "username",
+          "is_admin",
+          "is_active",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "UserResponse"
+      }
+    },
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Enter the JWT token obtained from POST /api/auth/login"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "auth",
+      "description": "Authentication endpoints. Login to get a JWT token for accessing protected endpoints."
+    },
+    {
+      "name": "users",
+      "description": "User management (admin only). Create, update, and manage user accounts."
+    },
+    {
+      "name": "configs",
+      "description": "Scan configuration profiles. Define scanning parameters, timeouts, and tool settings."
+    },
+    {
+      "name": "scans",
+      "description": "Create, run, and monitor security scans. View discovered ports, services, and vulnerabilities."
+    },
+    {
+      "name": "scheduled-scans",
+      "description": "Automated recurring scans. Schedule scans using cron expressions."
+    },
+    {
+      "name": "comparisons",
+      "description": "Compare scan results over time. Identify new ports, closed ports, and vulnerability changes."
+    },
+    {
+      "name": "reports",
+      "description": "Export reports in PDF, HTML, and CSV formats."
+    }
+  ],
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ]
+}

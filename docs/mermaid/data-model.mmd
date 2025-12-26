@@ -1,6 +1,30 @@
-++ docs/mermaid/data-model.mmd
+%% PEEK Data Model - Config-Centric Architecture
+%% ScanConfig defines targets and settings; Scan is a run/execution
+
 graph LR
-  Scan -->|has many| ScanTarget
+  subgraph Configuration
+    ScanConfig[ScanConfig]
+    Targets[targets JSON]
+    Schedule[schedule fields]
+  end
+
+  subgraph "Scan Execution"
+    Scan[Scan]
+    RunNum[run_number]
+    ScanTarget[ScanTarget]
+  end
+
+  subgraph "Scan Results"
+    Port[Port]
+    ToolExecution[ToolExecution]
+    Vulnerability[Vulnerability]
+  end
+
+  ScanConfig -->|defines| Targets
+  ScanConfig -->|has| Schedule
+  ScanConfig -->|has many| Scan
+  Scan -->|has| RunNum
+  Scan -->|copies targets to| ScanTarget
   ScanTarget -->|has many| Port
   ScanTarget -->|has many| ToolExecution
   Port -->|may be linked by| ToolExecution

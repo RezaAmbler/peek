@@ -8,6 +8,7 @@ import { VulnerabilityCard } from '../components/VulnerabilityCard';
 import { ServiceIcon } from '../components/ServiceIcon';
 import { SSLScanSection } from '../components/SSLScanSection';
 import { NSEFindingsSection } from '../components/NSEFindingsSection';
+import { HttpxSection } from '../components/HttpxSection';
 import { useState, Fragment, useMemo } from 'react';
 import { Menu, Transition } from '@headlessui/react';
 import { Navigation } from '../components/Navigation';
@@ -26,15 +27,15 @@ interface PortData {
 }
 
 const statusColors: Record<string, string> = {
-  pending: 'bg-gray-100 text-gray-800',
-  queued: 'bg-yellow-100 text-yellow-800',
-  running: 'bg-blue-100 text-blue-800',
-  completed: 'bg-green-100 text-green-800',
-  failed: 'bg-red-100 text-red-800',
-  cancelled: 'bg-gray-100 text-gray-800',
-  scanning: 'bg-blue-100 text-blue-800',
-  timeout: 'bg-orange-100 text-orange-800',
-  skipped: 'bg-gray-100 text-gray-800',
+  pending: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200',
+  queued: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
+  running: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
+  completed: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
+  failed: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
+  cancelled: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200',
+  scanning: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
+  timeout: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200',
+  skipped: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200',
 };
 
 export function ScanDetail() {
@@ -88,6 +89,45 @@ export function ScanDetail() {
     },
   });
 
+  // Query for run history (comparable scans from same config)
+  const { data: comparableData } = useQuery({
+    queryKey: ['scan-comparable', scanId],
+    queryFn: () => scansApi.getComparable(scanId),
+    enabled: !!scan?.config_id,
+  });
+
+  // Combine current scan with comparable scans for full run history
+  const runHistory = useMemo(() => {
+    if (!scan || !comparableData) return [];
+
+    // Create entry for current scan
+    const currentEntry = {
+      id: scan.id,
+      name: scan.name,
+      run_number: scan.run_number,
+      status: scan.status,
+      created_at: scan.created_at,
+      total_targets: scan.total_targets,
+      total_open_ports: scan.total_open_ports,
+      total_vulnerabilities: scan.total_vulnerabilities,
+    };
+
+    // Combine and sort by run_number descending
+    const allRuns = [currentEntry, ...comparableData.comparable_scans];
+    return allRuns.sort((a, b) => b.run_number - a.run_number);
+  }, [scan, comparableData]);
+
+  // Format date for run history dropdown
+  const formatRunDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
   // Query for user's other scans (potential baselines)
   const { data: userScans } = useQuery({
     queryKey: ['scans'],
@@ -123,6 +163,12 @@ export function ScanDetail() {
   const { data: sslscanResults } = useQuery({
     queryKey: ['scan-sslscan-results', scanId],
     queryFn: () => scansApi.getSSLScanResults(scanId),
+    enabled: !!scanId && scan?.status === 'completed',
+  });
+
+  const { data: httpxResults } = useQuery({
+    queryKey: ['scan-httpx-results', scanId],
+    queryFn: () => scansApi.getHttpxResults(scanId),
     enabled: !!scanId && scan?.status === 'completed',
   });
 
@@ -371,10 +417,10 @@ export function ScanDetail() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
         <Navigation />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="text-center text-gray-500">Loading scan details...</div>
+          <div className="text-center text-gray-500 dark:text-gray-400">Loading scan details...</div>
         </div>
       </div>
     );
@@ -382,17 +428,17 @@ export function ScanDetail() {
 
   if (!scan) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
         <Navigation />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="text-center text-gray-500">Scan not found</div>
+          <div className="text-center text-gray-500 dark:text-gray-400">Scan not found</div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50" data-component="ScanDetailPage">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900" data-component="ScanDetailPage">
       <Navigation />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
@@ -400,17 +446,32 @@ export function ScanDetail() {
         <div className="flex items-center justify-between mb-4">
           <div className="flex-1">
             <div className="flex items-center space-x-3">
-              <h1 className="text-3xl font-bold text-gray-900">{scan.name}</h1>
+              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{scan.name}</h1>
               <span
                 className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-                  statusColors[scan.status] || 'bg-gray-100 text-gray-800'
+                  statusColors[scan.status] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
                 }`}
               >
                 {scan.status}
               </span>
+              {/* Run History Dropdown */}
+              {runHistory.length > 1 && (
+                <select
+                  value={scan.id}
+                  onChange={(e) => navigate({ to: `/scans/${e.target.value}` })}
+                  className="border border-gray-300 dark:border-gray-600 rounded-md px-3 py-1.5 text-sm bg-white dark:bg-gray-700 dark:text-white focus:ring-indigo-500 focus:border-indigo-500 cursor-pointer"
+                  data-testid="run-history-select"
+                >
+                  {runHistory.map((run) => (
+                    <option key={run.id} value={run.id}>
+                      {run.id === scan.id ? '● ' : ''}Run #{run.run_number} — {formatRunDate(run.created_at)}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
             {scan.description && (
-              <p className="mt-2 text-sm text-gray-600">{scan.description}</p>
+              <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">{scan.description}</p>
             )}
           </div>
           <div className="flex space-x-2">
@@ -440,17 +501,17 @@ export function ScanDetail() {
                     leaveFrom="transform opacity-100 scale-100"
                     leaveTo="transform opacity-0 scale-95"
                   >
-                    <Menu.Items className="absolute right-0 mt-2 w-64 origin-top-right divide-y divide-gray-100 rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-10">
+                    <Menu.Items className="absolute right-0 mt-2 w-64 origin-top-right divide-y divide-gray-100 dark:divide-gray-700 rounded-md bg-white dark:bg-gray-800 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-10">
                       <div className="px-1 py-1">
                         <Menu.Item>
                           {({ active }) => (
                             <button
                               onClick={() => handleExport('pdf', 'executive')}
                               className={`${
-                                active ? 'bg-indigo-500 text-white' : 'text-gray-900'
+                                active ? 'bg-indigo-500 text-white' : 'text-gray-900 dark:text-gray-100'
                               } group flex w-full items-center rounded-md px-2 py-2 text-sm`}
                             >
-                              📄 PDF - Executive Summary
+                              PDF - Executive Summary
                             </button>
                           )}
                         </Menu.Item>
@@ -459,10 +520,10 @@ export function ScanDetail() {
                             <button
                               onClick={() => handleExport('pdf', 'technical')}
                               className={`${
-                                active ? 'bg-indigo-500 text-white' : 'text-gray-900'
+                                active ? 'bg-indigo-500 text-white' : 'text-gray-900 dark:text-gray-100'
                               } group flex w-full items-center rounded-md px-2 py-2 text-sm`}
                             >
-                              📄 PDF - Technical Report
+                              PDF - Technical Report
                             </button>
                           )}
                         </Menu.Item>
@@ -471,10 +532,10 @@ export function ScanDetail() {
                             <button
                               onClick={() => handleExport('html', '')}
                               className={`${
-                                active ? 'bg-indigo-500 text-white' : 'text-gray-900'
+                                active ? 'bg-indigo-500 text-white' : 'text-gray-900 dark:text-gray-100'
                               } group flex w-full items-center rounded-md px-2 py-2 text-sm`}
                             >
-                              🌐 HTML Report
+                              HTML Report
                             </button>
                           )}
                         </Menu.Item>
@@ -485,10 +546,10 @@ export function ScanDetail() {
                             <button
                               onClick={() => handleExport('csv', 'vulnerabilities')}
                               className={`${
-                                active ? 'bg-indigo-500 text-white' : 'text-gray-900'
+                                active ? 'bg-indigo-500 text-white' : 'text-gray-900 dark:text-gray-100'
                               } group flex w-full items-center rounded-md px-2 py-2 text-sm`}
                             >
-                              📊 CSV - Vulnerabilities
+                              CSV - Vulnerabilities
                             </button>
                           )}
                         </Menu.Item>
@@ -497,10 +558,10 @@ export function ScanDetail() {
                             <button
                               onClick={() => handleExport('csv', 'ports')}
                               className={`${
-                                active ? 'bg-indigo-500 text-white' : 'text-gray-900'
+                                active ? 'bg-indigo-500 text-white' : 'text-gray-900 dark:text-gray-100'
                               } group flex w-full items-center rounded-md px-2 py-2 text-sm`}
                             >
-                              📊 CSV - Ports
+                              CSV - Ports
                             </button>
                           )}
                         </Menu.Item>
@@ -509,10 +570,10 @@ export function ScanDetail() {
                             <button
                               onClick={() => handleExport('csv', 'summary')}
                               className={`${
-                                active ? 'bg-indigo-500 text-white' : 'text-gray-900'
+                                active ? 'bg-indigo-500 text-white' : 'text-gray-900 dark:text-gray-100'
                               } group flex w-full items-center rounded-md px-2 py-2 text-sm`}
                             >
-                              📊 CSV - Summary
+                              CSV - Summary
                             </button>
                           )}
                         </Menu.Item>
@@ -526,7 +587,7 @@ export function ScanDetail() {
               <>
                 <button
                   onClick={() => navigate({ to: `/scans/${scanId}/edit` })}
-                  className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600"
                 >
                   Edit
                 </button>
@@ -559,7 +620,7 @@ export function ScanDetail() {
             {scan.status !== 'running' && (
               <button
                 onClick={handleDelete}
-                className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600"
                 data-testid="delete-scan-button"
               >
                 Delete
@@ -605,7 +666,7 @@ export function ScanDetail() {
                               ? 'bg-green-500 text-white'
                               : isCurrent
                               ? 'bg-blue-600 text-white animate-pulse'
-                              : 'bg-gray-200 text-gray-500'
+                              : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
                           }`}
                         >
                           {isComplete ? (
@@ -618,7 +679,7 @@ export function ScanDetail() {
                         </div>
                         <span
                           className={`mt-1 text-xs font-medium ${
-                            isCurrent ? 'text-blue-600' : isComplete ? 'text-green-600' : 'text-gray-500'
+                            isCurrent ? 'text-blue-600 dark:text-blue-400' : isComplete ? 'text-green-600 dark:text-green-400' : 'text-gray-500 dark:text-gray-400'
                           }`}
                         >
                           {phase.label}
@@ -627,7 +688,7 @@ export function ScanDetail() {
                       {index < arr.length - 1 && (
                         <div
                           className={`flex-1 h-1 mx-2 rounded ${
-                            phase.id < currentUIPhase ? 'bg-green-500' : 'bg-gray-200'
+                            phase.id < currentUIPhase ? 'bg-green-500' : 'bg-gray-200 dark:bg-gray-700'
                           }`}
                         />
                       )}
@@ -639,13 +700,13 @@ export function ScanDetail() {
 
             {/* Current Tool Indicator */}
             {scan.status === 'running' && (
-              <div className="flex items-center justify-center mb-4 text-sm text-gray-600">
+              <div className="flex items-center justify-center mb-4 text-sm text-gray-600 dark:text-gray-400">
                 <svg className="animate-spin h-4 w-4 mr-2 text-blue-500" viewBox="0 0 24 24" fill="none">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
                 <span>
-                  Running: <strong className="text-gray-800">
+                  Running: <strong className="text-gray-800 dark:text-gray-200">
                     {(() => {
                       const toolNames: Record<string, string> = {
                         pending: 'Initializing...',
@@ -667,14 +728,14 @@ export function ScanDetail() {
 
             {/* Progress Bar */}
             <div className="flex justify-between mb-1">
-              <span className="text-sm font-medium text-gray-700">
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
                 {scan.completed_targets} of {scan.total_targets} targets completed
               </span>
-              <span className="text-sm font-medium text-gray-700">
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
                 {Math.round(scan.progress_percent)}%
               </span>
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-3">
+            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3">
               <div
                 className="bg-blue-600 h-3 rounded-full transition-all duration-500"
                 style={{ width: `${scan.progress_percent}%` }}
@@ -686,34 +747,34 @@ export function ScanDetail() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5 mb-6" data-component="ScanSummaryCards">
-        <div className="bg-white overflow-hidden shadow rounded-lg">
+        <div className="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
           <div className="px-4 py-5 sm:p-6">
-            <dt className="text-sm font-medium text-gray-500 truncate">Total Targets</dt>
-            <dd className="mt-1 text-3xl font-semibold text-gray-900">{scan.total_targets}</dd>
+            <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Total Targets</dt>
+            <dd className="mt-1 text-3xl font-semibold text-gray-900 dark:text-white">{scan.total_targets}</dd>
           </div>
         </div>
-        <div className="bg-white overflow-hidden shadow rounded-lg">
+        <div className="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
           <div className="px-4 py-5 sm:p-6">
-            <dt className="text-sm font-medium text-gray-500 truncate">Completed</dt>
-            <dd className="mt-1 text-3xl font-semibold text-green-600">{scan.completed_targets}</dd>
+            <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Completed</dt>
+            <dd className="mt-1 text-3xl font-semibold text-green-600 dark:text-green-400">{scan.completed_targets}</dd>
           </div>
         </div>
-        <div className="bg-white overflow-hidden shadow rounded-lg">
+        <div className="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
           <div className="px-4 py-5 sm:p-6">
-            <dt className="text-sm font-medium text-gray-500 truncate">Failed</dt>
-            <dd className="mt-1 text-3xl font-semibold text-red-600">{scan.failed_targets}</dd>
+            <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Failed</dt>
+            <dd className="mt-1 text-3xl font-semibold text-red-600 dark:text-red-400">{scan.failed_targets}</dd>
           </div>
         </div>
-        <div className="bg-white overflow-hidden shadow rounded-lg">
+        <div className="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
           <div className="px-4 py-5 sm:p-6">
-            <dt className="text-sm font-medium text-gray-500 truncate">Open Ports</dt>
-            <dd className="mt-1 text-3xl font-semibold text-blue-600">{scan.total_open_ports}</dd>
+            <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Open Ports</dt>
+            <dd className="mt-1 text-3xl font-semibold text-blue-600 dark:text-blue-400">{scan.total_open_ports}</dd>
           </div>
         </div>
-        <div className="bg-white overflow-hidden shadow rounded-lg">
+        <div className="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
           <div className="px-4 py-5 sm:p-6">
-            <dt className="text-sm font-medium text-gray-500 truncate">Vulnerabilities</dt>
-            <dd className="mt-1 text-3xl font-semibold text-orange-600">
+            <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Vulnerabilities</dt>
+            <dd className="mt-1 text-3xl font-semibold text-orange-600 dark:text-orange-400">
               {scan.total_vulnerabilities}
             </dd>
           </div>
@@ -721,36 +782,36 @@ export function ScanDetail() {
       </div>
 
       {/* Info Card */}
-      <div className="bg-white shadow rounded-lg mb-6 p-6">
-        <h2 className="text-lg font-medium text-gray-900 mb-4">Scan Information</h2>
+      <div className="bg-white dark:bg-gray-800 shadow rounded-lg mb-6 p-6">
+        <h2 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Scan Information</h2>
         <dl className="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
           <div>
-            <dt className="text-sm font-medium text-gray-500">Created</dt>
-            <dd className="mt-1 text-sm text-gray-900">
+            <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Created</dt>
+            <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
               {format(new Date(scan.created_at), 'PPpp')} (
               {formatDistanceToNow(new Date(scan.created_at), { addSuffix: true })})
             </dd>
           </div>
           {scan.started_at && (
             <div>
-              <dt className="text-sm font-medium text-gray-500">Started</dt>
-              <dd className="mt-1 text-sm text-gray-900">
+              <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Started</dt>
+              <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
                 {format(new Date(scan.started_at), 'PPpp')}
               </dd>
             </div>
           )}
           {scan.finished_at && (
             <div>
-              <dt className="text-sm font-medium text-gray-500">Finished</dt>
-              <dd className="mt-1 text-sm text-gray-900">
+              <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Finished</dt>
+              <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
                 {format(new Date(scan.finished_at), 'PPpp')}
               </dd>
             </div>
           )}
           {scan.started_at && scan.finished_at && (
             <div>
-              <dt className="text-sm font-medium text-gray-500">Duration</dt>
-              <dd className="mt-1 text-sm text-gray-900">
+              <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Duration</dt>
+              <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
                 {Math.round(
                   (new Date(scan.finished_at).getTime() - new Date(scan.started_at).getTime()) /
                     1000
@@ -763,16 +824,16 @@ export function ScanDetail() {
       </div>
 
       {/* Targets Table */}
-      <div className="bg-white shadow rounded-lg overflow-hidden" data-component="ScanTargetsSection">
+      <div className="bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden" data-component="ScanTargetsSection">
         <button
           onClick={() => setShowTargets(!showTargets)}
-          className="w-full px-6 py-4 border-b border-gray-200 flex items-center justify-between hover:bg-gray-50 transition-colors"
+          className="w-full px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
         >
-          <h2 className="text-lg font-medium text-gray-900">
+          <h2 className="text-lg font-medium text-gray-900 dark:text-white">
             Targets ({scan.targets.length})
           </h2>
           <svg
-            className={`w-5 h-5 text-gray-500 transform transition-transform ${showTargets ? 'rotate-180' : ''}`}
+            className={`w-5 h-5 text-gray-500 dark:text-gray-400 transform transition-transform ${showTargets ? 'rotate-180' : ''}`}
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -783,47 +844,47 @@ export function ScanDetail() {
         {showTargets && (
           <>
             {scan.targets.length === 0 ? (
-              <div className="p-8 text-center text-gray-500">No targets found</div>
+              <div className="p-8 text-center text-gray-500 dark:text-gray-400">No targets found</div>
             ) : (
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead className="bg-gray-50 dark:bg-gray-700">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Device Name
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       IP Address
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Duration
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                   {scan.targets.map((target) => (
-                    <tr key={target.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <tr key={target.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                         {target.device_name || '-'}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 dark:text-gray-100">
                         {target.ip_address}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span
                           className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            statusColors[target.status] || 'bg-gray-100 text-gray-800'
+                            statusColors[target.status] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
                           }`}
                         >
                           {target.status}
                         </span>
                         {target.error_message && (
-                          <p className="text-xs text-red-600 mt-1">{target.error_message}</p>
+                          <p className="text-xs text-red-600 dark:text-red-400 mt-1">{target.error_message}</p>
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                         {target.duration_seconds
                           ? `${target.duration_seconds.toFixed(1)}s`
                           : '-'}
@@ -840,11 +901,11 @@ export function ScanDetail() {
       {/* Host Filter */}
       {ports && ports.length > 0 && (
         <div className="mt-6 flex items-center gap-3 flex-wrap" data-component="HostFilter">
-          <span className="text-sm font-medium text-gray-700">Filter by host:</span>
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Filter by host:</span>
           <select
             value={hostFilter || ''}
             onChange={(e) => setHostFilter(e.target.value || null)}
-            className="border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:ring-indigo-500 focus:border-indigo-500"
+            className="border border-gray-300 dark:border-gray-600 rounded-md px-3 py-1.5 text-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white"
             data-testid="host-filter-select"
           >
             <option value="">All Hosts ({uniqueHosts.length})</option>
@@ -858,15 +919,15 @@ export function ScanDetail() {
           {hostFilter && (
             <button
               onClick={() => setHostFilter(null)}
-              className="text-sm text-red-600 hover:text-red-800 flex items-center gap-1"
+              className="text-sm text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 flex items-center gap-1"
               data-testid="clear-host-filter"
             >
-              <span>✕</span> Clear filter
+              <span>x</span> Clear filter
             </button>
           )}
 
           {hostFilter && (
-            <span className="text-sm text-gray-500">
+            <span className="text-sm text-gray-500 dark:text-gray-400">
               Showing {filteredAndSortedPorts.length} of {ports.length} ports
             </span>
           )}
@@ -875,16 +936,16 @@ export function ScanDetail() {
 
       {/* Discovered Ports Table */}
       {ports && ports.length > 0 && (
-        <div className="mt-4 bg-white shadow rounded-lg overflow-hidden" data-component="ScanPortsSection">
+        <div className="mt-4 bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden" data-component="ScanPortsSection">
           <button
             onClick={() => setShowPorts(!showPorts)}
-            className="w-full px-6 py-4 border-b border-gray-200 flex items-center justify-between hover:bg-gray-50 transition-colors"
+            className="w-full px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
           >
-            <h2 className="text-lg font-medium text-gray-900">
+            <h2 className="text-lg font-medium text-gray-900 dark:text-white">
               Discovered Ports ({hostFilter ? `${filteredAndSortedPorts.length} of ${ports.length}` : ports.length})
             </h2>
             <svg
-              className={`w-5 h-5 text-gray-500 transform transition-transform ${showPorts ? 'rotate-180' : ''}`}
+              className={`w-5 h-5 text-gray-500 dark:text-gray-400 transform transition-transform ${showPorts ? 'rotate-180' : ''}`}
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -894,125 +955,125 @@ export function ScanDetail() {
           </button>
           {showPorts && (
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead className="bg-gray-50 dark:bg-gray-700">
                   <tr>
                     <th
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 select-none"
                       onClick={() => handleSort('ip_address')}
                       data-testid="sort-header-ip_address"
                     >
                       <div className="flex items-center gap-1">
                         IP Address
                         {sortColumn === 'ip_address' && (
-                          <span className="text-indigo-600">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                          <span className="text-indigo-600 dark:text-indigo-400">{sortDirection === 'asc' ? '▲' : '▼'}</span>
                         )}
                       </div>
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 select-none"
                       onClick={() => handleSort('device_name')}
                       data-testid="sort-header-device_name"
                     >
                       <div className="flex items-center gap-1">
                         Device
                         {sortColumn === 'device_name' && (
-                          <span className="text-indigo-600">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                          <span className="text-indigo-600 dark:text-indigo-400">{sortDirection === 'asc' ? '▲' : '▼'}</span>
                         )}
                       </div>
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 select-none"
                       onClick={() => handleSort('port')}
                       data-testid="sort-header-port"
                     >
                       <div className="flex items-center gap-1">
                         Port
                         {sortColumn === 'port' && (
-                          <span className="text-indigo-600">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                          <span className="text-indigo-600 dark:text-indigo-400">{sortDirection === 'asc' ? '▲' : '▼'}</span>
                         )}
                       </div>
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 select-none"
                       onClick={() => handleSort('protocol')}
                       data-testid="sort-header-protocol"
                     >
                       <div className="flex items-center gap-1">
                         Protocol
                         {sortColumn === 'protocol' && (
-                          <span className="text-indigo-600">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                          <span className="text-indigo-600 dark:text-indigo-400">{sortDirection === 'asc' ? '▲' : '▼'}</span>
                         )}
                       </div>
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 select-none"
                       onClick={() => handleSort('service_name')}
                       data-testid="sort-header-service_name"
                     >
                       <div className="flex items-center gap-1">
                         Service
                         {sortColumn === 'service_name' && (
-                          <span className="text-indigo-600">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                          <span className="text-indigo-600 dark:text-indigo-400">{sortDirection === 'asc' ? '▲' : '▼'}</span>
                         )}
                       </div>
                     </th>
                     <th className="w-10 px-2 py-3"></th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 select-none"
                       onClick={() => handleSort('version')}
                       data-testid="sort-header-version"
                     >
                       <div className="flex items-center gap-1">
                         Version
                         {sortColumn === 'version' && (
-                          <span className="text-indigo-600">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                          <span className="text-indigo-600 dark:text-indigo-400">{sortDirection === 'asc' ? '▲' : '▼'}</span>
                         )}
                       </div>
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 select-none"
                       onClick={() => handleSort('state')}
                       data-testid="sort-header-state"
                     >
                       <div className="flex items-center gap-1">
                         State
                         {sortColumn === 'state' && (
-                          <span className="text-indigo-600">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                          <span className="text-indigo-600 dark:text-indigo-400">{sortDirection === 'asc' ? '▲' : '▼'}</span>
                         )}
                       </div>
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 select-none"
                       onClick={() => handleSort('discovered_by')}
                       data-testid="sort-header-discovered_by"
                     >
                       <div className="flex items-center gap-1">
                         Source
                         {sortColumn === 'discovered_by' && (
-                          <span className="text-indigo-600">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                          <span className="text-indigo-600 dark:text-indigo-400">{sortDirection === 'asc' ? '▲' : '▼'}</span>
                         )}
                       </div>
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                   {filteredAndSortedPorts.map((port: PortData) => (
-                    <tr key={port.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
+                    <tr key={port.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 dark:text-gray-100">
                         {port.ip_address}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                         {port.device_name || '-'}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-mono font-semibold text-gray-900">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-mono font-semibold text-gray-900 dark:text-gray-100">
                         {port.port}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                         {port.protocol}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {port.service_name || <span className="text-gray-400">-</span>}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                        {port.service_name || <span className="text-gray-400 dark:text-gray-500">-</span>}
                       </td>
                       <td className="px-2 py-4 text-center">
                         {port.service_name && (
@@ -1023,24 +1084,24 @@ export function ScanDetail() {
                           />
                         )}
                       </td>
-                      <td className="px-6 py-4 text-sm text-gray-600 max-w-xs truncate" title={port.version || ''}>
-                        {port.version || <span className="text-gray-400">-</span>}
+                      <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 max-w-xs truncate" title={port.version || ''}>
+                        {port.version || <span className="text-gray-400 dark:text-gray-500">-</span>}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span
                           className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                             port.state === 'open'
-                              ? 'bg-green-100 text-green-800'
+                              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
                               : port.state === 'filtered'
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : 'bg-gray-100 text-gray-800'
+                              ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                              : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
                           }`}
                         >
                           {port.state}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
                           {port.discovered_by}
                         </span>
                       </td>
@@ -1055,16 +1116,16 @@ export function ScanDetail() {
 
       {/* SSH Audits Section */}
       {sshAudits && sshAudits.length > 0 && (
-        <div className="mt-6 bg-white shadow rounded-lg overflow-hidden" data-component="ScanSSHAuditSection">
+        <div className="mt-6 bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden" data-component="ScanSSHAuditSection">
           <button
             onClick={() => setShowSSHAudits(!showSSHAudits)}
-            className="w-full px-6 py-4 border-b border-gray-200 flex items-center justify-between hover:bg-gray-50 transition-colors"
+            className="w-full px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
           >
-            <h2 className="text-lg font-medium text-gray-900">
+            <h2 className="text-lg font-medium text-gray-900 dark:text-white">
               SSH Security Audits ({hostFilter ? `${filteredSSHAudits.length} of ${sshAudits.length}` : sshAudits.length})
             </h2>
             <svg
-              className={`w-5 h-5 text-gray-500 transform transition-transform ${showSSHAudits ? 'rotate-180' : ''}`}
+              className={`w-5 h-5 text-gray-500 dark:text-gray-400 transform transition-transform ${showSSHAudits ? 'rotate-180' : ''}`}
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -1079,7 +1140,7 @@ export function ScanDetail() {
                   <SSHAuditCard key={audit.id} audit={audit} />
                 ))
               ) : (
-                <p className="text-gray-500 text-center py-4">No SSH audits for selected host</p>
+                <p className="text-gray-500 dark:text-gray-400 text-center py-4">No SSH audits for selected host</p>
               )}
             </div>
           )}
@@ -1091,6 +1152,11 @@ export function ScanDetail() {
         <SSLScanSection results={sslscanResults} hostFilter={hostFilter} />
       )}
 
+      {/* HTTP Probe Results Section */}
+      {httpxResults && httpxResults.length > 0 && (
+        <HttpxSection results={httpxResults} hostFilter={hostFilter} />
+      )}
+
       {/* NSE Script Results Section */}
       {nseFindings && nseFindings.length > 0 && (
         <NSEFindingsSection findings={nseFindings} hostFilter={hostFilter} />
@@ -1098,17 +1164,17 @@ export function ScanDetail() {
 
       {/* Vulnerabilities Section (non-INFO only) */}
       {scan.status === 'completed' && vulnerabilities && (
-        <div className="mt-6 bg-white shadow rounded-lg overflow-hidden" data-component="ScanVulnerabilitiesSection" data-testid="vulnerabilities-section">
+        <div className="mt-6 bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden" data-component="ScanVulnerabilitiesSection" data-testid="vulnerabilities-section">
           <button
             onClick={() => setShowVulnerabilities(!showVulnerabilities)}
-            className="w-full px-6 py-4 border-b border-gray-200 flex items-center justify-between hover:bg-gray-50 transition-colors"
+            className="w-full px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
           >
             <div className="flex items-center gap-3">
-              <h2 className="text-lg font-medium text-gray-900">
+              <h2 className="text-lg font-medium text-gray-900 dark:text-white">
                 Vulnerabilities ({hostFilter ? `${filteredVulnerabilities.length} of ${actualVulnerabilities.length}` : actualVulnerabilities.length})
               </h2>
               {actualVulnerabilities.length === 0 && (
-                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
                   None found
                 </span>
               )}
@@ -1121,7 +1187,7 @@ export function ScanDetail() {
                   className={`px-2 py-0.5 text-xs font-semibold rounded transition-all cursor-pointer ${
                     activeSeverities.has('critical')
                       ? 'bg-red-700 text-white'
-                      : 'bg-red-100 text-red-700 border border-red-300'
+                      : 'bg-red-100 text-red-700 border border-red-300 dark:bg-red-900/30 dark:text-red-400 dark:border-red-700'
                   }`}
                   title={`${activeSeverities.has('critical') ? 'Hide' : 'Show'} critical vulnerabilities`}
                   data-testid="filter-critical"
@@ -1135,7 +1201,7 @@ export function ScanDetail() {
                   className={`px-2 py-0.5 text-xs font-semibold rounded transition-all cursor-pointer ${
                     activeSeverities.has('high')
                       ? 'bg-orange-500 text-white'
-                      : 'bg-orange-100 text-orange-700 border border-orange-300'
+                      : 'bg-orange-100 text-orange-700 border border-orange-300 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-700'
                   }`}
                   title={`${activeSeverities.has('high') ? 'Hide' : 'Show'} high vulnerabilities`}
                   data-testid="filter-high"
@@ -1149,7 +1215,7 @@ export function ScanDetail() {
                   className={`px-2 py-0.5 text-xs font-semibold rounded transition-all cursor-pointer ${
                     activeSeverities.has('medium')
                       ? 'bg-yellow-500 text-white'
-                      : 'bg-yellow-100 text-yellow-700 border border-yellow-300'
+                      : 'bg-yellow-100 text-yellow-700 border border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-700'
                   }`}
                   title={`${activeSeverities.has('medium') ? 'Hide' : 'Show'} medium vulnerabilities`}
                   data-testid="filter-medium"
@@ -1163,7 +1229,7 @@ export function ScanDetail() {
                   className={`px-2 py-0.5 text-xs font-semibold rounded transition-all cursor-pointer ${
                     activeSeverities.has('low')
                       ? 'bg-blue-500 text-white'
-                      : 'bg-blue-100 text-blue-700 border border-blue-300'
+                      : 'bg-blue-100 text-blue-700 border border-blue-300 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-700'
                   }`}
                   title={`${activeSeverities.has('low') ? 'Hide' : 'Show'} low vulnerabilities`}
                   data-testid="filter-low"
@@ -1172,7 +1238,7 @@ export function ScanDetail() {
                 </button>
               )}
               <svg
-                className={`w-5 h-5 text-gray-500 transform transition-transform ${showVulnerabilities ? 'rotate-180' : ''}`}
+                className={`w-5 h-5 text-gray-500 dark:text-gray-400 transform transition-transform ${showVulnerabilities ? 'rotate-180' : ''}`}
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -1185,7 +1251,7 @@ export function ScanDetail() {
             <div className="p-6">
               {/* Filter status indicator */}
               {activeSeverities.size < 4 && actualVulnerabilities.length > 0 && (
-                <p className="text-sm text-gray-500 mb-4">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
                   Showing {filteredVulnerabilities.length} of {actualVulnerabilities.length} vulnerabilities
                   {hostFilter && ' (filtered by host)'}
                 </p>
@@ -1197,19 +1263,19 @@ export function ScanDetail() {
                   ))}
                 </div>
               ) : actualVulnerabilities.length > 0 && (hostFilter || activeSeverities.size < 4) ? (
-                <p className="text-gray-500 text-center py-4">
+                <p className="text-gray-500 dark:text-gray-400 text-center py-4">
                   No vulnerabilities match current filters
                   {activeSeverities.size < 4 && ' (click severity badges to adjust)'}
                 </p>
               ) : (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
                   <div className="flex items-center">
-                    <svg className="h-5 w-5 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="h-5 w-5 text-green-500 dark:text-green-400 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    <span className="text-green-800 font-medium">No vulnerabilities found</span>
+                    <span className="text-green-800 dark:text-green-200 font-medium">No vulnerabilities found</span>
                   </div>
-                  <p className="text-green-700 text-sm mt-1 ml-7">
+                  <p className="text-green-700 dark:text-green-300 text-sm mt-1 ml-7">
                     No critical, high, medium, or low severity vulnerabilities were detected.
                   </p>
                 </div>
@@ -1221,21 +1287,21 @@ export function ScanDetail() {
 
       {/* Informational Findings Section (INFO severity only) */}
       {scan.status === 'completed' && infoFindings.length > 0 && (
-        <div className="mt-6 bg-white shadow rounded-lg overflow-hidden border border-gray-200" data-component="ScanInfoFindingsSection" data-testid="info-findings-section">
+        <div className="mt-6 bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700" data-component="ScanInfoFindingsSection" data-testid="info-findings-section">
           <button
             onClick={() => setShowInfoFindings(!showInfoFindings)}
-            className="w-full px-6 py-4 border-b border-gray-200 flex items-center justify-between hover:bg-gray-50 transition-colors"
+            className="w-full px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
           >
             <div className="flex items-center gap-3">
-              <h2 className="text-lg font-medium text-gray-600">
+              <h2 className="text-lg font-medium text-gray-600 dark:text-gray-300">
                 Informational Findings ({hostFilter ? `${filteredInfoFindings.length} of ${infoFindings.length}` : infoFindings.length})
               </h2>
-              <span className="text-sm text-gray-500">
+              <span className="text-sm text-gray-500 dark:text-gray-400">
                 Discovery and detection information
               </span>
             </div>
             <svg
-              className={`w-5 h-5 text-gray-500 transform transition-transform ${showInfoFindings ? 'rotate-180' : ''}`}
+              className={`w-5 h-5 text-gray-500 dark:text-gray-400 transform transition-transform ${showInfoFindings ? 'rotate-180' : ''}`}
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -1248,26 +1314,26 @@ export function ScanDetail() {
               {filteredInfoFindings.length > 0 ? (
                 <div className="space-y-3">
                   {filteredInfoFindings.length > 10 && (
-                    <p className="text-sm text-gray-500 mb-2">
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
                       Showing {filteredInfoFindings.length} informational findings
                     </p>
                   )}
                   {filteredInfoFindings.map((finding: { id: string; name?: string; template_id?: string; matched_at?: string; host?: string }) => (
                     <div
                       key={finding.id}
-                      className="border border-gray-200 rounded-lg p-4 bg-gray-50"
+                      className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-700"
                       data-component="InfoFindingCard"
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
-                            <span className="px-2 py-0.5 text-xs font-medium rounded bg-gray-200 text-gray-700">
+                            <span className="px-2 py-0.5 text-xs font-medium rounded bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200">
                               INFO
                             </span>
-                            <h4 className="font-medium text-gray-800">{finding.name || finding.template_id}</h4>
+                            <h4 className="font-medium text-gray-800 dark:text-gray-100">{finding.name || finding.template_id}</h4>
                           </div>
                           {finding.matched_at && (
-                            <p className="text-sm text-gray-500 mt-1 font-mono">{finding.matched_at}</p>
+                            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 font-mono">{finding.matched_at}</p>
                           )}
                         </div>
                       </div>
@@ -1275,7 +1341,7 @@ export function ScanDetail() {
                   ))}
                 </div>
               ) : (
-                <p className="text-gray-500 text-center py-4">No informational findings for selected host</p>
+                <p className="text-gray-500 dark:text-gray-400 text-center py-4">No informational findings for selected host</p>
               )}
             </div>
           )}
@@ -1283,20 +1349,20 @@ export function ScanDetail() {
       )}
 
       {scan?.status === 'completed' && (!ports || ports.length === 0) && (
-        <div className="mt-6 bg-white shadow rounded-lg p-6">
-          <p className="text-gray-500 text-center">No open ports discovered</p>
+        <div className="mt-6 bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+          <p className="text-gray-500 dark:text-gray-400 text-center">No open ports discovered</p>
         </div>
       )}
 
       {/* Compare Modal */}
       {showCompareModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full">
-            <h3 className="text-lg font-semibold mb-4">Select Baseline Scan</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Select Baseline Scan</h3>
             <select
               value={selectedBaseline}
               onChange={(e) => setSelectedBaseline(e.target.value)}
-              className="w-full px-3 py-2 border rounded-md mb-4"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md mb-4 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
             >
               <option value="">Select a scan to compare with...</option>
               {userScans?.scans
@@ -1321,7 +1387,7 @@ export function ScanDetail() {
               </button>
               <button
                 onClick={() => setShowCompareModal(false)}
-                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                className="flex-1 px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600"
               >
                 Cancel
               </button>
