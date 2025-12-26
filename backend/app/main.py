@@ -7,7 +7,7 @@ import os
 import subprocess
 from .core.config import settings
 from .database import init_db, AsyncSessionLocal
-from .routers import auth, users, configs, scans, comparisons, scheduled_scans, reports
+from .routers import auth, users, configs, scans, comparisons, scheduled_scans, reports, stats
 from .core.security import get_password_hash
 from .models.user import User
 from .models.organization import Organization
@@ -186,6 +186,7 @@ app.include_router(scans.router, prefix="/api/scans", tags=["scans"])
 app.include_router(comparisons.router, prefix="/api/comparisons", tags=["comparisons"])
 app.include_router(scheduled_scans.router, prefix="/api/scheduled-scans", tags=["scheduled-scans"])
 app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
+app.include_router(stats.router, prefix="/api/stats", tags=["stats"])
 
 def get_git_branch() -> str:
     """Get the current git branch name from env var or git command."""
