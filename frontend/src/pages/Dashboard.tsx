@@ -243,6 +243,148 @@ function QuickActions() {
   );
 }
 
+function TopVulnerableHosts({ hosts }: { hosts: DashboardStats['top_vulnerable_hosts'] }) {
+  if (hosts.length === 0) {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Top Vulnerable Hosts</h3>
+        <p className="text-gray-500 dark:text-gray-400 text-sm">No vulnerable hosts found</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+      <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Top Vulnerable Hosts</h3>
+      <div className="space-y-3">
+        {hosts.map((host, index) => (
+          <div key={`${host.ip_address}-${index}`} className="flex items-center justify-between">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                {host.device_name || host.ip_address}
+              </p>
+              {host.device_name && (
+                <p className="text-xs text-gray-500 dark:text-gray-400">{host.ip_address}</p>
+              )}
+            </div>
+            <div className="flex items-center gap-2 ml-4">
+              {host.critical_count > 0 && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200">
+                  {host.critical_count} crit
+                </span>
+              )}
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200">
+                {host.vulnerability_count} total
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const serviceColors: Record<string, string> = {
+  http: 'bg-blue-500',
+  https: 'bg-blue-600',
+  ssh: 'bg-green-500',
+  ftp: 'bg-yellow-500',
+  mysql: 'bg-orange-500',
+  postgresql: 'bg-indigo-500',
+  redis: 'bg-red-500',
+  mongodb: 'bg-green-600',
+  smtp: 'bg-purple-500',
+  dns: 'bg-cyan-500',
+};
+
+function ServicesBreakdown({ services }: { services: DashboardStats['services_breakdown'] }) {
+  if (services.length === 0) {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Services Discovered</h3>
+        <p className="text-gray-500 dark:text-gray-400 text-sm">No services discovered yet</p>
+      </div>
+    );
+  }
+
+  const maxCount = Math.max(...services.map(s => s.count));
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+      <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Services Discovered</h3>
+      <div className="space-y-2">
+        {services.map(({ service_name, count }) => {
+          const percentage = maxCount > 0 ? Math.round((count / maxCount) * 100) : 0;
+          const color = serviceColors[service_name.toLowerCase()] || 'bg-gray-500';
+          return (
+            <div key={service_name}>
+              <div className="flex justify-between text-sm mb-1">
+                <span className="text-gray-700 dark:text-gray-300">{service_name}</span>
+                <span className="text-gray-500 dark:text-gray-400">{count}</span>
+              </div>
+              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                <div
+                  className={`${color} h-2 rounded-full transition-all`}
+                  style={{ width: `${percentage}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ActivitySparkline({ data }: { data: DashboardStats['scans_by_day'] }) {
+  // Generate last 7 days with counts (fill in zeros for missing days)
+  const today = new Date();
+  const days: { date: string; count: number; label: string }[] = [];
+
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const dateStr = d.toISOString().split('T')[0];
+    const dayData = data.find(item => item.date === dateStr);
+    days.push({
+      date: dateStr,
+      count: dayData?.count || 0,
+      label: d.toLocaleDateString('en-US', { weekday: 'short' }),
+    });
+  }
+
+  const maxCount = Math.max(...days.map(d => d.count), 1);
+  const totalScans = days.reduce((sum, d) => sum + d.count, 0);
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-medium text-gray-900 dark:text-white">7-Day Activity</h3>
+        <span className="text-sm text-gray-500 dark:text-gray-400">{totalScans} scans</span>
+      </div>
+      <div className="flex items-end justify-between h-24 gap-1">
+        {days.map(({ date, count, label }) => {
+          const height = maxCount > 0 ? Math.max((count / maxCount) * 100, count > 0 ? 10 : 0) : 0;
+          return (
+            <div key={date} className="flex-1 flex flex-col items-center">
+              <div className="w-full flex items-end justify-center h-16">
+                <div
+                  className={`w-full max-w-[24px] rounded-t transition-all ${
+                    count > 0 ? 'bg-indigo-500' : 'bg-gray-200 dark:bg-gray-700'
+                  }`}
+                  style={{ height: `${height}%`, minHeight: count > 0 ? '4px' : '2px' }}
+                  title={`${date}: ${count} scans`}
+                />
+              </div>
+              <span className="text-xs text-gray-400 dark:text-gray-500 mt-1">{label}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function Dashboard() {
   const { data: stats, isLoading, error } = useQuery({
     queryKey: ['dashboard-stats'],
@@ -274,8 +416,8 @@ export function Dashboard() {
             </div>
           ) : stats ? (
             <>
-              {/* Stats Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              {/* Stats Cards - Row 1 */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                 <StatCard
                   title="Total Scans"
                   value={stats.total_scans}
@@ -297,17 +439,6 @@ export function Dashboard() {
                   color="bg-red-500"
                 />
                 <StatCard
-                  title="Scan Configs"
-                  value={stats.total_configs}
-                  icon={
-                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                  }
-                  color="bg-purple-500"
-                />
-                <StatCard
                   title="Critical Vulns"
                   value={stats.vulnerabilities_by_severity.find(v => v.severity.toLowerCase() === 'critical')?.count || 0}
                   icon={
@@ -319,11 +450,54 @@ export function Dashboard() {
                 />
               </div>
 
+              {/* Stats Cards - Row 2 */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <StatCard
+                  title="Total Ports"
+                  value={stats.total_ports}
+                  icon={
+                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  }
+                  color="bg-cyan-500"
+                />
+                <StatCard
+                  title="Scan Configs"
+                  value={stats.total_configs}
+                  icon={
+                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                  }
+                  color="bg-purple-500"
+                />
+                <StatCard
+                  title="Active Schedules"
+                  value={stats.active_schedules}
+                  subtitle={stats.next_scheduled_run ? `Next: ${formatDistanceToNow(parseUTC(stats.next_scheduled_run), { addSuffix: true })}` : undefined}
+                  icon={
+                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  }
+                  color="bg-green-500"
+                />
+              </div>
+
               {/* Middle Row: Status + Vulnerabilities + Quick Actions */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
                 <ScanStatusSummary stats={stats} />
                 <VulnerabilitySummary stats={stats} />
                 <QuickActions />
+              </div>
+
+              {/* Insights Row: Top Hosts + Services + Activity */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+                <TopVulnerableHosts hosts={stats.top_vulnerable_hosts} />
+                <ServicesBreakdown services={stats.services_breakdown} />
+                <ActivitySparkline data={stats.scans_by_day} />
               </div>
 
               {/* Recent Scans Table */}

@@ -20,6 +20,23 @@ export interface RecentScan {
   total_vulnerabilities: number;
 }
 
+export interface TopVulnerableHost {
+  ip_address: string;
+  device_name?: string;
+  vulnerability_count: number;
+  critical_count: number;
+}
+
+export interface ServiceCount {
+  service_name: string;
+  count: number;
+}
+
+export interface DailyScanCount {
+  date: string;
+  count: number;
+}
+
 export interface DashboardStats {
   total_scans: number;
   scans_by_status: ScanStatusCount[];
@@ -27,6 +44,13 @@ export interface DashboardStats {
   vulnerabilities_by_severity: VulnerabilitySeverityCount[];
   total_configs: number;
   recent_scans: RecentScan[];
+  // New fields
+  total_ports: number;
+  active_schedules: number;
+  next_scheduled_run?: string;
+  top_vulnerable_hosts: TopVulnerableHost[];
+  services_breakdown: ServiceCount[];
+  scans_by_day: DailyScanCount[];
 }
 
 export const statsApi = {
