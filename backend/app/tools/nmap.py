@@ -1,9 +1,26 @@
+import logging
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Tuple, List, Optional, Dict
 from ..core.config import settings
+
+logger = logging.getLogger(__name__)
+
+# Nmap's top 100 TCP ports (from nmap-services)
+# These are the most commonly open ports across the internet
+# Used for fast scans instead of --top-ports (which conflicts with -p flag)
+NMAP_TOP_100_PORTS = [
+    7, 9, 13, 21, 22, 23, 25, 26, 37, 53, 79, 80, 81, 88, 106, 110, 111,
+    113, 119, 135, 139, 143, 144, 179, 199, 389, 427, 443, 444, 445, 465,
+    513, 514, 515, 543, 544, 548, 554, 587, 631, 646, 873, 990, 993, 995,
+    1025, 1026, 1027, 1028, 1029, 1110, 1433, 1720, 1723, 1755, 1900,
+    2000, 2001, 2049, 2121, 2717, 3000, 3128, 3306, 3389, 3986, 4899,
+    5000, 5009, 5051, 5060, 5101, 5190, 5357, 5432, 5631, 5666, 5800,
+    5900, 6000, 6001, 6646, 7070, 8000, 8008, 8009, 8080, 8081, 8443,
+    8888, 9100, 9999, 10000, 32768, 49152, 49153, 49154, 49155, 49156
+]
 
 def run_nmap(
     ip: str,
@@ -97,13 +114,14 @@ def run_nmap_discovery(
     """
     Execute nmap for port discovery.
 
-    By default uses top-ports for fast scanning. Can optionally do full port scan.
+    By default scans top 100 ports (from NMAP_TOP_100_PORTS) plus any additional
+    ports specified. Can optionally do full port scan of all 65,535 ports.
 
     Args:
         ip: Target IP address
         timing_template: Nmap timing (T1-T5, default T4 for fast)
         timeout: Max execution time in seconds (default 600 = 10 minutes)
-        top_ports: Use nmap's --top-ports=N (default 1000 if not full_scan)
+        top_ports: DEPRECATED - no longer used (kept for backward compatibility)
         additional_ports: Comma-separated list of extra ports to always scan
         full_scan: If True, scan all 65,535 ports (slow, needs longer timeout)
 
@@ -133,27 +151,27 @@ def run_nmap_discovery(
             # Full port scan - ALL 65,535 ports (slow!)
             cmd.append('-p-')
         else:
-            # Smart port scan - top ports + additional specific ports
-            port_spec = []
-
-            # Use top-ports (default 1000)
-            effective_top_ports = top_ports if top_ports else 1000
+            # Fast port scan - combine top 100 ports + additional ports
+            # NOTE: We use an explicit port list instead of --top-ports because
+            # nmap ignores --top-ports when -p is also specified
+            all_ports = set(NMAP_TOP_100_PORTS)
 
             # Add any additional ports from config
             if additional_ports:
-                # Parse additional_ports string and add to list
-                extra_ports = [p.strip() for p in additional_ports.split(',') if p.strip()]
-                if extra_ports:
-                    port_spec.extend(extra_ports)
+                for p in additional_ports.split(','):
+                    p = p.strip()
+                    if p and p.isdigit():
+                        port = int(p)
+                        if 1 <= port <= 65535:
+                            all_ports.add(port)
+                        else:
+                            logger.warning(f"Skipping out-of-range port in additional_ports: {port}")
+                    elif p:  # Non-empty but not numeric
+                        logger.warning(f"Skipping invalid port in additional_ports: '{p}'")
 
-            # Build port argument
-            if port_spec:
-                # Combine top-ports with explicit port list
-                # Format: --top-ports=1000 -p 6379,11211,etc
-                cmd.extend([f'--top-ports={effective_top_ports}'])
-                cmd.extend(['-p', ','.join(port_spec)])
-            else:
-                cmd.extend([f'--top-ports={effective_top_ports}'])
+            # Build single -p argument with all ports
+            port_string = ','.join(str(p) for p in sorted(all_ports))
+            cmd.extend(['-p', port_string])
 
         cmd.extend(['-oX', str(output_path), ip])
 
