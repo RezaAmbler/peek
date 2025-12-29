@@ -32,6 +32,17 @@ The frontend follows the config-centric model:
 
 ## Key Pages
 
+### Dashboard (`src/pages/Dashboard.tsx`)
+
+- **Stats Overview**: 6 stat cards in 2 rows (scans, vulnerabilities, critical vulns, ports, configs, schedules)
+- **Status Panels**: Scan status summary, vulnerability severity breakdown, quick actions
+- **Insights Widgets**:
+  - Top Vulnerable Hosts: Top 5 hosts by vulnerability count with critical badge
+  - Services Breakdown: Bar chart of discovered services (http, ssh, mysql, etc.)
+  - 7-Day Activity: Sparkline showing scan activity trend
+- **Recent Scans Table**: Last 5 scans with links to detail pages
+- Auto-refreshes every 30 seconds via `@tanstack/react-query`
+
 ### Config Management (`src/pages/Configs.tsx`)
 
 - Lists and edits `ScanConfig` records
@@ -98,6 +109,22 @@ The frontend follows the config-centric model:
 |----------|-------------|
 | `compare` | Generate enriched diff between two same-config scans |
 
+### Stats API (`src/api/stats.ts`)
+
+| Function | Description |
+|----------|-------------|
+| `getDashboard` | Aggregated dashboard statistics |
+
+**DashboardStats fields**:
+- `total_scans`, `total_vulnerabilities`, `total_ports`, `total_configs`
+- `scans_by_status`: Count per status (running, completed, failed, etc.)
+- `vulnerabilities_by_severity`: Count per severity level
+- `active_schedules`, `next_scheduled_run`: Scheduled scan info
+- `top_vulnerable_hosts`: Top 5 hosts with vulnerability/critical counts
+- `services_breakdown`: Top 10 discovered services by count
+- `scans_by_day`: Last 7 days of scan activity
+- `recent_scans`: Last 5 scans with metadata
+
 ### Typical UI Flow
 
 1. Create/edit config with targets -> `POST/PATCH /api/configs`
@@ -127,6 +154,7 @@ Port and vulnerability changes display:
 
 | Change | Where to Look |
 |--------|---------------|
+| Dashboard widgets | `src/pages/Dashboard.tsx` |
 | Config form with targets | `src/pages/ConfigEdit.tsx` |
 | Run history dropdown | `src/pages/ScanDetail.tsx` |
 | Comparison view | `src/pages/ComparisonView.tsx` |

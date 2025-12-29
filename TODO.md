@@ -52,11 +52,12 @@
 
 | Backlog | In Progress | Done |
 |---------|-------------|------|
-| Dashboard with scan overview | - | Dark mode with user toggle |
-| Bulk actions (multi-select scans) | - | Target input on New Scan page |
-| Export configuration profiles | - | Scan comparison/diff feature |
-| Import/export scan results | - | Report generation (HTML, PDF, CSV) |
-| Keyboard shortcuts | - | Real-time scan progress |
+| Bulk actions (multi-select scans) | - | Dashboard with insights widgets |
+| Export configuration profiles | - | Dark mode with user toggle |
+| Import/export scan results | - | Target input on New Scan page |
+| Keyboard shortcuts | - | Scan comparison/diff feature |
+| - | - | Report generation (HTML, PDF, CSV) |
+| - | - | Real-time scan progress |
 | - | - | Git branch indicator in footer |
 | - | - | Config-centric architecture |
 
@@ -80,6 +81,7 @@ Recent completed work (newest first):
 
 | Date | Commit | Description |
 |------|--------|-------------|
+| Dec 2024 | `4b303a5` | feat(dashboard): add insights widgets and expanded stat cards |
 | Dec 2024 | `46c762b` | feat(frontend): add dark mode support with user-controlled toggle |
 | Dec 2024 | `1b56828` | feat(scans): Add target input to New Scan page |
 | Dec 2024 | `16189a9` | feat: integrate httpx HTTP prober into scan pipeline |

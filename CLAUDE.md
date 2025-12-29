@@ -100,6 +100,7 @@ ScheduledScan → triggers Scan (via cron)
 |----------|---------|
 | `GET /api/health` | Health check |
 | `POST /api/auth/login` | JWT authentication |
+| `GET /api/stats` | Dashboard statistics |
 | `GET/POST /api/scans` | List/create scans |
 | `POST /api/scans/{id}/start` | Queue scan for execution |
 | `POST /api/scans/{id}/cancel` | Cancel running scan |
