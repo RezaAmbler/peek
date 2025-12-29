@@ -48,6 +48,33 @@ npm run dev                       # Start dev server (port 3000)
 npm run build                     # Production build
 ```
 
+## Git Workflow
+
+**Always create a feature branch** before making changes. Never commit directly to `main`.
+
+### Branch Naming Convention
+
+Generate branch names dynamically based on the task:
+
+| Type | Pattern | Example |
+|------|---------|---------|
+| Feature | `feat/<scope>-<description>` | `feat/dashboard-insights-widgets` |
+| Bug fix | `fix/<scope>-<description>` | `fix/vuln-query-join` |
+| Docs | `docs/<description>` | `docs/api-stats-endpoint` |
+| Refactor | `refactor/<scope>-<description>` | `refactor/scan-pipeline-async` |
+| Chore | `chore/<description>` | `chore/update-dependencies` |
+
+**Scope** should match project areas: `dashboard`, `scans`, `configs`, `auth`, `celery`, `api`, `frontend`, `backend`
+
+### Workflow
+```bash
+git checkout -b feat/dashboard-insights-widgets   # Create branch from main
+# ... make changes ...
+git add -A && git commit -m "feat(dashboard): add insights widgets"
+git push -u origin feat/dashboard-insights-widgets
+# Then create PR to main
+```
+
 ## Architecture
 
 ### Components
