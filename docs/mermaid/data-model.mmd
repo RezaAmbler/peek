@@ -1,0 +1,67 @@
+%% PEEK Data Model - Config-Centric Architecture (v2.2.1)
+%% ScanConfig defines targets and settings; Scan is a run/execution
+%% Updated to include all tool result models
+
+graph LR
+  subgraph Configuration
+    ScanConfig[ScanConfig]
+    Targets[targets JSON]
+    Schedule[schedule fields]
+    ToolToggles[tool toggles<br/>enable_httpx, enable_katana,<br/>enable_nuclei, etc.]
+  end
+
+  subgraph "Scan Execution"
+    Scan[Scan]
+    RunNum[run_number]
+    ConfigSnapshot[config_snapshot<br/>JSON of config at scan time]
+    ConfigHash[config_hash<br/>SHA-256 — gates comparability]
+    ScanTarget[ScanTarget]
+  end
+
+  subgraph "Discovery Results"
+    Port[Port]
+    HttpxResult[HttpxResult]
+    DiscoveredEndpoint[DiscoveredEndpoint]
+  end
+
+  subgraph "Security Analysis"
+    SSHAudit[SSHAudit]
+    SslScanResult[SslScanResult]
+    TestsslResult[TestsslResult]
+    NseFinding[NseFinding]
+  end
+
+  subgraph "Vulnerability Findings"
+    ToolExecution[ToolExecution]
+    Vulnerability[Vulnerability<br/>Nuclei/Nikto/ZAP]
+  end
+
+  %% Config relationships
+  ScanConfig -->|defines| Targets
+  ScanConfig -->|has| Schedule
+  ScanConfig -->|has| ToolToggles
+  ScanConfig -->|has many| Scan
+
+  %% Scan execution
+  Scan -->|has| RunNum
+  Scan -->|freezes config to| ConfigSnapshot
+  Scan -->|fingerprint via| ConfigHash
+  Scan -->|copies targets to| ScanTarget
+
+  %% Discovery phase results
+  ScanTarget -->|has many| Port
+  ScanTarget -->|has many| HttpxResult
+  ScanTarget -->|has many| DiscoveredEndpoint
+
+  %% Security analysis results
+  ScanTarget -->|has many| SSHAudit
+  ScanTarget -->|has many| SslScanResult
+  ScanTarget -->|has many| TestsslResult
+  ScanTarget -->|has many| NseFinding
+
+  %% Vulnerability findings
+  ScanTarget -->|has many| ToolExecution
+  ScanTarget -->|has many| Vulnerability
+  Port -->|may be linked by| ToolExecution
+  ToolExecution -->|may create| Vulnerability
+  Port -->|may have many| Vulnerability

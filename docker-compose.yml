@@ -1,0 +1,90 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+      - ./.git:/app/.git:ro
+    env_file:
+      - ./backend/.env
+    environment:
+      # Non-secret defaults. SECRET_KEY and DEBUG must come from backend/.env
+      # (see backend/.env.example). The startup validator in core/config.py
+      # rejects empty/weak SECRET_KEY values and known dev placeholders.
+      - DATABASE_URL=sqlite+aiosqlite:///./data/peek.db
+      - ALLOWED_ORIGINS=["http://localhost:3000"]
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+
+  celery:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.celery
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+    env_file:
+      - ./backend/.env
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./data/peek.db
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+      - backend
+    # Run as root to allow sudo masscan
+    user: root
+
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.celery
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+    env_file:
+      - ./backend/.env
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./data/peek.db
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    command: celery -A app.celery_app beat --loglevel=info
+    depends_on:
+      - redis
+      - backend
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  zap:
+    image: ghcr.io/zaproxy/zaproxy:2.17.0
+    container_name: peek-zap
+    command: zap.sh -daemon -host 0.0.0.0 -port 8080 -config api.disablekey=true -config api.addrs.addr.name=.* -config api.addrs.addr.regex=true
+    ports:
+      - "8090:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/JSON/core/view/version/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  data:

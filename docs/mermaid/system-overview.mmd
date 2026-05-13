@@ -1,0 +1,124 @@
+%% PEEK System Overview (v2.2.1)
+%% Top-level diagram showing all major components and 11 tools
+
+flowchart TB
+    subgraph User["User Layer"]
+        Browser[Browser/Client]
+    end
+
+    subgraph Frontend["Frontend Layer"]
+        React[React App<br/>Vite + TypeScript]
+    end
+
+    subgraph Backend["Backend Layer"]
+        API[FastAPI<br/>REST API]
+        Auth[Auth Module]
+        Routers[API Routers<br/>scans, configs, reports]
+    end
+
+    subgraph Worker["Worker Layer"]
+        Celery[Celery Worker]
+        Tasks[Scan Tasks<br/>12-phase pipeline]
+        ServiceProfile[NucleiProfile<br/>service_profile.py]
+    end
+
+    subgraph DiscoveryTools["Discovery Tools"]
+        Nmap[Nmap<br/>Port Discovery<br/>Service Detection]
+        httpx[httpx<br/>HTTP Probing<br/>Tech Detection]
+        Katana[Katana<br/>Endpoint Discovery]
+    end
+
+    subgraph SecurityScanners["Security Scanners"]
+        Nuclei[Nuclei<br/>Vulnerability Scanner]
+        SSHAudit[ssh-audit<br/>SSH Analysis]
+        NmapNSE[Nmap NSE<br/>Service Scripts]
+    end
+
+    subgraph TLSTools["TLS Analysis"]
+        sslscan[sslscan<br/>Quick TLS Scan]
+        testssl[testssl.sh<br/>Deep TLS Analysis]
+    end
+
+    subgraph WebScanners["Web Scanners"]
+        Nikto[Nikto<br/>Web Server Scan]
+        ZAP[OWASP ZAP<br/>Web App Testing]
+    end
+
+    subgraph Config["Configuration"]
+        NucleiYAML[nuclei_profiles.yaml<br/>Service Profiles<br/>Scan Modes]
+    end
+
+    subgraph Storage["Data Layer"]
+        DB[(SQLite/Postgres<br/>Scan, Port, Vulnerability,<br/>HttpxResult, SSHAudit,<br/>SslScanResult, TestsslResult,<br/>NseFinding, DiscoveredEndpoint)]
+        Redis[(Redis<br/>Celery Broker)]
+    end
+
+    %% User interactions
+    Browser --> React
+    React --> API
+
+    %% Backend flow
+    API --> Auth
+    API --> Routers
+    Routers --> DB
+    Routers --> Celery
+
+    %% Worker flow
+    Celery --> Tasks
+    Tasks --> ServiceProfile
+    ServiceProfile --> NucleiYAML
+
+    %% Tasks to tools
+    Tasks --> Nmap
+    Tasks --> httpx
+    Tasks --> Katana
+    Tasks --> SSHAudit
+    Tasks --> Nuclei
+    Tasks --> NmapNSE
+    Tasks --> sslscan
+    Tasks --> testssl
+    Tasks --> Nikto
+    Tasks --> ZAP
+    Tasks --> DB
+
+    %% Tools to DB
+    Nmap -.->|Port records| DB
+    httpx -.->|HttpxResult| DB
+    Katana -.->|DiscoveredEndpoint| DB
+    SSHAudit -.->|SSHAudit records| DB
+    Nuclei -.->|Vulnerability records| DB
+    NmapNSE -.->|NseFinding| DB
+    sslscan -.->|SslScanResult| DB
+    testssl -.->|TestsslResult| DB
+    Nikto -.->|Vulnerability records| DB
+    ZAP -.->|Vulnerability records| DB
+
+    %% Redis as broker
+    Celery <--> Redis
+
+    %% Results back to user
+    DB --> Routers
+    Routers --> API
+    API --> React
+    React --> Browser
+
+    %% Styling
+    classDef user fill:#e1f5fe,stroke:#01579b
+    classDef frontend fill:#f3e5f5,stroke:#4a148c
+    classDef backend fill:#e8f5e9,stroke:#1b5e20
+    classDef worker fill:#fff3e0,stroke:#e65100
+    classDef tools fill:#fce4ec,stroke:#880e4f
+    classDef tls fill:#e0f7fa,stroke:#006064
+    classDef web fill:#fbe9e7,stroke:#bf360c
+    classDef storage fill:#e3f2fd,stroke:#0d47a1
+    classDef config fill:#fffde7,stroke:#f57f17
+
+    class Browser user
+    class React frontend
+    class API,Auth,Routers backend
+    class Celery,Tasks,ServiceProfile worker
+    class Nmap,httpx,Katana,SSHAudit,Nuclei,NmapNSE tools
+    class sslscan,testssl tls
+    class Nikto,ZAP web
+    class DB,Redis storage
+    class NucleiYAML config

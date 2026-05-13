@@ -1,0 +1,36 @@
+%% PEEK Overview (v2.2.1)
+%% High-level system diagram showing all 11 tools
+
+graph LR
+  User --> Frontend
+  Frontend --> Backend
+  Backend --> Worker
+
+  subgraph "Discovery Tools"
+    Worker -->|Phase 1-2| Nmap
+    Worker -->|Phase 3| httpx
+    Worker -->|Phase 3.5| Katana
+  end
+
+  subgraph "Security Scanners"
+    Worker -->|Phase 4| ssh-audit
+    Worker -->|Phase 5-5.5| Nuclei
+    Worker -->|Phase 6| NmapNSE[Nmap NSE]
+  end
+
+  subgraph "TLS Analysis"
+    Worker -->|Phase 7| sslscan
+    Worker -->|Phase 7.5| testssl[testssl.sh]
+  end
+
+  subgraph "Web Scanners"
+    Worker -->|Phase 8| Nikto
+    Worker -->|Phase 9| ZAP
+  end
+
+  Worker --> DB[(Database)]
+  DB --> Backend --> Frontend --> User
+
+  subgraph Scheduling
+    Beat[Celery Beat] --> Worker
+  end

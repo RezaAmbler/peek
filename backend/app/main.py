@@ -1,0 +1,250 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
+from contextlib import asynccontextmanager
+from datetime import datetime
+import os
+import subprocess
+from .core.config import settings
+from .database import init_db, AsyncSessionLocal
+from .routers import auth, users, configs, scans, comparisons, scheduled_scans, reports, stats
+from .core.security import get_password_hash
+from .models.user import User
+from .models.organization import Organization
+from .models.scan_config import ScanConfig
+from .models.scan import Scan, ScanStatus
+from sqlalchemy import select, or_
+from .services.config_service import ensure_user_has_default_config, seed_system_presets
+
+# OpenAPI tag descriptions for Swagger UI grouping
+OPENAPI_TAGS = [
+    {
+        "name": "auth",
+        "description": "Authentication endpoints. Login to get a JWT token for accessing protected endpoints."
+    },
+    {
+        "name": "users",
+        "description": "User management (admin only). Create, update, and manage user accounts."
+    },
+    {
+        "name": "configs",
+        "description": "Scan configuration profiles. Define scanning parameters, timeouts, and tool settings."
+    },
+    {
+        "name": "scans",
+        "description": "Create, run, and monitor security scans. View discovered ports, services, and vulnerabilities."
+    },
+    {
+        "name": "scheduled-scans",
+        "description": "Automated recurring scans. Schedule scans using cron expressions."
+    },
+    {
+        "name": "comparisons",
+        "description": "Compare scan results over time. Identify new ports, closed ports, and vulnerability changes."
+    },
+    {
+        "name": "reports",
+        "description": "Export reports in PDF, HTML, and CSV formats."
+    },
+]
+
+APP_DESCRIPTION = """
+## Network Security Scanner API
+
+PEEK V2 scans networks for open ports, services, and vulnerabilities using:
+- **Nmap** - Port discovery and service detection
+- **SSH-Audit** - SSH security analysis
+- **Nuclei** - Vulnerability scanning
+
+### Authentication
+Most endpoints require JWT authentication.
+1. Call `POST /api/auth/login` with username/password
+2. Copy the `access_token` from response
+3. Click the **Authorize** button above and enter: `Bearer <your_token>`
+
+### Quick Start
+1. **Login** to get token (default: admin/admin)
+2. **Create a scan configuration** (or use default)
+3. **Create and start a scan** with target IPs
+4. **Monitor progress** and view results
+
+### Scan Workflow
+```
+POST /api/scans          → Create scan (status: pending)
+POST /api/scans/{id}/start → Queue scan (status: queued → running)
+GET /api/scans/{id}      → Monitor progress
+GET /api/scans/{id}/ports → View discovered ports
+GET /api/scans/{id}/vulnerabilities → View vulnerabilities
+```
+"""
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    await init_db()
+    apply_migrations_on_startup()
+    await create_default_admin()
+    await cleanup_orphaned_scans()
+    yield
+    # Shutdown (if needed)
+
+
+def apply_migrations_on_startup() -> None:
+    """Apply pending SQLite migrations.
+
+    init_db() creates tables from the SQLAlchemy models, but column additions
+    on existing tables need ALTER. The custom runner in migrations/ is
+    idempotent (schema adds skip if column exists; data wipes are
+    sentinel-gated), so calling it every startup is safe.
+    """
+    try:
+        from pathlib import Path
+        from migrations.apply_migrations import apply_all
+
+        db_url = settings.DATABASE_URL
+        # Strip async driver prefix; runner uses sqlite3 directly.
+        if "sqlite+aiosqlite:///" in db_url:
+            db_path = db_url.split("sqlite+aiosqlite:///")[1]
+        elif "sqlite:///" in db_url:
+            db_path = db_url.split("sqlite:///")[1]
+        else:
+            print(f"⚠️  Skipping migrations: unsupported DATABASE_URL={db_url!r}")
+            return
+
+        # Resolve relative paths against the backend working directory.
+        if not Path(db_path).is_absolute():
+            db_path = str(Path(db_path).resolve())
+
+        apply_all(db_path)
+    except Exception as exc:
+        print(f"⚠️  Migration runner raised: {exc}")
+        raise
+
+async def cleanup_orphaned_scans():
+    """Mark any running/queued scans as cancelled on startup.
+
+    These are orphaned scans from a previous run where the worker was killed.
+    """
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Scan).where(
+                or_(
+                    Scan.status == ScanStatus.RUNNING.value,
+                    Scan.status == ScanStatus.QUEUED.value
+                )
+            )
+        )
+        orphaned_scans = result.scalars().all()
+
+        if orphaned_scans:
+            for scan in orphaned_scans:
+                scan.status = ScanStatus.CANCELLED.value
+                scan.finished_at = datetime.utcnow()
+            await session.commit()
+            print(f"⚠️  Marked {len(orphaned_scans)} orphaned scan(s) as cancelled")
+
+async def create_default_admin():
+    """Create default admin user if it doesn't exist"""
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(User).where(User.username == "admin"))
+        admin = result.scalar_one_or_none()
+
+        if not admin:
+            admin = User(
+                email="admin@example.com",
+                username="admin",
+                hashed_password=get_password_hash("admin"),
+                is_admin=True,
+                is_active=True,
+                organization_id=None  # Always NULL in Phase 1-4
+            )
+            session.add(admin)
+            await session.commit()
+            await session.refresh(admin)
+            print("✅ Default admin user created (username: admin, password: admin)")
+
+        # Ensure admin has a default config
+        await ensure_user_has_default_config(session, admin.id)
+
+        # Seed system presets (owned by admin, visible to all users)
+        await seed_system_presets(session, admin.id)
+
+app = FastAPI(
+    title="PEEK V2 API",
+    description=APP_DESCRIPTION,
+    version="2.2.1",
+    openapi_tags=OPENAPI_TAGS,
+    lifespan=lifespan
+)
+
+def custom_openapi():
+    """Custom OpenAPI schema with JWT Bearer authentication."""
+    if app.openapi_schema:
+        return app.openapi_schema
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+        tags=OPENAPI_TAGS,
+    )
+    openapi_schema["components"]["securitySchemes"] = {
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+            "description": "Enter the JWT token obtained from POST /api/auth/login"
+        }
+    }
+    openapi_schema["security"] = [{"BearerAuth": []}]
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+app.openapi = custom_openapi
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Routers
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(users.router, prefix="/api/users", tags=["users"])
+app.include_router(configs.router, prefix="/api/configs", tags=["configs"])
+app.include_router(scans.router, prefix="/api/scans", tags=["scans"])
+app.include_router(comparisons.router, prefix="/api/comparisons", tags=["comparisons"])
+app.include_router(scheduled_scans.router, prefix="/api/scheduled-scans", tags=["scheduled-scans"])
+app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
+app.include_router(stats.router, prefix="/api/stats", tags=["stats"])
+
+def get_git_branch() -> str:
+    """Get the current git branch name from env var or git command."""
+    # First check environment variable (set by docker-compose)
+    branch = os.environ.get("GIT_BRANCH")
+    if branch:
+        return branch
+    # Fall back to git command (works in local development)
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return "unknown"
+
+@app.get("/api/health")
+async def health_check():
+    return {
+        "status": "ok",
+        "version": settings.VERSION,
+        "git_branch": get_git_branch()
+    }

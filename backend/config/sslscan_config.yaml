@@ -1,0 +1,133 @@
+# SSLScan Configuration
+# Defines settings and thresholds for SSL/TLS security analysis
+#
+# sslscan analyzes:
+#   - Protocol versions (SSLv2, SSLv3, TLSv1.0, TLSv1.1, TLSv1.2, TLSv1.3)
+#   - Cipher suites and their strength
+#   - Certificate details and validity
+#   - Vulnerabilities (Heartbleed, POODLE, etc.)
+
+# Global settings
+settings:
+  enabled: true
+  timeout: 30                    # Connection timeout in seconds
+  connect_timeout: 10            # Initial connection timeout
+  concurrent_scans: 3            # Max parallel sslscan processes
+
+# Services that should trigger sslscan
+# Matched against nmap service detection and port numbers
+trigger_services:
+  - https
+  - ssl/http
+  - imaps
+  - pop3s
+  - smtps
+  - ldaps
+  - ftps
+
+trigger_ports:
+  - 443
+  - 8443
+  - 993    # IMAPS
+  - 995    # POP3S
+  - 465    # SMTPS
+  - 636    # LDAPS
+  - 990    # FTPS
+  - 989    # FTPS data
+  - 4443
+  - 9443
+
+# Security policy thresholds
+# Define what's considered secure, acceptable, or insecure
+policy:
+  # Protocol requirements
+  protocols:
+    # Protocols that MUST be disabled (findings if enabled)
+    insecure:
+      - SSLv2
+      - SSLv3
+      - TLSv1.0
+    # Protocols that SHOULD be disabled (warnings if enabled)
+    deprecated:
+      - TLSv1.1
+    # Protocols that SHOULD be enabled
+    recommended:
+      - TLSv1.2
+      - TLSv1.3
+
+  # Cipher suite requirements
+  ciphers:
+    # Cipher keywords to flag as insecure
+    insecure_patterns:
+      - NULL
+      - EXPORT
+      - DES
+      - RC4
+      - MD5
+      - ANON
+    # Weak but sometimes still required
+    weak_patterns:
+      - 3DES
+      - CBC
+    # Minimum key sizes
+    minimum_bits:
+      symmetric: 128
+      rsa: 2048
+      dh: 2048
+      ecdh: 256
+
+  # Certificate requirements
+  certificate:
+    # Signature algorithms to flag
+    insecure_signatures:
+      - md5WithRSAEncryption
+      - sha1WithRSAEncryption
+    # Minimum RSA key size
+    min_rsa_bits: 2048
+    # Certificate validity warnings
+    expiry_warning_days: 30
+    expiry_critical_days: 7
+
+  # Vulnerability checks
+  vulnerabilities:
+    check_heartbleed: true
+    check_renegotiation: true
+    check_fallback_scsv: true
+    check_compression: true
+
+# Severity mapping for findings
+severity_mapping:
+  # Protocol findings
+  sslv2_enabled: critical
+  sslv3_enabled: critical
+  tlsv10_enabled: high
+  tlsv11_enabled: medium
+  tlsv12_disabled: medium
+  tlsv13_disabled: low
+
+  # Cipher findings
+  null_cipher: critical
+  export_cipher: critical
+  des_cipher: critical
+  rc4_cipher: high
+  anon_cipher: critical
+  weak_cipher: medium
+
+  # Certificate findings
+  expired_cert: critical
+  expiring_soon_cert: high
+  self_signed_cert: medium
+  weak_signature: high
+  weak_key: high
+
+  # Vulnerability findings
+  heartbleed_vulnerable: critical
+  insecure_renegotiation: high
+  no_fallback_scsv: medium
+  compression_enabled: medium
+
+# Output formatting
+output:
+  include_cipher_details: true
+  include_certificate_chain: false  # Just leaf cert for now
+  include_key_exchange: true

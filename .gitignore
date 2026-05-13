@@ -1,0 +1,88 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+.pyre/
+.ruff_cache/
+.pytest_cache/
+
+# Python virtual environments
+env/
+.env/
+ENV/
+venv/
+.venv
+.venv/
+virtualenv/
+.virtualenv/
+*.venv/
+
+# Node
+node_modules/
+dist/
+.DS_Store
+
+# Database
+data/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Env files
+.env
+.env.local
+backend/.env
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+
+# Claude / AI Agents
+.claude/
+.claude_history
+.anthropic/
+.cursor/
+.aider*
+.continue/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+frontend/coverage/
+
+# Secrets / certs (never commit private keys or PEMs)
+*.pem
+*.key
+*.crt
+
+# Celery runtime state
+celerybeat-schedule
+celerybeat-schedule.db
+
+# Local analysis / audit output
+_analysis/
+
+# Misc scratch
+tmp/
+.mcp.json
+artifacts/
+*.log
+
+# Local Claude Code workspace state (developer-specific; not tracked)
+CLAUDE.md

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability report
+    url: https://github.com/RezaAmbler/peek/security/advisories/new
+    about: Please report security vulnerabilities privately via GitHub Security Advisories or by emailing reza.ambler@gmail.com. See SECURITY.md for details.
+  - name: Question or discussion
+    url: https://github.com/RezaAmbler/peek/discussions
+    about: For general questions, design discussions, or "how do I do X?" — please use Discussions instead of opening an issue.

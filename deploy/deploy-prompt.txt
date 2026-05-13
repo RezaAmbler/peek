@@ -1,0 +1,33 @@
+# Deploy PEEK to Production Server
+
+Execute the deployment scripts to deploy PEEK to a fresh AWS EC2 instance.
+
+## Configuration
+
+Fill in for your target deployment:
+
+```
+TARGET_IP=""          # public IP of your destination EC2 (Ubuntu 22.04)
+SSH_KEY_PATH=""       # local path to .pem matching the EC2 key pair
+```
+
+## Execute
+
+```bash
+./deploy/deploy.sh "$TARGET_IP" "$SSH_KEY_PATH"
+```
+
+The script handles: SSH validation, host setup (Docker/nginx/ufw via setup-host.sh), code sync via rsync, .env generation with random SECRET_KEY, container build, nginx reverse proxy, health checks.
+
+## Verify
+
+After deployment:
+1. `http://$TARGET_IP` loads PEEK UI
+2. `http://$TARGET_IP/api/health` returns OK
+
+## Notes
+
+- First deployment: ~10–15 minutes (Docker builds)
+- Subsequent deployments: faster (cached layers)
+- SECRET_KEY is generated on the remote host and stored only in /opt/peek/backend/.env
+- For PEEK QA workflow against this deployment, point scripts/qa/hellbox-qa.prompt's PEEK_API_URL at this $TARGET_IP

@@ -1,0 +1,92 @@
+%% PEEK Scan Pipeline - Complete 12-Phase Flow (v2.2.1)
+%% Shows data flow between all phases and tools
+
+flowchart TD
+    %% Initiation
+    U[User/API] --> SC[Create Scan + ScanTargets]
+    SC --> W[Worker: run_scan]
+
+    %% Phase 1-2: Port Discovery
+    subgraph PortDiscovery["Phase 1-2: Port Discovery"]
+        W --> P1[Nmap Discovery<br/>-sn, -Pn, port ranges]
+        P1 -->|Creates| PORTS[(Port rows)]
+        PORTS --> P2[Nmap Service Detection<br/>-sV, version-intensity]
+        P2 -->|Updates| PORTS2[(Port: service_name,<br/>product, version)]
+    end
+
+    %% Phase 3-3.5: HTTP Discovery
+    subgraph HttpDiscovery["Phase 3-3.5: HTTP Discovery"]
+        PORTS2 -->|HTTP ports| P3[httpx<br/>Probe HTTP services]
+        P3 -->|Creates| HTTPX[(HttpxResult:<br/>status, title, tech)]
+        HTTPX --> P35[Katana<br/>Crawl endpoints]
+        P35 -->|Creates| ENDPOINTS[(DiscoveredEndpoint:<br/>url, method, params)]
+    end
+
+    %% Phase 4: SSH Analysis
+    subgraph SshAnalysis["Phase 4: SSH Analysis"]
+        PORTS2 -->|SSH ports| P4[ssh-audit<br/>Analyze SSH config]
+        P4 -->|Creates| SSH[(SSHAudit:<br/>algorithms, recommendations)]
+    end
+
+    %% Phase 5-5.5: Nuclei Scanning
+    subgraph NucleiScanning["Phase 5-5.5: Nuclei Scanning"]
+        PORTS2 --> SP[NucleiProfile<br/>service_profile.py]
+        SP --> TAGS[Select tags per service<br/>from nuclei_profiles.yaml]
+
+        TAGS --> P5[Nuclei Per-Port<br/>Service-specific templates]
+        P5 -->|Creates| VULN1[(Vulnerability records)]
+
+        ENDPOINTS --> P55[Nuclei Endpoints<br/>Web-focused templates]
+        P55 -->|Creates| VULN2[(Vulnerability records)]
+    end
+
+    %% Phase 6: NSE Scripts
+    subgraph NseScripts["Phase 6: NSE Scripts"]
+        PORTS2 --> P6[Nmap NSE<br/>Service-specific scripts]
+        P6 -->|Creates| NSE[(NseFinding:<br/>script output)]
+    end
+
+    %% Phase 7-7.5: TLS Analysis
+    subgraph TlsAnalysis["Phase 7-7.5: TLS Analysis"]
+        PORTS2 -->|TLS ports| P7[sslscan<br/>Quick TLS assessment]
+        P7 -->|Creates| SSL[(SslScanResult:<br/>protocols, ciphers)]
+        SSL --> P75[testssl.sh<br/>Deep TLS analysis]
+        P75 -->|Creates| TESTSSL[(TestsslResult:<br/>vulnerabilities, grades)]
+    end
+
+    %% Phase 8-9: Web Scanning
+    subgraph WebScanning["Phase 8-9: Web Scanning"]
+        HTTPX -->|Web services| P8[Nikto<br/>Web server scan]
+        P8 -->|Creates| VULN3[(Vulnerability records)]
+        VULN3 --> P9[OWASP ZAP<br/>Web app testing]
+        P9 -->|Creates| VULN4[(Vulnerability records)]
+    end
+
+    %% All results to database
+    subgraph Storage["Data Storage"]
+        PORTS2 --> DB[(Database)]
+        HTTPX --> DB
+        ENDPOINTS --> DB
+        SSH --> DB
+        VULN1 --> DB
+        VULN2 --> DB
+        NSE --> DB
+        SSL --> DB
+        TESTSSL --> DB
+        VULN3 --> DB
+        VULN4 --> DB
+    end
+
+    %% Results back to user
+    DB --> API[Backend API]
+    API --> FE[Frontend]
+    FE --> U
+
+    %% Styling
+    classDef phase fill:#e3f2fd,stroke:#1565c0
+    classDef data fill:#f3e5f5,stroke:#7b1fa2
+    classDef storage fill:#e8f5e9,stroke:#2e7d32
+
+    class P1,P2,P3,P35,P4,P5,P55,P6,P7,P75,P8,P9 phase
+    class PORTS,PORTS2,HTTPX,ENDPOINTS,SSH,VULN1,VULN2,NSE,SSL,TESTSSL,VULN3,VULN4 data
+    class DB storage

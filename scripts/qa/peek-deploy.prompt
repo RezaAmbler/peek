@@ -1,0 +1,176 @@
+# PEEK Deploy — AWS-orchestrated
+
+Pure-prompt orchestrator that provisions a fresh AWS EC2 and deploys PEEK to it. Companion to scripts/qa/hellbox-qa.prompt. Runs:
+1. Auto-discover AWS resources (region, AMI, key pair, security group)
+2. Launch EC2 (Ubuntu 22.04, t3.medium default)
+3. Wait for SSH availability
+4. Invoke deploy/deploy.sh against the new instance
+5. Verify /api/health returns version 2.2.1
+6. Write the PEEK URL to the state file for downstream prompts to read
+
+Total time: 12–20 minutes. Resumable via state file.
+
+---
+
+## Prerequisites
+
+Local machine must have:
+- `aws` CLI configured (`aws sts get-caller-identity` succeeds)
+- `jq`, `ssh`, `scp`, `curl`, `rsync`, `openssl`
+- This repo checked out locally (deploy/deploy.sh is referenced by relative path)
+
+The deploy.sh script (post-Stage-13) handles its own openssl precheck and SECRET_KEY generation.
+
+---
+
+## Configuration
+
+Required at the top of the run; otherwise auto-discovered.
+
+```
+# Optional overrides — leave empty to auto-discover
+AWS_REGION=""              # auto: aws configure get region
+AWS_KEY_NAME=""            # auto: prefer "peek-prod", else "peek-hellbox-qa", else single existing
+SSH_KEY_PATH=""            # auto: ~/.ssh/<key>.pem
+AWS_SECURITY_GROUP_ID=""   # auto: SG named "peek-prod-sg", created with SSH+HTTP open
+AWS_AMI=""                 # auto: latest Ubuntu 22.04 via SSM
+AWS_INSTANCE_TYPE="t3.medium"
+
+# State file (auto-generated)
+STATE_FILE=""              # auto: tmp/peek-qa-state-<UTC timestamp>.json
+```
+
+---
+
+## Phase 0 — Pre-flight
+
+1. `aws sts get-caller-identity` must succeed
+2. Required local tools present: `command -v aws jq ssh scp curl rsync openssl`
+3. deploy/deploy.sh and deploy/setup-host.sh exist on disk
+4. Initialize state file:
+   ```
+   mkdir -p tmp
+   TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
+   STATE_FILE="tmp/peek-qa-state-${TIMESTAMP}.json"
+   echo '{"version":1,"started_at":"'$TIMESTAMP'","phases":{}}' > "$STATE_FILE"
+   ```
+5. If state files from prior runs exist (`tmp/peek-qa-state-*.json`), list them. Ask the operator: resume an existing run, or start fresh? Resume = read existing state and skip completed phases.
+
+---
+
+## Phase 1 — Discover AWS Resources
+
+Same pattern as hellbox-qa.prompt Phase 1 but the SG default is `peek-prod-sg` (NOT the hellbox SG — different rules).
+
+### Region
+```
+[ -z "$AWS_REGION" ] && AWS_REGION=$(aws configure get region)
+[ -z "$AWS_REGION" ] && { echo "ERROR: no AWS region configured"; exit 1; }
+```
+
+### AMI (Ubuntu 22.04 via SSM)
+```
+[ -z "$AWS_AMI" ] && AWS_AMI=$(aws ssm get-parameter \
+  --region "$AWS_REGION" \
+  --name "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id" \
+  --query 'Parameter.Value' --output text)
+```
+
+### Key pair
+Prefer `peek-prod`, then `peek-hellbox-qa`, then single existing key. STOP if multiple and none match.
+
+### SSH key file
+Check `~/.ssh/${AWS_KEY_NAME}.pem`, `~/.ssh/${AWS_KEY_NAME}`. `chmod 600`.
+
+### Security group `peek-prod-sg`
+PEEK production needs SSH(22) + HTTP(80) inbound from anywhere. Differs from hellbox SG (which is wide-open). Create if absent:
+```
+SG_ID=$(aws ec2 describe-security-groups --region "$AWS_REGION" \
+  --filters Name=group-name,Values=peek-prod-sg \
+  --query 'SecurityGroups[0].GroupId' --output text 2>/dev/null)
+if [ "$SG_ID" = "None" ] || [ -z "$SG_ID" ]; then
+  VPC_ID=$(aws ec2 describe-vpcs --region "$AWS_REGION" \
+    --filters Name=is-default,Values=true --query 'Vpcs[0].VpcId' --output text)
+  SG_ID=$(aws ec2 create-security-group --region "$AWS_REGION" \
+    --group-name peek-prod-sg \
+    --description "PEEK production — SSH + HTTP" \
+    --vpc-id "$VPC_ID" --query 'GroupId' --output text)
+  aws ec2 authorize-security-group-ingress --region "$AWS_REGION" \
+    --group-id "$SG_ID" --protocol tcp --port 22 --cidr 0.0.0.0/0
+  aws ec2 authorize-security-group-ingress --region "$AWS_REGION" \
+    --group-id "$SG_ID" --protocol tcp --port 80 --cidr 0.0.0.0/0
+fi
+AWS_SECURITY_GROUP_ID="$SG_ID"
+```
+
+Write all discovered values to state.config.
+
+---
+
+## Phase 2 — Launch EC2
+
+Skip if state.phases.provision.status == "complete".
+
+1. `aws ec2 run-instances` with discovered AMI/SG/key, t3.medium, 30GB gp3, tag `Name=peek-prod-<TIMESTAMP>`, tag `purpose=peek-prod`
+2. Capture `InstanceId`. Write to state as peek.instance_id.
+3. Wait for instance state running: `aws ec2 wait instance-running`
+4. Capture public IP. Write to state as peek.ip.
+5. Wait for SSH: loop up to 5 minutes attempting `ssh -o ConnectTimeout=5 ubuntu@$PEEK_IP "echo ready"`
+6. Mark state.phases.provision.status = "complete".
+
+---
+
+## Phase 3 — Deploy PEEK
+
+Skip if state.phases.deploy.status == "complete".
+
+1. Stream deploy.sh output to user AND tee to `tmp/peek-deploy-${TIMESTAMP}.log`:
+   ```
+   ./deploy/deploy.sh "$PEEK_IP" "$SSH_KEY_PATH" 2>&1 | tee tmp/peek-deploy-${TIMESTAMP}.log
+   ```
+2. The deploy script handles: SSH validation, host setup (Docker/nginx/ufw), code sync, .env generation with random SECRET_KEY on remote, container build, nginx reverse proxy, health checks. Expect 10–15 minutes.
+3. Capture exit code. If non-zero, STOP and report — do not mark phase complete.
+4. Mark state.phases.deploy.status = "complete".
+
+---
+
+## Phase 4 — Verify
+
+Skip if state.phases.verify.status == "complete".
+
+1. `curl -fsS "http://${PEEK_IP}/api/health"` → must return JSON with `"status":"ok"` and `"version":"2.2.1"`
+2. If version is different from 2.2.1, log a WARNING but do not fail (main may have advanced).
+3. `curl -fsS -o /dev/null -w '%{http_code}' "http://${PEEK_IP}/"` → must be 200
+4. Write `peek.url = "http://${PEEK_IP}"`, `peek.health_version`, and `peek.verified_at` to state.
+5. Mark state.phases.verify.status = "complete".
+
+---
+
+## Phase 5 — Output
+
+Print to user:
+
+```
+PEEK is live.
+
+  URL:         http://<PEEK_IP>
+  API:         http://<PEEK_IP>/api/health
+  Instance:    <INSTANCE_ID>
+  Region:      <AWS_REGION>
+  State file:  tmp/peek-qa-state-<TIMESTAMP>.json
+
+To continue with hellbox QA, run scripts/qa/hellbox-qa.prompt
+(it will auto-read peek.url from this state file).
+
+To manually terminate when done:
+  aws ec2 terminate-instances --region <AWS_REGION> --instance-ids <INSTANCE_ID>
+```
+
+---
+
+## Resume / re-run notes
+
+- Each phase reads state file on entry. Completed phases are skipped.
+- To force a phase to re-run, edit the state file and remove the relevant phase entry, OR start fresh by deleting the state file.
+- Multiple state files in `tmp/` are fine. Each represents one provisioning run.
+- The peek-prod-sg security group is reusable across runs.

@@ -1,0 +1,81 @@
+%% PEEK Scan Lifecycle - 12-Phase Pipeline (v2.2.1)
+%% Shows complete scan execution flow with all phases
+
+flowchart TD
+  %% Initiation
+  U[User] --> FE[Frontend]
+  FE --> API[Backend API]
+  API -->|Select config| SC[ScanConfig]
+  SC --> W[Worker / Celery]
+  W -->|Assign run_number| RN[Create Scan record]
+  RN --> T[Copy config.targets to ScanTarget]
+
+  %% Phase 1-2: Port Discovery
+  subgraph "Port Discovery"
+    T --> P1[Phase 1: Nmap Discovery<br/>0-10%]
+    P1 -->|Creates Port rows| P2[Phase 2: Service Detection<br/>10-75%]
+    P2 -->|Updates Port with<br/>service/product/version| HTTP_CHECK{HTTP ports?}
+  end
+
+  %% Phase 3-3.5: HTTP Discovery
+  subgraph "HTTP Discovery"
+    HTTP_CHECK -->|Yes| P3[Phase 3: httpx<br/>75-78%]
+    P3 -->|Creates HttpxResult| P35[Phase 3.5: Katana<br/>78-80%]
+    P35 -->|Creates DiscoveredEndpoint| SSH_CHECK{SSH ports?}
+  end
+
+  HTTP_CHECK -->|No| SSH_CHECK
+
+  %% Phase 4: SSH Analysis
+  subgraph "SSH Analysis"
+    SSH_CHECK -->|Yes| P4[Phase 4: SSH-Audit<br/>80-85%]
+    P4 -->|Creates SSHAudit| NUCLEI
+  end
+
+  SSH_CHECK -->|No| NUCLEI
+
+  %% Phase 5-5.5: Nuclei
+  subgraph "Vulnerability Scanning"
+    NUCLEI[Nuclei enabled?]
+    NUCLEI -->|Yes| P5[Phase 5: Nuclei Per-Port<br/>85-88%]
+    P5 -->|Creates Vulnerability| P55[Phase 5.5: Nuclei Endpoints<br/>88-91%]
+    P55 -->|Scans DiscoveredEndpoints| NSE
+  end
+
+  NUCLEI -->|No| NSE
+
+  %% Phase 6: NSE Scripts
+  subgraph "Service Scripts"
+    NSE[NSE enabled?]
+    NSE -->|Yes| P6[Phase 6: Nmap NSE<br/>91-93%]
+    P6 -->|Creates NseFinding| TLS
+  end
+
+  NSE -->|No| TLS
+
+  %% Phase 7-7.5: TLS Analysis
+  subgraph "TLS Analysis"
+    TLS[TLS ports?]
+    TLS -->|Yes| P7[Phase 7: sslscan<br/>93-95%]
+    P7 -->|Creates SslScanResult| P75[Phase 7.5: testssl.sh<br/>95-97%]
+    P75 -->|Creates TestsslResult| WEB
+  end
+
+  TLS -->|No| WEB
+
+  %% Phase 8-9: Web Scanning
+  subgraph "Web Scanning"
+    WEB[Web enabled?]
+    WEB -->|Yes| P8[Phase 8: Nikto<br/>97-98%]
+    P8 -->|Creates Vulnerability| P9[Phase 9: ZAP<br/>98-100%]
+    P9 -->|Creates Vulnerability| DONE
+  end
+
+  WEB -->|No| DONE
+
+  %% Completion
+  DONE[Scan Complete]
+  DONE --> DB[(Database)]
+  DB --> API
+  API --> FE
+  FE --> U

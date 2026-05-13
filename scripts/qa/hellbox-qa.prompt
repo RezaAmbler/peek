@@ -1,0 +1,351 @@
+# PEEK Hellbox End-to-End QA
+
+Pure-prompt orchestrator for validating PEEK against a deliberately vulnerable AWS EC2 hellbox. Runs:
+1. Deploy hellbox EC2 (Ubuntu 22.04, auto-discovered AWS resources)
+2. Install vulnerable services (setup-hellbox-v3.sh — 29 sections, 10 CVE-bearing services)
+3. PEEK scan #1 (vulnerable baseline)
+4. Remediate hellbox (remediate-hellbox.sh — hardens services in place)
+5. PEEK scan #2 (post-remediation)
+6. Diff guidance (manual comparison; scan 1 should find lots, scan 2 should find few)
+
+Total time: 60–90 minutes. Resumable via state file at tmp/peek-qa-state-*.json (shared with peek-deploy.prompt).
+
+---
+
+## Prerequisites
+
+Local machine must have:
+- `aws` CLI configured with credentials (`aws sts get-caller-identity` works)
+- `jq`, `ssh`, `scp`, `curl`, `rsync`
+- A live PEEK API reachable from the machine running this prompt AND from the hellbox (PEEK must be able to reach the hellbox IP for scanning)
+- This repo checked out locally (scripts in `scripts/qa/` are referenced by path)
+
+If PEEK isn't deployed yet, deploy it first via `deploy/deploy-prompt.txt` and use the resulting IP as PEEK_API_URL below.
+
+---
+
+## Configuration
+
+Fill in the required values. Everything else is auto-discovered.
+
+```
+# Required — no default
+PEEK_API_URL="http://<your-peek-server-ip>"
+PEEK_USERNAME="admin"
+PEEK_PASSWORD="admin"
+
+# Optional overrides — leave empty to auto-discover
+AWS_REGION=""              # auto: `aws configure get region`
+AWS_KEY_NAME=""            # auto: prefer "peek-hellbox-qa", else single existing key
+SSH_KEY_PATH=""            # auto: ~/.ssh/<key>.pem
+AWS_SECURITY_GROUP_ID=""   # auto: SG named "peek-hellbox-qa", created if absent
+AWS_AMI=""                 # auto: latest Ubuntu 22.04 LTS via SSM
+AWS_INSTANCE_TYPE="t3.large"
+
+# Paths (defaults work from repo root)
+HELLBOX_SCRIPT="scripts/qa/setup-hellbox-v3.sh"
+REMEDIATE_SCRIPT="scripts/qa/remediate-hellbox.sh"
+STATE_FILE=""              # auto: tmp/peek-qa-state-<UTC timestamp>.json (inherited from peek-deploy if present)
+```
+
+---
+
+## Phase 0 — Pre-flight
+
+Verify environment before spending money on AWS resources.
+
+1. `aws sts get-caller-identity` must succeed
+2. `aws configure get region` returns a region — if empty and AWS_REGION unset, STOP
+3. **Resolve PEEK_API_URL.** If PEEK_API_URL was not set in the config block above, attempt to inherit from the most recent peek-deploy state file:
+   ```
+   if [ -z "$PEEK_API_URL" ]; then
+     LATEST_STATE=$(ls -1 tmp/peek-qa-state-*.json 2>/dev/null | sort | tail -1)
+     if [ -n "$LATEST_STATE" ]; then
+       PEEK_API_URL=$(jq -r '.peek.url // empty' "$LATEST_STATE")
+     fi
+   fi
+   [ -z "$PEEK_API_URL" ] && {
+     echo "ERROR: PEEK_API_URL not set and no recent peek-deploy state file found."
+     echo "Run scripts/qa/peek-deploy.prompt first, or set PEEK_API_URL manually."
+     exit 1
+   }
+   ```
+4. PEEK reachable: `curl -fsS "${PEEK_API_URL}/api/health"` returns OK
+5. Required local tools present: `command -v jq ssh scp curl`
+6. HELLBOX_SCRIPT and REMEDIATE_SCRIPT files exist on disk
+7. Initialize state file. If a peek-deploy state file is being inherited, REUSE it (append hellbox phases). Otherwise create a new one:
+   ```
+   mkdir -p tmp
+   if [ -n "$LATEST_STATE" ] && [ -f "$LATEST_STATE" ]; then
+     STATE_FILE="$LATEST_STATE"   # reuse peek-deploy's state
+   else
+     TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
+     STATE_FILE="tmp/peek-qa-state-${TIMESTAMP}.json"
+     echo '{"version":1,"started_at":"'$TIMESTAMP'","phases":{}}' > "$STATE_FILE"
+   fi
+   ```
+8. **If state files from prior runs exist (`tmp/peek-qa-state-*.json`), list them and ask the user whether to resume an existing run or start fresh.** Resume = read existing state and skip completed phases.
+
+---
+
+## Phase 1 — Discover AWS Resources
+
+For each discovery, populate the corresponding config variable and write it to state.config.
+
+### Region
+```
+if [ -z "$AWS_REGION" ]; then
+  AWS_REGION=$(aws configure get region)
+fi
+[ -z "$AWS_REGION" ] && { echo "ERROR: no AWS region configured"; exit 1; }
+```
+
+### AMI (Ubuntu 22.04 LTS via SSM, Canonical-maintained)
+```
+if [ -z "$AWS_AMI" ]; then
+  AWS_AMI=$(aws ssm get-parameter \
+    --region "$AWS_REGION" \
+    --name "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id" \
+    --query 'Parameter.Value' --output text)
+fi
+```
+
+### Key pair
+Prefer `peek-hellbox-qa`; fall back to single existing keypair; STOP if multiple and none match.
+```
+if [ -z "$AWS_KEY_NAME" ]; then
+  KEYS=$(aws ec2 describe-key-pairs --region "$AWS_REGION" --query 'KeyPairs[].KeyName' --output text)
+  if echo "$KEYS" | tr '\t' '\n' | grep -qx "peek-hellbox-qa"; then
+    AWS_KEY_NAME="peek-hellbox-qa"
+  elif [ $(echo "$KEYS" | wc -w) -eq 1 ]; then
+    AWS_KEY_NAME="$KEYS"
+  else
+    echo "ERROR: multiple keypairs found ($KEYS). Set AWS_KEY_NAME explicitly or create 'peek-hellbox-qa'."
+    exit 1
+  fi
+fi
+```
+
+### SSH key file
+```
+if [ -z "$SSH_KEY_PATH" ]; then
+  for p in "$HOME/.ssh/${AWS_KEY_NAME}.pem" "$HOME/.ssh/${AWS_KEY_NAME}" "$HOME/Downloads/${AWS_KEY_NAME}.pem"; do
+    [ -f "$p" ] && { SSH_KEY_PATH="$p"; break; }
+  done
+fi
+[ -z "$SSH_KEY_PATH" ] && { echo "ERROR: cannot find .pem for $AWS_KEY_NAME"; exit 1; }
+chmod 600 "$SSH_KEY_PATH"
+```
+
+### Security group
+Look for `peek-hellbox-qa`; create if absent. The hellbox is a throwaway honeypot — open all TCP+UDP inbound from 0.0.0.0/0 to support every scanner phase.
+```
+if [ -z "$AWS_SECURITY_GROUP_ID" ]; then
+  AWS_SECURITY_GROUP_ID=$(aws ec2 describe-security-groups --region "$AWS_REGION" \
+    --filters Name=group-name,Values=peek-hellbox-qa \
+    --query 'SecurityGroups[0].GroupId' --output text 2>/dev/null)
+  if [ "$AWS_SECURITY_GROUP_ID" = "None" ] || [ -z "$AWS_SECURITY_GROUP_ID" ]; then
+    VPC_ID=$(aws ec2 describe-vpcs --region "$AWS_REGION" --filters Name=is-default,Values=true \
+      --query 'Vpcs[0].VpcId' --output text)
+    AWS_SECURITY_GROUP_ID=$(aws ec2 create-security-group --region "$AWS_REGION" \
+      --group-name peek-hellbox-qa \
+      --description "PEEK Hellbox QA — throwaway, open inbound" \
+      --vpc-id "$VPC_ID" --query 'GroupId' --output text)
+    aws ec2 authorize-security-group-ingress --region "$AWS_REGION" \
+      --group-id "$AWS_SECURITY_GROUP_ID" --protocol -1 --port -1 --cidr 0.0.0.0/0
+  fi
+fi
+```
+
+Write everything to state.config.
+
+---
+
+## Phase 2 — Launch EC2
+
+Skip if state.phases.provision.status == "complete".
+
+1. `aws ec2 run-instances` with auto-discovered region, AMI, key, SG, instance type t3.large, 30GB gp3 root volume, tag `Name=peek-hellbox-qa-<TIMESTAMP>`, tag `purpose=peek-hellbox-qa`
+2. Capture `InstanceId`. Write to state.
+3. Wait for instance state `running`: `aws ec2 wait instance-running`
+4. Get public IP: `aws ec2 describe-instances --instance-ids $INSTANCE_ID --query 'Reservations[0].Instances[0].PublicIpAddress' --output text`. Write to state as `hellbox_ip`.
+5. Wait for SSH: loop up to 5 minutes attempting `ssh -o ConnectTimeout=5 ubuntu@$HELLBOX_IP "echo ready"`
+6. Mark state.phases.provision.status = "complete".
+
+---
+
+## Phase 3 — Install Hellbox v3
+
+Skip if state.phases.install_hellbox.status == "complete".
+
+1. SCP `$HELLBOX_SCRIPT` to `/tmp/setup-hellbox.sh` on the hellbox
+2. Run: `ssh ubuntu@$HELLBOX_IP "sudo bash /tmp/setup-hellbox.sh 2>&1 | tee /tmp/hellbox-setup.log"`
+3. Wait for completion (expect 10–15 minutes). Stream output to user.
+4. Verify services: `ssh ubuntu@$HELLBOX_IP "sudo ss -tlnp | wc -l"` — expect 20+ listening ports
+5. Pull setup log back: `scp ubuntu@$HELLBOX_IP:/tmp/hellbox-setup.log tmp/hellbox-setup-${TIMESTAMP}.log`
+6. Mark state.phases.install_hellbox.status = "complete".
+
+---
+
+## Phase 4 — Scan #1 (Vulnerable Baseline)
+
+Skip if state.phases.scan_1.status == "complete".
+
+1. Authenticate to PEEK:
+   ```
+   TOKEN=$(curl -fsS -X POST "${PEEK_API_URL}/api/v1/auth/login" \
+     -H "Content-Type: application/json" \
+     -d "{\"username\":\"${PEEK_USERNAME}\",\"password\":\"${PEEK_PASSWORD}\"}" \
+     | jq -r '.access_token')
+   ```
+2. Create scan config named `hellbox-vulnerable-${TIMESTAMP}` targeting `$HELLBOX_IP` with all tools enabled (port_scan_intensity=comprehensive, enable_nuclei/nikto/zap/sslscan/ssh_audit/nmap_scripts/httpx/testssl all true). Capture `CONFIG_ID`. Write to state as `scan_1.config_id` so Phase 6 can reuse it (PEEK's compare-scans feature requires both scans to share a config_id).
+3. Trigger scan: `POST /api/v1/scan-configs/${CONFIG_ID}/scan`. Capture `SCAN_ID`. Write to state as `scan_1_id`.
+4. Poll status every 60s. Log every poll. Max wait 90 minutes — if still not complete, log warning and continue (do not auto-fail).
+5. When complete or failed: fetch results to `tmp/hellbox-scan-1-${TIMESTAMP}.json` via `GET /api/v1/scans/${SCAN_ID}/results`
+6. Mark state.phases.scan_1.status = "complete" (or "failed" if scan errored — but proceed to remediate anyway).
+
+---
+
+## Phase 5 — Remediate
+
+Skip if state.phases.remediate.status == "complete".
+
+1. SCP `$REMEDIATE_SCRIPT` to `/tmp/remediate.sh` on hellbox
+2. Run: `ssh ubuntu@$HELLBOX_IP "sudo bash /tmp/remediate.sh 2>&1 | tee /tmp/remediate.log"`
+3. Expect ~3–5 minutes. Stream to user.
+4. Spot-check hardening: `ssh ubuntu@$HELLBOX_IP "sudo sshd -T 2>/dev/null | grep -E '^(passwordauthentication|permitrootlogin)'"` — expect `passwordauthentication no` and `permitrootlogin prohibit-password`
+5. Pull remediate log: `scp ubuntu@$HELLBOX_IP:/tmp/remediate.log tmp/remediate-${TIMESTAMP}.log`
+6. Mark state.phases.remediate.status = "complete".
+
+---
+
+## Phase 6 — Scan #2 (Hardened)
+
+Skip if state.phases.scan_2.status == "complete".
+
+1. Authenticate to PEEK (same as Phase 4 step 1).
+
+2. **Reuse the scan config from Phase 4.** Read `state.scan_1.config_id` (set in Phase 4 step 2). Do NOT create a new config — both scans must share a `config_id` for PEEK's compare-scans feature to work (the backend rejects cross-config comparisons with HTTP 400).
+
+   If `state.scan_1.config_id` is missing, fall back to creating a new config named `hellbox-hardened-${TIMESTAMP}` and warn the operator that PEEK's in-UI comparison will not be available for this run.
+
+3. Trigger scan against the existing config:
+   `POST /api/v1/scan-configs/${state.scan_1.config_id}/scan`. Capture `SCAN_ID`. Write to state as `scan_2_id`.
+
+4. Poll status every 60s (same as Phase 4 step 4).
+
+5. Fetch results to `tmp/hellbox-scan-2-${TIMESTAMP}.json` (same shape as Phase 4 step 5).
+
+6. Mark state.phases.scan_2.status = "complete".
+
+---
+
+## Phase 7 — Diff Guidance
+
+No auto-diff. Print to user:
+
+```
+Scan #1 results:  tmp/hellbox-scan-1-<TIMESTAMP>.json   (scan_id=<scan_1_id>)
+Scan #2 results:  tmp/hellbox-scan-2-<TIMESTAMP>.json   (scan_id=<scan_2_id>)
+
+Manual diff approaches:
+1. PEEK UI: navigate to both scan IDs and compare findings side-by-side
+2. jq quick counts:
+     jq '.vulnerabilities | length' tmp/hellbox-scan-1-*.json
+     jq '.vulnerabilities | length' tmp/hellbox-scan-2-*.json
+3. CVE list comparison:
+     jq -r '.vulnerabilities[].cve_id' tmp/hellbox-scan-1-*.json | sort -u > tmp/cves-1.txt
+     jq -r '.vulnerabilities[].cve_id' tmp/hellbox-scan-2-*.json | sort -u > tmp/cves-2.txt
+     diff tmp/cves-1.txt tmp/cves-2.txt
+
+Healthy PEEK behavior: scan #2 finds DRAMATICALLY fewer issues than scan #1.
+Most CVE detections should disappear; weak-TLS/weak-SSH/default-cred findings should disappear.
+A few stubborn findings (e.g., self-signed cert remaining) are expected — remediate-hellbox.sh
+hardens services without removing them.
+```
+
+---
+
+## Phase 8 — Teardown Reminder
+
+Print to user. DO NOT auto-execute.
+
+```
+Hellbox still running at $HELLBOX_IP (instance $INSTANCE_ID, region $AWS_REGION).
+To terminate when done:
+  aws ec2 terminate-instances --region $AWS_REGION --instance-ids $INSTANCE_ID
+
+The 'peek-hellbox-qa' security group is reusable across runs; no need to delete.
+```
+
+---
+
+## Expected Findings (Scan #1 — Vulnerable Baseline)
+
+PEEK should detect these. Mark each ✅ FOUND or ❌ MISSED after scan #1.
+
+### CVEs (10)
+
+| CVE | Service | Port | Tools |
+|-----|---------|------|-------|
+| CVE-2011-2523 | vsftpd 2.3.4 Backdoor | 21 | Nuclei, Metasploit |
+| CVE-2015-3306 | ProFTPD mod_copy | 2121 | Nuclei, Metasploit |
+| CVE-2021-41773 | Apache Path Traversal | 8080 | Nuclei, Metasploit |
+| CVE-2017-12615 | Tomcat PUT RCE | 8180 | Nuclei, Metasploit |
+| CVE-2020-1938 | Tomcat Ghostcat (AJP) | 8009 | Nuclei, Metasploit |
+| CVE-2019-15107 | Webmin RCE | 10000 | Nuclei, Metasploit |
+| CVE-2018-12613 | phpMyAdmin LFI | 80 | Nuclei |
+| CVE-2015-1427 | Elasticsearch Groovy RCE | 9200 | Nuclei, Metasploit |
+| CVE-2017-7494 | Samba SambaCry | 445 | Nuclei, Metasploit |
+| CVE-2018-7600 | Drupal Drupalgeddon2 | 8081 | Nuclei, Metasploit |
+
+### SSH (6) — ssh-audit
+
+Weak KEX (diffie-hellman-group1-sha1), weak ciphers (3des/aes-cbc), weak MACs (hmac-md5/sha1), DSA host key, PermitRootLogin yes, PasswordAuthentication yes.
+
+### TLS (6) — sslscan / testssl.sh
+
+TLSv1.0 + TLSv1.1 enabled on 443/8443/993/995, weak ciphers, self-signed cert, 1024-bit RSA, SHA1 signature.
+
+### Web (16) — Nikto / ZAP / Nuclei
+
+Dir listing, .git/.svn/.env exposed, phpinfo, server-status, backup files, database.sql, exposed creds, missing security headers, TRACE method, default Tomcat creds, WordPress detection, Swagger exposed, Spring Actuators.
+
+### Network services (14) — Nmap NSE
+
+Anonymous FTP, SNMP public/private community, telnet, VNC no auth, Redis no auth, Memcached no auth, MongoDB no auth, Docker API exposed, NFS exports, LDAP anonymous bind, finger, MySQL/PostgreSQL open.
+
+### Open ports (37) — Discovery
+
+21, 22, 23, 25, 69, 79, 80, 110, 139, 143, 161, 389, 443, 445, 993, 995, 2049, 2121, 2375, 3306, 3389, 5432, 5900, 6379, 8009, 8080, 8081, 8082, 8180, 8443, 8888, 9200, 9300, 10000, 11211, 27017.
+
+**Total: 89 expected findings.**
+
+---
+
+## Expected Improvements (Scan #2 — Post-Remediation)
+
+remediate-hellbox.sh hardens these without removing services. Expected deltas:
+
+| Category | Should disappear | Likely remains |
+|---|---|---|
+| SSH | Weak KEX/cipher/MAC, root login, password auth | Open SSH port |
+| TLS | TLSv1.0/1.1, weak ciphers, missing security headers | Self-signed cert (re-issued stronger 4096/SHA256 but still self-signed) |
+| Web | Dir listing, .git/.env/backup files, TRACE, server-status | Open ports themselves |
+| Network | Anonymous FTP, guest Samba, public SNMP | Some services may still listen |
+| DBs | Test users dropped, bind to 127.0.0.1 | Open ports may close from external scan |
+| CVE detections | Most should clear if service hardening blocks the exploit path | Some CVE signatures match version strings — may still flag |
+
+A healthy PEEK run shows scan #1 = ~89 findings, scan #2 = <20 findings. Investigate anything that doesn't disappear.
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `aws sts get-caller-identity` fails | AWS CLI not configured | `aws configure` |
+| Instance launches but SSH times out | SG missing port 22, or wrong key | Re-check SG rules and key match |
+| PEEK login returns 401 | Wrong creds, or PEEK not initialized | Check PEEK admin user setup |
+| Scan stays "pending" forever | Worker not running on PEEK | Check celery container on PEEK host |
+| Remediate script errors on `mysql -u root` | Hellbox MySQL has root password | Acceptable — script `|| true`s through it |

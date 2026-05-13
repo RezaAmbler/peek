@@ -1,0 +1,78 @@
+%% PEEK Frontend Flow (v2.2.1)
+%% Shows interaction between Frontend, Backend API, and Worker
+
+flowchart LR
+  User --> FE[Frontend UI]
+
+  subgraph "Scan Creation"
+    FE -->|Create scan| API1[/POST /api/scans/]
+    API1 --> SCAN[Scan + Targets created]
+    SCAN --> QUEUE[POST /api/scans/{id}/start]
+  end
+
+  subgraph "Worker Execution"
+    QUEUE --> Worker[Celery worker]
+    Worker --> Phase1[Nmap discovery]
+    Worker --> Phase2[Nmap service detection]
+    Worker --> Phase3[httpx probing]
+    Worker --> Phase4[Katana endpoints]
+    Worker --> Phase5[SSH audit]
+    Worker --> Phase6[Nuclei per-port]
+    Worker --> Phase7[Nuclei endpoints]
+    Worker --> Phase8[NSE scripts]
+    Worker --> Phase9[sslscan]
+    Worker --> Phase10[testssl.sh]
+    Worker --> Phase11[Nikto]
+    Worker --> Phase12[ZAP]
+  end
+
+  %% All phases write to DB
+  Phase1 --> DB[(Database)]
+  Phase2 --> DB
+  Phase3 --> DB
+  Phase4 --> DB
+  Phase5 --> DB
+  Phase6 --> DB
+  Phase7 --> DB
+  Phase8 --> DB
+  Phase9 --> DB
+  Phase10 --> DB
+  Phase11 --> DB
+  Phase12 --> DB
+
+  subgraph "Result APIs"
+    API_scan[GET /api/scans/{id}]
+    API_ports[GET /api/scans/{id}/ports]
+    API_httpx[GET /api/scans/{id}/httpx-results]
+    API_endpoints[GET /api/scans/{id}/discovered-endpoints]
+    API_vulns[GET /api/scans/{id}/vulnerabilities]
+    API_ssh[GET /api/scans/{id}/ssh-audits]
+    API_ssl[GET /api/scans/{id}/sslscan-results]
+  end
+
+  DB --> API_scan
+  DB --> API_ports
+  DB --> API_httpx
+  DB --> API_endpoints
+  DB --> API_vulns
+  DB --> API_ssh
+  DB --> API_ssl
+
+  API_scan --> FE
+  API_ports --> FE
+  API_httpx --> FE
+  API_endpoints --> FE
+  API_vulns --> FE
+  API_ssh --> FE
+  API_ssl --> FE
+
+  subgraph "Compare Flow"
+    FE -->|Open compare modal| API_comparable[GET /api/scans/{id}/comparable]
+    DB --> API_comparable
+    API_comparable -->|Same config_hash scans| FE
+    FE -->|Submit compare| API_compare[POST /api/comparisons/compare]
+    API_compare -->|Validates matching config_hash| DB
+    API_compare -->|Enriched diff| FE
+  end
+
+  FE --> User

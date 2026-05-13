@@ -1,0 +1,117 @@
+# PEEK End-to-End QA
+
+Top-level orchestrator. Invokes peek-deploy.prompt then hellbox-qa.prompt in sequence, sharing a single state file. Total runtime: 80–110 minutes.
+
+---
+
+## What this does
+
+1. Provisions a PEEK production EC2 (12–20 min) — peek-deploy.prompt
+2. Provisions a hellbox EC2 + installs vulnerable services (15–25 min) — hellbox-qa.prompt phases 1–3
+3. PEEK scans hellbox (vulnerable baseline) (15–30 min) — hellbox-qa.prompt phase 4
+4. Remediates hellbox in place (5–10 min) — hellbox-qa.prompt phase 5
+5. PEEK scans hellbox again (post-remediation) (15–30 min) — hellbox-qa.prompt phase 6
+6. Prints diff guidance + teardown commands — hellbox-qa.prompt phases 7–8
+
+Operator reviews `tmp/hellbox-scan-1-*.json` vs `tmp/hellbox-scan-2-*.json` and instructs cleanup manually.
+
+---
+
+## Prerequisites
+
+Same as peek-deploy.prompt + hellbox-qa.prompt. Notably:
+- `aws sts get-caller-identity` succeeds
+- AWS region has an Ubuntu 22.04 AMI available via SSM (default in all regions)
+- A working keypair exists in the target region with the matching .pem locally
+- `aws`, `jq`, `ssh`, `scp`, `curl`, `rsync`, `openssl` installed
+- This repo checked out; prompts are referenced by relative path
+
+---
+
+## Configuration
+
+Single config block; the sub-prompts auto-discover the rest.
+
+```
+# Optional — leave empty for full auto-discovery
+AWS_REGION=""
+AWS_KEY_NAME=""
+SSH_KEY_PATH=""
+
+# PEEK admin creds (passed through to hellbox-qa.prompt)
+PEEK_USERNAME="admin"
+PEEK_PASSWORD="admin"
+
+# Skip flags — set to "skip" if you already have a deployed PEEK
+SKIP_PEEK_DEPLOY=""    # set to "skip" to bypass peek-deploy.prompt
+EXISTING_PEEK_URL=""   # required if SKIP_PEEK_DEPLOY=skip
+```
+
+---
+
+## Phase A — PEEK deploy (conditional)
+
+If `SKIP_PEEK_DEPLOY` == "skip":
+1. `EXISTING_PEEK_URL` must be set; STOP with an error if not.
+2. Verify reachability: `curl -fsS "${EXISTING_PEEK_URL}/api/health"` must succeed.
+3. Initialize a fresh state file: `tmp/peek-qa-state-<TIMESTAMP>.json` with `peek.url = "$EXISTING_PEEK_URL"` and `peek.externally_deployed = true`.
+4. Skip to Phase B.
+
+Otherwise:
+1. Execute scripts/qa/peek-deploy.prompt with the operator's AWS_REGION/AWS_KEY_NAME/SSH_KEY_PATH (or auto-discovery).
+2. After it completes successfully, the state file will exist at tmp/peek-qa-state-<TIMESTAMP>.json with peek.url populated.
+3. If peek-deploy.prompt fails, STOP and report — do NOT proceed to Phase B.
+
+---
+
+## Phase B — Hellbox QA
+
+1. Execute scripts/qa/hellbox-qa.prompt. It will auto-read the state file from Phase A.
+2. Stream output to the operator. The sub-prompt handles its own pre-flight, AWS discovery, hellbox provisioning, scan-1, remediate, scan-2, and diff guidance.
+3. If hellbox-qa.prompt fails at any phase, STOP and report. Hellbox EC2 may still be running — print the manual termination command (Phase 8 of hellbox-qa.prompt handles this normally).
+
+---
+
+## Phase C — Operator handoff
+
+Print to user:
+
+```
+End-to-end QA complete.
+
+State file:    tmp/peek-qa-state-<TIMESTAMP>.json
+Scan 1 results: tmp/hellbox-scan-1-<TIMESTAMP>.json
+Scan 2 results: tmp/hellbox-scan-2-<TIMESTAMP>.json
+Setup logs:    tmp/peek-deploy-*.log, tmp/hellbox-setup-*.log, tmp/remediate-*.log
+
+Review the scan results, then tell Claude Code to clean up AWS resources.
+Suggested cleanup command (Claude Code can run this when you instruct):
+
+  PEEK_INSTANCE=$(jq -r '.peek.instance_id' tmp/peek-qa-state-<TIMESTAMP>.json)
+  HELLBOX_INSTANCE=$(jq -r '.hellbox.instance_id' tmp/peek-qa-state-<TIMESTAMP>.json)
+  REGION=$(jq -r '.config.aws_region' tmp/peek-qa-state-<TIMESTAMP>.json)
+  aws ec2 terminate-instances --region $REGION \
+    --instance-ids $PEEK_INSTANCE $HELLBOX_INSTANCE
+
+(The peek-prod-sg and peek-hellbox-qa security groups are reusable; leave them.)
+```
+
+---
+
+## Resume / failure recovery
+
+- Both sub-prompts are independently resumable from the shared state file.
+- If Phase A succeeds but Phase B fails partway, re-running this prompt with the same state file (set `SKIP_PEEK_DEPLOY=skip` and `EXISTING_PEEK_URL` to the deployed PEEK) resumes from the failing hellbox phase.
+- If both fully fail, delete the state file and start fresh.
+
+---
+
+## Cost estimate (us-east-1, on-demand)
+
+| Resource | Type | Rate | Typical lifetime |
+|---|---|---|---|
+| PEEK box | t3.medium | $0.0416/hr | Run + review = 2–4 hrs |
+| Hellbox box | t3.large | $0.0832/hr | 60–90 min |
+| EBS gp3 (2 × 30 GB) | — | $0.08/GB-mo | minutes |
+
+Typical full run + 2-hour review: under $1. Forgotten EC2 left running: $30/month. Tear down promptly.

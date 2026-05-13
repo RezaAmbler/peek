@@ -1,0 +1,544 @@
+# Nuclei Service Profile Configuration
+# =====================================
+#
+# Maps Nmap service detection to Nuclei scanning configuration.
+#
+# HOW TO ADD NEW SERVICES:
+# 1. Check if nuclei has templates: nuclei -tl -tags <service_name>
+# 2. If templates exist, add entry below
+# 3. Network services use: target_format: host_port, tags: [<service>]
+# 4. HTTP-based services use: target_format: url, protocol: http/https
+# NOTE: Avoid broad tags like 'network' - they add 300+ templates and cause timeouts
+#
+# TEMPLATE TAG DISCOVERY:
+#   docker exec peek-celery-1 nuclei -tl -tags <tag_name>
+#
+# Common nuclei tags: ssh, ftp, mysql, redis, mongodb, smtp, dns,
+#                     rdp, vnc, ldap, network, default-login, cve
+
+# ============================================
+# Template Exclusions
+# ============================================
+# Templates to exclude from all scans
+# These are typically noisy, slow, or produce false positives
+# NOTE: Avoid broad exclusions like http/miscellaneous/ - it blocks robots-txt and other useful findings
+excluded_templates:
+  - http/miscellaneous/external-service-interaction.yaml  # Noisy, low value
+  - http/technologies/fingerprinthub-web-fingerprints.yaml
+
+# ============================================
+# Scan Mode Configurations
+# ============================================
+# fast = targeted tags for HTTP (focuses on real vulnerabilities)
+# deep = comprehensive CVE and vulnerability scan (prevents timeout issues)
+# NOTE: Empty tags [] causes timeouts on HTTP services (>5000 templates)
+scan_modes:
+  fast:
+    # Use 'cve' (singular) to match nuclei template tags
+    http_tags: [cve, vulnerabilities, exposures]
+    description: "Fast scan - focuses on known CVEs and common vulnerabilities"
+  deep:
+    # Use 'cve' (singular) to match nuclei template tags
+    http_tags: [cve, vulnerabilities, exposures, misconfigurations, default-login, config, unauth, injection, rce, lfi, sqli, xss, ssrf, idor, panel]
+    description: "Deep scan - comprehensive CVE and vulnerability detection without timeout"
+
+# ============================================
+# Technology Tags (from httpx detection)
+# ============================================
+# Maps httpx technology fingerprints to nuclei tags.
+# These enhance base service profiles with more specific templates.
+# When httpx detects a technology, the corresponding tags are ADDED
+# to the nuclei scan for more targeted vulnerability detection.
+#
+# NOTE: Only applied when using tag-based scanning (not comprehensive mode)
+technology_tags:
+  # --- CMS ---
+  wordpress: [wordpress, wp]
+  drupal: [drupal]
+  joomla: [joomla]
+  magento: [magento]
+  ghost: [ghost]
+  strapi: [strapi]
+  typo3: [typo3]
+  prestashop: [prestashop]
+
+  # --- Frameworks ---
+  laravel: [laravel, php]
+  symfony: [symfony, php]
+  django: [django, python]
+  flask: [flask, python]
+  rails: [rails, ruby]
+  spring: [spring, java]
+  express: [express, node]
+  next.js: [nextjs, react]
+  nuxt: [nuxt, vue]
+  angular: [angular]
+  react: [react]
+  vue: [vue]
+
+  # --- Servers ---
+  nginx: [nginx]
+  apache: [apache]
+  iis: [iis]
+  tomcat: [tomcat]
+  caddy: [caddy]
+  litespeed: [litespeed]
+
+  # --- Databases (HTTP interfaces) ---
+  phpmyadmin: [phpmyadmin, mysql]
+  pgadmin: [pgadmin, postgres]
+  adminer: [adminer]
+  mongo-express: [mongodb]
+
+  # --- DevOps / CI/CD ---
+  jenkins: [jenkins]
+  gitlab: [gitlab]
+  gitea: [gitea]
+  bamboo: [bamboo]
+  teamcity: [teamcity]
+  artifactory: [artifactory]
+  sonarqube: [sonarqube]
+  nexus: [nexus]
+  harbor: [harbor]
+  argocd: [argocd]
+  drone: [drone]
+
+  # --- Monitoring / Observability ---
+  grafana: [grafana]
+  prometheus: [prometheus]
+  kibana: [kibana]
+  elasticsearch: [elasticsearch]
+  zabbix: [zabbix]
+  nagios: [nagios]
+  graylog: [graylog]
+
+  # --- Panels / Management ---
+  cpanel: [cpanel]
+  plesk: [plesk]
+  webmin: [webmin]
+  cockpit: [cockpit]
+  portainer: [portainer]
+  rancher: [rancher]
+
+  # --- Security / Identity ---
+  keycloak: [keycloak]
+  vault: [vault]
+  consul: [consul]
+
+  # --- Cloud / Infrastructure ---
+  kubernetes: [kubernetes, k8s]
+  docker: [docker]
+  minio: [minio]
+  nextcloud: [nextcloud]
+  owncloud: [owncloud]
+
+# ============================================
+# Port-Based Fallback Hints
+# ============================================
+# Used when nmap service detection fails but port is well-known
+port_hints:
+  21: ftp
+  22: ssh
+  23: telnet
+  25: smtp
+  53: dns
+  80: http
+  110: pop3
+  143: imap
+  443: ssl/http
+  445: smb
+  993: ssl/imap
+  995: ssl/pop3
+  1433: ms-sql-s
+  1521: oracle
+  3306: mysql
+  3389: rdp
+  5432: postgresql
+  5672: amqp
+  5900: vnc
+  6379: redis
+  8080: http
+  8443: ssl/http
+  9200: elasticsearch
+  11211: memcached
+  27017: mongodb
+
+# ============================================
+# Service Profiles
+# ============================================
+#
+# target_format: 'url' (http://ip:port) or 'host_port' (ip:port)
+# protocol: 'http', 'https', or null (for non-HTTP)
+# tags: List of nuclei template tags to use
+# timeout_multiplier: Adjust scan timeout (1.0 = default)
+
+service_profiles:
+  # --- HTTP Services (require URL format) ---
+  # NOTE: Empty tags [] means run ALL templates (comprehensive scan)
+  # Nuclei will use -severity filtering only, no tag filtering
+  http:
+    target_format: url
+    protocol: http
+    tags: []  # Comprehensive - all templates
+
+  https:
+    target_format: url
+    protocol: https
+    tags: []  # Comprehensive - all templates
+
+  http-proxy:
+    target_format: url
+    protocol: http
+    tags: []  # Comprehensive - all templates
+
+  http-alt:
+    target_format: url
+    protocol: http
+    tags: []  # Comprehensive - all templates
+
+  # MiniServ is Webmin's HTTP server - requires HTTPS for CVE detection
+  # NOTE: Use lowercase 'miniserv' to match Nmap service detection output
+  miniserv:
+    target_format: url
+    protocol: https
+    tags: [webmin, cve, panel, default-login]
+    timeout_multiplier: 1.5
+
+  ssl/http:
+    target_format: url
+    protocol: https
+    tags: []  # Comprehensive - all templates
+
+  # --- Network Services (use host:port format) ---
+  # Use service-specific tags only (no 'network' tag) for faster scans
+
+  ssh:
+    target_format: host_port
+    tags: [ssh]
+    timeout_multiplier: 1.0
+
+  ftp:
+    target_format: host_port
+    tags: [ftp]
+    timeout_multiplier: 1.0
+
+  mysql:
+    target_format: host_port
+    tags: [mysql]
+    timeout_multiplier: 1.0
+    rate_limit: 50  # Slower for databases
+
+  postgresql:
+    target_format: host_port
+    tags: [postgres]
+    timeout_multiplier: 1.0
+    rate_limit: 50  # Slower for databases
+
+  redis:
+    target_format: host_port
+    tags: [redis]
+    timeout_multiplier: 1.0
+    rate_limit: 50  # Slower for databases
+
+  mongodb:
+    target_format: host_port
+    tags: [mongodb]
+    timeout_multiplier: 1.0
+    rate_limit: 50  # Slower for databases
+
+  memcached:
+    target_format: host_port
+    tags: [memcached]
+    timeout_multiplier: 1.0
+    rate_limit: 50  # Slower for caching services
+
+  smtp:
+    target_format: host_port
+    tags: [smtp]
+    timeout_multiplier: 1.0
+
+  rdp:
+    target_format: host_port
+    tags: [rdp]
+    timeout_multiplier: 1.0
+
+  ms-wbt-server:  # RDP alternate name
+    target_format: host_port
+    tags: [rdp]
+    timeout_multiplier: 1.0
+
+  vnc:
+    target_format: host_port
+    tags: [vnc]
+    timeout_multiplier: 1.0
+
+  telnet:
+    target_format: host_port
+    tags: [telnet]
+    timeout_multiplier: 1.0
+
+  ldap:
+    target_format: host_port
+    tags: [ldap]
+    timeout_multiplier: 1.0
+    rate_limit: 50  # Slower for sensitive services
+
+  dns:
+    target_format: host_port
+    tags: [dns]
+    timeout_multiplier: 1.0
+
+  domain:  # DNS alternate name
+    target_format: host_port
+    tags: [dns]
+    timeout_multiplier: 1.0
+
+  # --- SMB / Windows Services ---
+  # microsoft-ds is Nmap's name for SMB over port 445
+  microsoft-ds:
+    target_format: host_port
+    tags: [smb, windows, cve, samba]
+    timeout_multiplier: 1.0
+
+  netbios-ssn:  # NetBIOS Session Service (port 139)
+    target_format: host_port
+    tags: [smb, windows, netbios, samba]
+    timeout_multiplier: 1.0
+
+  # --- Java / Application Servers ---
+  # AJP (Apache JServ Protocol) - used by Tomcat
+  ajp13:
+    target_format: host_port
+    tags: [tomcat, ajp, cve, java]
+    timeout_multiplier: 1.0
+
+  # Elasticsearch
+  elasticsearch:
+    target_format: url
+    protocol: http
+    tags: [elasticsearch, cve, database]
+    timeout_multiplier: 1.0
+
+  # --- IoT / Embedded Protocols ---
+  upnp:
+    target_format: host_port
+    tags: [upnp, iot]
+    timeout_multiplier: 1.0
+
+  rtsp:
+    target_format: host_port
+    tags: [rtsp]
+    timeout_multiplier: 1.0
+
+  sip:
+    target_format: host_port
+    tags: [sip, voip]
+    timeout_multiplier: 1.0
+
+  mqtt:
+    target_format: host_port
+    tags: [mqtt, iot]
+    timeout_multiplier: 1.0
+
+  coap:
+    target_format: host_port
+    tags: [coap, iot]
+    timeout_multiplier: 1.0
+
+  modbus:
+    target_format: host_port
+    tags: [modbus, iot, ics]
+    timeout_multiplier: 1.0
+
+  bacnet:
+    target_format: host_port
+    tags: [bacnet, iot, ics]
+    timeout_multiplier: 1.0
+
+# ============================================
+# Fallback for Unknown Services
+# ============================================
+# If a service isn't listed above, the mapper will:
+# 1. Try using service_name as a nuclei tag
+# 2. Use host:port format
+# Set to false to skip unknown services entirely
+scan_unknown_services: true
+
+# ============================================
+# Product Tag Additions
+# ============================================
+# When nmap detects a specific product, these tags are ADDED
+# to enhance scanning. Key = substring to match (lowercase).
+
+product_tags:
+  # ===========================================
+  # Web Servers / Proxies
+  # ===========================================
+  apache: [apache]
+  nginx: [nginx]
+  tomcat: [tomcat]
+  iis: [iis]
+  lighttpd: [lighttpd]
+  haproxy: [haproxy]
+  caddy: [caddy]
+  traefik: [traefik]
+  squid: [squid]
+  varnish: [varnish]
+  litespeed: [litespeed]
+
+  # ===========================================
+  # CMS / Web Applications
+  # ===========================================
+  wordpress: [wordpress, wp]
+  drupal: [drupal]
+  joomla: [joomla]
+  magento: [magento]
+  prestashop: [prestashop]
+  typo3: [typo3]
+  ghost: [ghost]
+  strapi: [strapi]
+
+  # ===========================================
+  # DevOps / CI/CD
+  # ===========================================
+  jenkins: [jenkins]
+  gitlab: [gitlab]
+  gitea: [gitea]
+  bamboo: [bamboo]
+  teamcity: [teamcity]
+  artifactory: [artifactory]
+  sonarqube: [sonarqube]
+  nexus: [nexus]
+  harbor: [harbor]
+  argocd: [argocd]
+  drone: [drone]
+
+  # ===========================================
+  # Monitoring / Observability
+  # ===========================================
+  grafana: [grafana]
+  prometheus: [prometheus]
+  kibana: [kibana]
+  elasticsearch: [elasticsearch]
+  zabbix: [zabbix]
+  nagios: [nagios]
+  splunk: [splunk]
+  datadog: [datadog]
+  graylog: [graylog]
+
+  # ===========================================
+  # Databases
+  # ===========================================
+  mariadb: [mariadb]
+  mysql: [mysql]
+  postgres: [postgres]
+  mongodb: [mongodb]
+  couchdb: [couchdb]
+  cassandra: [cassandra]
+  oracle: [oracle]
+  mssql: [mssql]
+  cockroach: [cockroach]
+
+  # ===========================================
+  # Message Queues / Caching
+  # ===========================================
+  rabbitmq: [rabbitmq]
+  kafka: [kafka]
+  activemq: [activemq]
+  redis: [redis]
+  memcached: [memcached]
+  nats: [nats]
+
+  # ===========================================
+  # Network / Infrastructure
+  # ===========================================
+  openssh: [openssh]
+  dropbear: [dropbear]
+  mikrotik: [mikrotik]
+  cisco: [cisco]
+  fortinet: [fortinet]
+  pfsense: [pfsense]
+  opnsense: [opnsense]
+  sonicwall: [sonicwall]
+  paloalto: [paloalto]
+  ubiquiti: [ubiquiti]
+
+  # ===========================================
+  # File / Storage Services
+  # ===========================================
+  vsftpd: [vsftpd]
+  proftpd: [proftpd]
+  pureftpd: [pureftpd]
+  samba: [samba]
+  minio: [minio]
+  nextcloud: [nextcloud]
+  owncloud: [owncloud]
+  seafile: [seafile]
+
+  # ===========================================
+  # Mail Servers
+  # ===========================================
+  postfix: [postfix]
+  exim: [exim]
+  dovecot: [dovecot]
+  sendmail: [sendmail]
+  zimbra: [zimbra]
+  exchange: [exchange]
+  roundcube: [roundcube]
+
+  # ===========================================
+  # API / Application Servers
+  # ===========================================
+  spring: [spring]
+  weblogic: [weblogic]
+  websphere: [websphere]
+  jboss: [jboss]
+  wildfly: [wildfly]
+  glassfish: [glassfish]
+  flask: [flask]
+  django: [django]
+  rails: [rails]
+  express: [express]
+  node: [node]
+  php: [php]
+  laravel: [laravel]
+
+  # ===========================================
+  # Virtualization / Containers
+  # ===========================================
+  vmware: [vmware]
+  proxmox: [proxmox]
+  docker: [docker]
+  kubernetes: [kubernetes]
+  portainer: [portainer]
+  rancher: [rancher]
+
+  # ===========================================
+  # Security / Identity
+  # ===========================================
+  keycloak: [keycloak]
+  vault: [vault]
+  consul: [consul]
+
+  # ===========================================
+  # Panels / Management
+  # ===========================================
+  cpanel: [cpanel]
+  plesk: [plesk]
+  webmin: [webmin]
+  cockpit: [cockpit]
+  phpmyadmin: [phpmyadmin]
+  pgadmin: [pgadmin]
+  adminer: [adminer]
+
+  # ===========================================
+  # Cloud Providers
+  # ===========================================
+  aws: [aws, cloud]
+  amazon: [aws, cloud]
+  gcp: [gcp, cloud]
+  google: [gcp, cloud]
+  azure: [azure, cloud]
+  digitalocean: [digitalocean, cloud]
+  linode: [linode, cloud]
+  cloudflare: [cloudflare, cloud, cdn]

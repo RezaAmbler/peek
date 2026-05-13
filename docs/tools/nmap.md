@@ -1,0 +1,111 @@
+# Nmap
+
+Nmap (Network Mapper) is used for port discovery and service detection in Phases 1 and 2.
+
+## Phases
+
+| Phase | Purpose | Function |
+|-------|---------|----------|
+| 1 | Port Discovery | `run_nmap_discovery()` - Find open ports |
+| 2 | Service Detection | `run_nmap()` - Identify services on open ports |
+
+## Wrapper Location
+
+`backend/app/tools/nmap.py`
+
+## Parser Location
+
+- `backend/app/parsers/nmap_discovery_parser.py` - Phase 1 parsing
+- `backend/app/parsers/nmap_parser.py` - Phase 2 parsing
+
+## Functions
+
+### run_nmap_discovery()
+
+Discovers open ports on a target using TCP connect scan.
+
+```python
+def run_nmap_discovery(
+    ip: str,
+    timing_template: str = "T4",
+    timeout: int = 600,
+    top_ports: Optional[int] = None,  # Deprecated
+    additional_ports: Optional[str] = None,
+    full_scan: bool = False
+) -> Tuple[bool, str, Optional[str]]
+```
+
+**Default Behavior**: Scans top 100 TCP ports from `NMAP_TOP_100_PORTS` list.
+
+**Command Pattern**:
+```bash
+sudo nmap -Pn -sT -T4 --open --max-retries 2 --host-timeout 600s -p <ports> -oX output.xml <target>
+```
+
+### run_nmap()
+
+Runs service version detection on discovered ports.
+
+```python
+def run_nmap(
+    ip: str,
+    ports: List[int],
+    nmap_args: List[str],
+    timeout: int = 600
+) -> Tuple[bool, str, Optional[str]]
+```
+
+**Command Pattern**:
+```bash
+nmap -sT -sV -sC -T2 -Pn -p <ports> -oX output.xml <target>
+```
+
+## Configuration Options
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| `nmap_args` | Custom nmap arguments | `["-sT", "-sV", "-sC", "-T2", "-Pn"]` |
+| `discovery_top_ports` | Number of top ports (deprecated) | 100 |
+| `additional_ports` | Extra ports to scan | None |
+
+## Output Format
+
+Nmap outputs XML which is parsed into Port records:
+
+```python
+{
+    "port": 22,
+    "protocol": "tcp",
+    "state": "open",
+    "service_name": "ssh",
+    "product": "OpenSSH",
+    "version": "8.2p1 Ubuntu 4ubuntu0.5",
+    "extra_info": {"scripts": {...}}
+}
+```
+
+## Top 100 Ports
+
+The discovery phase scans these ports by default:
+
+```
+7, 9, 13, 21, 22, 23, 25, 26, 37, 53, 79, 80, 81, 88, 106, 110, 111,
+113, 119, 135, 139, 143, 144, 179, 199, 389, 427, 443, 444, 445, 465,
+513, 514, 515, 543, 544, 548, 554, 587, 631, 646, 873, 990, 993, 995,
+1025, 1026, 1027, 1028, 1029, 1110, 1433, 1720, 1723, 1755, 1900,
+2000, 2001, 2049, 2121, 2717, 3000, 3128, 3306, 3389, 3986, 4899,
+5000, 5009, 5051, 5060, 5101, 5190, 5357, 5432, 5631, 5666, 5800,
+5900, 6000, 6001, 6646, 7070, 8000, 8008, 8009, 8080, 8081, 8443,
+8888, 9100, 9999, 10000, 32768, 49152, 49153, 49154, 49155, 49156
+```
+
+## Security Notes
+
+- Input validation prevents command injection via `validate_target()` and `validate_port_list()`
+- Uses `-sT` (TCP connect) instead of `-sS` (SYN scan) for Docker compatibility
+- Sudo required for raw socket operations
+
+## Related
+
+- [Nmap NSE](nmap-nse.md) - Nmap Scripting Engine for advanced checks
+- [Scan Lifecycle](../scan-lifecycle.md) - Phases 1 and 2 details
