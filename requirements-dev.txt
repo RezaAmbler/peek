@@ -5,9 +5,9 @@
 -r backend/requirements.txt
 
 # Test runner and async support
-pytest==8.4.2
-pytest-asyncio==1.2.0
-pytest-cov==5.0.0
+pytest==9.1.1
+pytest-asyncio==1.4.0
+pytest-cov==7.1.0
 
 # Security auditing (run with: pip-audit -r backend/requirements.txt)
-pip-audit==2.7.3
+pip-audit==2.10.1
