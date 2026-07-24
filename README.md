@@ -19,7 +19,7 @@ Port Enumeration & Evaluation Kit
 
 **Modern network security scanner with historical comparison capabilities**
 
-[Features](#-features) • [Quick Start](#-quick-start) • [Architecture](#-architecture) • [Documentation](#-documentation) • [Contributing](#-contributing)
+[Features](#-features) • [Screenshots](#-screenshots) • [Quick Start](#-quick-start) • [Architecture](#-architecture) • [Documentation](#-documentation) • [Contributing](#-contributing)
 
 </div>
 
@@ -37,6 +37,60 @@ Port Enumeration & Evaluation Kit
 - **Flexible Scheduling**: Configure recurring scans with cron-based scheduling
 - **Rich Reporting**: Export findings in PDF, HTML, and CSV formats
 - **Modern UI**: Dark mode support, real-time progress tracking, and intuitive dashboards
+
+---
+
+## 📸 Screenshots
+
+A walkthrough of PEEK scanning a host, drilling into findings, and comparing results over time. Target addresses shown are documentation placeholders (`203.0.113.0/24`).
+
+### Dashboard
+
+At-a-glance security posture: totals, severity breakdown, top vulnerable hosts, discovered services, and recent activity.
+
+![PEEK dashboard](docs/screenshots/dashboard.png)
+
+### Scans
+
+Every run is tracked with its status, target count, and open-port total.
+
+![Scan list](docs/screenshots/scans-list.png)
+
+Each scan opens to a detailed view with summary tiles, timing, and per-host results.
+
+![Scan detail](docs/screenshots/scan-detail.png)
+
+### Discovered ports & services
+
+Nmap service detection identifies the product and version behind every open port.
+
+![Discovered ports](docs/screenshots/ports.png)
+
+### Vulnerability findings
+
+Findings are enriched with template IDs, matched endpoints, references, and extracted evidence.
+
+![Vulnerability detail](docs/screenshots/vulnerability-detail.png)
+
+### Historical comparison
+
+Compare any two scans of the same target to see exactly what changed — new and closed ports, and fixed vs. newly introduced vulnerabilities. Below, a hardening pass closes database ports and clears 35 findings.
+
+![Scan comparison](docs/screenshots/scan-comparison.png)
+
+### Configuration & scheduling
+
+Build reusable scan profiles that toggle each tool and tune its parameters.
+
+![Scan configurations](docs/screenshots/configs.png)
+
+Launch an ad-hoc scan from any profile…
+
+![New scan](docs/screenshots/new-scan.png)
+
+…or schedule recurring scans with cron expressions for continuous monitoring.
+
+![Scheduled scans](docs/screenshots/scheduled-scans.png)
 
 ---
 
