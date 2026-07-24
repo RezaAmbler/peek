@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from '@tanstack/react-router';
+import axios from 'axios';
 import { scansApi, SSHAudit, Vulnerability } from '../api/scans';
 import { comparisonsApi } from '../api/comparisons';
 import { API_BASE_URL } from '../api/client';
@@ -213,9 +214,9 @@ export function ScanDetail() {
       setShowCompareModal(false);
       navigate({ to: `/comparisons/${comparison.id}` });
     },
-    onError: (error: any) => {
-      const msg = error?.response?.data?.detail
-        || error?.message
+    onError: (error: unknown) => {
+      const msg = (axios.isAxiosError(error) ? error.response?.data?.detail : undefined)
+        || (error instanceof Error ? error.message : undefined)
         || 'Comparison failed. Please try again.';
       setCompareError(msg);
     },
@@ -253,7 +254,7 @@ export function ScanDetail() {
     if (!ports) return [];
 
     // Filter by host
-    let filtered = hostFilter
+    const filtered = hostFilter
       ? ports.filter((p: PortData) => p.ip_address === hostFilter)
       : ports;
 

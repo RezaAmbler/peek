@@ -145,7 +145,7 @@ export function ComparisonView() {
               // Empty lines
               if (!line.trim()) return null;
               // Lines with emoji stats (duplicates of boxes above) - skip them
-              if (line.match(/^[📊🟢🔴🟡]/)) return null;
+              if (line.match(/^[📊🟢🔴🟡]/u)) return null;
               // Date lines
               return (
                 <p key={idx} className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">

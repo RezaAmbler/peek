@@ -1,11 +1,16 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import axios from 'axios';
 import { usersApi, User, CreateUserRequest, UpdateUserRequest } from '../../api/users';
 import { useAuth } from '../../hooks/useAuth';
 import { Navigation } from '../../components/Navigation';
 import { UserModal } from '../../components/UserModal';
 import { UserForm, UserFormData } from '../../components/UserForm';
 import toast from 'react-hot-toast';
+
+// Extract the API error detail (if any) from a thrown error.
+const getErrorDetail = (error: unknown) =>
+  axios.isAxiosError(error) ? error.response?.data?.detail : undefined;
 
 export function Users() {
   const { user: currentUser } = useAuth();
@@ -41,8 +46,8 @@ export function Users() {
       setShowCreateModal(false);
       toast.success('User created successfully');
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.detail || 'Failed to create user');
+    onError: (error: unknown) => {
+      toast.error(getErrorDetail(error) || 'Failed to create user');
     },
   });
 
@@ -55,8 +60,8 @@ export function Users() {
       setEditingUser(null);
       toast.success('User updated successfully');
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.detail || 'Failed to update user');
+    onError: (error: unknown) => {
+      toast.error(getErrorDetail(error) || 'Failed to update user');
     },
   });
 
@@ -67,8 +72,8 @@ export function Users() {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       toast.success('User deleted successfully');
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.detail || 'Failed to delete user');
+    onError: (error: unknown) => {
+      toast.error(getErrorDetail(error) || 'Failed to delete user');
     },
   });
 
@@ -81,8 +86,8 @@ export function Users() {
       setNewPassword('');
       toast.success('Password reset successfully');
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.detail || 'Failed to reset password');
+    onError: (error: unknown) => {
+      toast.error(getErrorDetail(error) || 'Failed to reset password');
     },
   });
 

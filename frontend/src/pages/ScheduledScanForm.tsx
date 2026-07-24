@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import axios from 'axios';
 import { scheduledScansApi, CreateScheduledScanRequest } from '../api/scheduled_scans';
 import { configsApi } from '../api/configs';
 import { Navigation } from '../components/Navigation';
@@ -55,9 +56,11 @@ export function ScheduledScanForm() {
   }, [existingSchedule]);
 
   useEffect(() => {
-    if (configs && configs.configs.length > 0 && !formData.config_id) {
+    if (configs && configs.configs.length > 0) {
       const defaultConfig = configs.configs.find(c => c.is_default) || configs.configs[0];
-      setFormData(prev => ({ ...prev, config_id: defaultConfig.id }));
+      // Only seed a default when no configuration has been chosen yet; reading
+      // from `prev` keeps this out of the effect deps and preserves behavior.
+      setFormData(prev => (prev.config_id ? prev : { ...prev, config_id: defaultConfig.id }));
     }
   }, [configs]);
 
@@ -68,8 +71,9 @@ export function ScheduledScanForm() {
       toast.success('Scheduled scan created');
       navigate({ to: '/scheduled-scans' });
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.detail || 'Failed to create scheduled scan');
+    onError: (error: unknown) => {
+      const detail = axios.isAxiosError(error) ? error.response?.data?.detail : undefined;
+      toast.error(detail || 'Failed to create scheduled scan');
     },
   });
 
@@ -80,8 +84,9 @@ export function ScheduledScanForm() {
       toast.success('Scheduled scan updated');
       navigate({ to: '/scheduled-scans' });
     },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.detail || 'Failed to update scheduled scan');
+    onError: (error: unknown) => {
+      const detail = axios.isAxiosError(error) ? error.response?.data?.detail : undefined;
+      toast.error(detail || 'Failed to update scheduled scan');
     },
   });
 
@@ -141,8 +146,9 @@ export function ScheduledScanForm() {
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Basic Information</h2>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name *</label>
+                <label htmlFor="schedule-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name *</label>
                 <input
+                  id="schedule-name"
                   type="text"
                   required
                   value={formData.name}
@@ -153,8 +159,9 @@ export function ScheduledScanForm() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
+                <label htmlFor="schedule-description" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
                 <textarea
+                  id="schedule-description"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   rows={2}
@@ -170,8 +177,9 @@ export function ScheduledScanForm() {
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Schedule</h2>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Cron Expression *</label>
+                <label htmlFor="cron-expression" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Cron Expression *</label>
                 <input
+                  id="cron-expression"
                   type="text"
                   required
                   value={formData.cron_expression}
@@ -181,7 +189,7 @@ export function ScheduledScanForm() {
                   data-testid="input-cron-expression"
                 />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Format: minute hour day month weekday (e.g., "0 2 * * 1" = Every Monday at 2 AM)
+                  Format: minute hour day month weekday (e.g., &quot;0 2 * * 1&quot; = Every Monday at 2 AM)
                 </p>
 
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -200,8 +208,9 @@ export function ScheduledScanForm() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Timezone</label>
+                <label htmlFor="schedule-timezone" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Timezone</label>
                 <input
+                  id="schedule-timezone"
                   type="text"
                   value={formData.timezone}
                   onChange={(e) => setFormData({ ...formData, timezone: e.target.value })}
@@ -218,8 +227,9 @@ export function ScheduledScanForm() {
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Scan Configuration</h2>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Configuration *</label>
+                <label htmlFor="schedule-config" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Configuration *</label>
                 <select
+                  id="schedule-config"
                   required
                   value={formData.config_id}
                   onChange={(e) => setFormData({ ...formData, config_id: e.target.value })}
@@ -236,8 +246,9 @@ export function ScheduledScanForm() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Targets *</label>
+                <label htmlFor="schedule-targets" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Targets *</label>
                 <textarea
+                  id="schedule-targets"
                   required
                   value={targetsText}
                   onChange={(e) => setTargetsText(e.target.value)}
@@ -247,7 +258,7 @@ export function ScheduledScanForm() {
                   data-testid="textarea-schedule-targets"
                 />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  One target per line. Format: "ip_address" or "device_name,ip_address"
+                  One target per line. Format: &quot;ip_address&quot; or &quot;device_name,ip_address&quot;
                 </p>
               </div>
             </div>
@@ -330,8 +341,9 @@ export function ScheduledScanForm() {
               </label>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Email Recipients</label>
+                <label htmlFor="schedule-email-recipients" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Email Recipients</label>
                 <input
+                  id="schedule-email-recipients"
                   type="text"
                   value={emailsText}
                   onChange={(e) => setEmailsText(e.target.value)}

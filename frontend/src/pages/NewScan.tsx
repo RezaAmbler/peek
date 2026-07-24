@@ -1,22 +1,23 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
+import axios from 'axios';
 import { scansApi, CreateScanRequest } from '../api/scans';
 import { configsApi } from '../api/configs';
 import { Navigation } from '../components/Navigation';
 
 // Helper to extract error message from various error formats
-function getErrorMessage(err: any): string {
+function getErrorMessage(err: unknown): string {
   if (typeof err === 'string') return err;
-  if (err?.response?.data?.detail) {
-    const detail = err.response.data.detail;
+  if (axios.isAxiosError(err)) {
+    const detail = err.response?.data?.detail;
     if (typeof detail === 'string') return detail;
     if (Array.isArray(detail) && detail.length > 0) {
-      return detail.map((d: any) => d.msg || JSON.stringify(d)).join(', ');
+      return detail.map((d) => d.msg || JSON.stringify(d)).join(', ');
     }
-    if (typeof detail === 'object') return JSON.stringify(detail);
+    if (detail && typeof detail === 'object') return JSON.stringify(detail);
   }
-  if (err?.message) return err.message;
+  if (err instanceof Error) return err.message;
   return 'An error occurred';
 }
 
@@ -89,7 +90,7 @@ export function NewScan() {
     onSuccess: (scan) => {
       navigate({ to: `/scans/${scan.id}` });
     },
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       setError(getErrorMessage(err));
     },
   });
@@ -102,7 +103,7 @@ export function NewScan() {
     onSuccess: (scan) => {
       navigate({ to: `/scans/${scan.id}` });
     },
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       setError(getErrorMessage(err));
     },
   });
@@ -291,7 +292,7 @@ export function NewScan() {
               data-testid="input-scan-name"
             />
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              If left empty, the scan will be named "Run #N — {new Date().toLocaleDateString()}"
+              If left empty, the scan will be named &quot;Run #N — {new Date().toLocaleDateString()}&quot;
             </p>
           </div>
 

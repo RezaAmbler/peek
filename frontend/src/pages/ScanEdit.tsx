@@ -1,22 +1,23 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from '@tanstack/react-router';
+import axios from 'axios';
 import { scansApi, UpdateScanRequest } from '../api/scans';
 import { Navigation } from '../components/Navigation';
 import toast from 'react-hot-toast';
 
 // Helper to extract error message from various error formats
-function getErrorMessage(err: any): string {
+function getErrorMessage(err: unknown): string {
   if (typeof err === 'string') return err;
-  if (err?.response?.data?.detail) {
-    const detail = err.response.data.detail;
+  if (axios.isAxiosError(err)) {
+    const detail = err.response?.data?.detail;
     if (typeof detail === 'string') return detail;
     if (Array.isArray(detail) && detail.length > 0) {
-      return detail.map((d: any) => d.msg || JSON.stringify(d)).join(', ');
+      return detail.map((d) => d.msg || JSON.stringify(d)).join(', ');
     }
-    if (typeof detail === 'object') return JSON.stringify(detail);
+    if (detail && typeof detail === 'object') return JSON.stringify(detail);
   }
-  if (err?.message) return err.message;
+  if (err instanceof Error) return err.message;
   return 'An error occurred';
 }
 
@@ -51,7 +52,7 @@ export function ScanEdit() {
       toast.success('Scan updated successfully');
       navigate({ to: `/scans/${scanId}` });
     },
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       const errorMsg = getErrorMessage(err);
       setError(errorMsg);
       toast.error('Failed to update scan');
@@ -98,7 +99,7 @@ export function ScanEdit() {
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-700 rounded-md p-4">
             <p className="text-sm text-yellow-800 dark:text-yellow-200">
-              Only scans in "pending" status can be edited. This scan is currently "{scan.status}".
+              Only scans in &quot;pending&quot; status can be edited. This scan is currently &quot;{scan.status}&quot;.
             </p>
             <button
               onClick={() => navigate({ to: `/scans/${scanId}` })}

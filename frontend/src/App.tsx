@@ -148,18 +148,20 @@ const scheduledScanFormRoute = createRoute({
   },
 });
 
+function IndexRedirect() {
+  const { isAuthenticated } = useAuth();
+  if (isAuthenticated) {
+    window.location.href = '/dashboard';
+  } else {
+    window.location.href = '/login';
+  }
+  return null;
+}
+
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  component: () => {
-    const { isAuthenticated } = useAuth();
-    if (isAuthenticated) {
-      window.location.href = '/dashboard';
-    } else {
-      window.location.href = '/login';
-    }
-    return null;
-  },
+  component: IndexRedirect,
 });
 
 const routeTree = rootRoute.addChildren([

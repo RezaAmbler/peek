@@ -495,8 +495,9 @@ export function Configs() {
                 <h4 className="font-medium text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2">Basic Information</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
+                    <label htmlFor="edit-config-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
                     <input
+                      id="edit-config-name"
                       type="text"
                       name="name"
                       defaultValue={editingConfig.name}
@@ -506,8 +507,9 @@ export function Configs() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+                    <label htmlFor="edit-config-description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
                     <input
+                      id="edit-config-description"
                       type="text"
                       name="description"
                       defaultValue={editingConfig.description || ''}
@@ -522,10 +524,11 @@ export function Configs() {
               <div className="space-y-4">
                 <h4 className="font-medium text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2">Scan Targets</h4>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label htmlFor="edit-config-targets" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     IP Addresses / Hostnames
                   </label>
                   <textarea
+                    id="edit-config-targets"
                     name="targets"
                     value={editingTargets}
                     onChange={(e) => setEditingTargets(e.target.value)}
@@ -549,6 +552,7 @@ export function Configs() {
                       type="radio"
                       name="scan_mode"
                       value="fast"
+                      aria-label="Fast Scan"
                       checked={editingScanMode === 'fast'}
                       onChange={() => handleScanModeChange('fast')}
                       disabled={editingConfig.is_preset}
@@ -564,6 +568,7 @@ export function Configs() {
                       type="radio"
                       name="scan_mode"
                       value="deep"
+                      aria-label="Deep Scan"
                       checked={editingScanMode === 'deep'}
                       onChange={() => handleScanModeChange('deep')}
                       disabled={editingConfig.is_preset}
@@ -589,6 +594,7 @@ export function Configs() {
                       <input
                         type="checkbox"
                         name="enable_nuclei"
+                        aria-label="Nuclei"
                         defaultChecked={editingConfig.enable_nuclei}
                         disabled={editingConfig.is_preset}
                         className="mt-1 mr-3"
@@ -602,6 +608,7 @@ export function Configs() {
                       <input
                         type="checkbox"
                         name="enable_nuclei_endpoints"
+                        aria-label="Nuclei Endpoint Scan"
                         defaultChecked={editingConfig.enable_nuclei_endpoints}
                         disabled={editingConfig.is_preset}
                         className="mt-1 mr-3"
@@ -615,6 +622,7 @@ export function Configs() {
                       <input
                         type="checkbox"
                         name="enable_nse"
+                        aria-label="NSE Scripts"
                         defaultChecked={editingConfig.enable_nse}
                         disabled={editingConfig.is_preset}
                         className="mt-1 mr-3"
@@ -635,6 +643,7 @@ export function Configs() {
                       <input
                         type="checkbox"
                         name="enable_katana"
+                        aria-label="Katana"
                         defaultChecked={editingConfig.enable_katana}
                         disabled={editingConfig.is_preset}
                         className="mt-1 mr-3"
@@ -655,6 +664,7 @@ export function Configs() {
                       <input
                         type="checkbox"
                         name="enable_nikto"
+                        aria-label="Nikto"
                         defaultChecked={editingConfig.enable_nikto}
                         disabled={editingConfig.is_preset}
                         className="mt-1 mr-3"
@@ -668,6 +678,7 @@ export function Configs() {
                       <input
                         type="checkbox"
                         name="enable_zap"
+                        aria-label="OWASP ZAP"
                         defaultChecked={editingConfig.enable_zap}
                         disabled={editingConfig.is_preset}
                         className="mt-1 mr-3"
@@ -688,6 +699,7 @@ export function Configs() {
                       <input
                         type="checkbox"
                         name="enable_ssh_audit"
+                        aria-label="SSH Audit"
                         defaultChecked={editingConfig.enable_ssh_audit}
                         disabled={editingConfig.is_preset}
                         className="mt-1 mr-3"
@@ -701,6 +713,7 @@ export function Configs() {
                       <input
                         type="checkbox"
                         name="enable_sslscan"
+                        aria-label="SSLScan"
                         defaultChecked={editingConfig.enable_sslscan}
                         disabled={editingConfig.is_preset}
                         className="mt-1 mr-3"
@@ -714,6 +727,7 @@ export function Configs() {
                       <input
                         type="checkbox"
                         name="enable_testssl"
+                        aria-label="testssl.sh"
                         defaultChecked={editingConfig.enable_testssl}
                         disabled={editingConfig.is_preset}
                         className="mt-1 mr-3"
@@ -734,6 +748,7 @@ export function Configs() {
                       <input
                         type="checkbox"
                         name="httpx_screenshots"
+                        aria-label="Screenshots"
                         defaultChecked={editingConfig.httpx_screenshots}
                         disabled={editingConfig.is_preset}
                         className="mt-1 mr-3"
@@ -747,6 +762,7 @@ export function Configs() {
                       <input
                         type="checkbox"
                         name="httpx_vhost_discovery"
+                        aria-label="Virtual Host Discovery"
                         defaultChecked={editingConfig.httpx_vhost_discovery !== false}
                         disabled={editingConfig.is_preset}
                         className="mt-1 mr-3"
@@ -765,10 +781,11 @@ export function Configs() {
                 <h4 className="font-medium text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2">Performance Settings</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    <label htmlFor="edit-config-max-concurrent-hosts" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Max Concurrent Hosts
                     </label>
                     <input
+                      id="edit-config-max-concurrent-hosts"
                       type="number"
                       name="max_concurrent_hosts"
                       defaultValue={editingConfig.max_concurrent_hosts}
@@ -781,11 +798,12 @@ export function Configs() {
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Number of hosts to scan in parallel</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    <label htmlFor="edit-config-host-timeout" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Host Timeout (seconds)
                     </label>
                     <div className="flex gap-2">
                       <input
+                        id="edit-config-host-timeout"
                         type="number"
                         name="host_timeout_seconds"
                         value={editingTimeout}

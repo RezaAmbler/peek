@@ -138,7 +138,7 @@ export interface Vulnerability {
   description?: string;
   reference?: string[];
   tags?: string[];
-  extracted_results?: any;
+  extracted_results?: unknown;
   curl_command?: string;
   timestamp: string;
 }
@@ -153,7 +153,7 @@ export interface NSEFinding {
   script_id: string;
   profile_name?: string;
   raw_output?: string;
-  elements?: Record<string, any>;
+  elements?: Record<string, unknown>;
   severity?: string;
   error?: string;
 }
