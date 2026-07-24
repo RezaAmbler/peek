@@ -86,3 +86,9 @@ artifacts/
 
 # Local Claude Code workspace state (developer-specific; not tracked)
 CLAUDE.md
+
+# macOS "keep both"/migration duplicates (e.g. "package 2.json", "bin 2").
+# These have corrupted git refs before — never commit them.
+* 2
+* 2.*
+* 2/
