@@ -9,6 +9,7 @@ from ..models.tool_execution import ToolExecution
 from ..models.scan_target import ScanTarget
 from ..models.port import Port
 from ..tools.zap import parse_zap_alerts
+from ..services.fingerprint import finding_fingerprint
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,12 @@ def create_vulnerabilities_from_zap(
             matched_at=matched_at,
             host=host,
             port=port,
+            fingerprint=finding_fingerprint(
+                host=host,
+                template_id=template_id,
+                port=port,
+                matched_at=matched_at,
+            ),
             source_tool="zap",
             description=finding.get('description', '')[:2000] if finding.get('description') else None,
             extracted_results={

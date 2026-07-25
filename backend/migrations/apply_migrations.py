@@ -125,6 +125,30 @@ def apply_002_compare_series(cursor, db_path: Path):
     print(f"  Migration 002 complete — {total_deleted} row(s) removed, sentinel written to {sentinel}")
 
 
+def create_index_if_not_exists(cursor, index_name: str, table: str, column: str):
+    """Create an index if it doesn't already exist (idempotent)."""
+    if not table_exists(cursor, table):
+        print(f"  Table '{table}' does not exist yet, skipping index {index_name}")
+        return
+    sql = f"CREATE INDEX IF NOT EXISTS {index_name} ON {table} ({column})"
+    print(f"  Ensuring index: {index_name} on {table}({column})")
+    cursor.execute(sql)
+
+
+def apply_003_soc_findings(cursor):
+    """Migration 003: SOC-grade finding fingerprints.
+
+    Adds vulnerabilities.fingerprint (stable sha256 hex, indexed) used by the
+    fingerprint-keyed, de-noised scan comparison. See services/fingerprint.py.
+    """
+    print("\nApplying migration 003: SOC finding fingerprints")
+
+    added = add_column_if_not_exists(cursor, "vulnerabilities", "fingerprint", "VARCHAR(64)", default=None)
+    create_index_if_not_exists(cursor, "ix_vulnerabilities_fingerprint", "vulnerabilities", "fingerprint")
+
+    print("  Migration 003 complete" + ("" if added else " (fingerprint already present)"))
+
+
 def apply_all(db_path: str) -> None:
     db_path_obj = Path(db_path)
     if not db_path_obj.exists():
@@ -140,6 +164,7 @@ def apply_all(db_path: str) -> None:
     try:
         apply_001_httpx_screenshots_vhost(cursor)
         apply_002_compare_series(cursor, db_path_obj)
+        apply_003_soc_findings(cursor)
 
         conn.commit()
         print("\nAll migrations applied successfully!")

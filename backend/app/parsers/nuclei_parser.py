@@ -1,6 +1,7 @@
 from typing import List, Optional
 from ..models import Vulnerability, ToolExecution, ScanTarget, Port
 from ..tools.nuclei import parse_nuclei_output
+from ..services.fingerprint import finding_fingerprint
 from sqlalchemy.orm import Session
 import uuid
 
@@ -71,6 +72,12 @@ def create_vulnerabilities_from_nuclei(
                 matched_at=vuln_data['matched_at'],
                 host=vuln_data['host'],
                 port=vuln_data['port'],
+                fingerprint=finding_fingerprint(
+                    host=vuln_data['host'],
+                    template_id=vuln_data['template_id'],
+                    port=vuln_data['port'],
+                    matched_at=vuln_data['matched_at'],
+                ),
                 discovery_source=discovery_source,  # 'port' or 'endpoint'
                 extracted_results=vuln_data.get('extracted_results'),
                 curl_command=vuln_data.get('curl_command'),

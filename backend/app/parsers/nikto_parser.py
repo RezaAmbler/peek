@@ -9,6 +9,7 @@ from ..models.tool_execution import ToolExecution
 from ..models.scan_target import ScanTarget
 from ..models.port import Port
 from ..tools.nikto import parse_nikto_output, map_nikto_severity
+from ..services.fingerprint import finding_fingerprint
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,12 @@ def create_vulnerabilities_from_nikto(
             matched_at=matched_at,
             host=host,
             port=port,
+            fingerprint=finding_fingerprint(
+                host=host,
+                template_id=f"nikto-{finding_id}",
+                port=port,
+                matched_at=matched_at,
+            ),
             source_tool="nikto",
             description=finding.get('description', '')[:2000] if finding.get('description') else None,
             reference=[f"OSVDB-{finding.get('osvdb')}"] if finding.get('osvdb') else [],
