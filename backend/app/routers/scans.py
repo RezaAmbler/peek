@@ -800,6 +800,9 @@ async def get_scan_vulnerabilities(
 
         result_list.append({
             "id": str(vuln.id),
+            # Stable logical-finding identity; the triage API is keyed by
+            # (config_id, fingerprint), so the UI needs this to PATCH state.
+            "fingerprint": fp,
             "ip_address": target.ip_address,
             "device_name": target.device_name,
             "template_id": vuln.template_id,
