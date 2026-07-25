@@ -1,4 +1,5 @@
 import { apiClient } from './client';
+import { TriageStatus } from './findings';
 
 export interface ScanTarget {
   id: string;
@@ -141,6 +142,18 @@ export interface Vulnerability {
   extracted_results?: unknown;
   curl_command?: string;
   timestamp: string;
+  // Triage / risk-prioritization fields (SOC hardening)
+  fingerprint: string;
+  cve_id?: string | null;
+  cvss_score?: number | null;
+  cvss_vector?: string | null;
+  epss_score?: number | null; // 0..1
+  kev_flag: boolean;
+  exploit_known: boolean;
+  risk_score?: number | null; // 0..100
+  triage_status?: TriageStatus | null;
+  triage_owner?: string | null;
+  suppressed_until?: string | null;
 }
 
 export interface NSEFinding {

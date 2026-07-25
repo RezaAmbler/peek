@@ -46,16 +46,49 @@ export function ChangeCard({ change }: ChangeCardProps) {
     POSITIVE: 'bg-green-100 dark:bg-green-900/40 border-green-500 text-green-900 dark:text-green-200',
   };
 
-  const icon = typeIcons[change.type] || '📝';
-  const colorClass = severityColors[change.severity] || severityColors.INFO;
+  // NEW_VULNERABILITY changes carry a triage classification: SUPPRESSED ones are already
+  // triaged (false positive / accepted risk) and should read as de-emphasized noise rather
+  // than alarming new findings, even though they still show up in the raw changes list.
+  const isSuppressed = change.type === 'NEW_VULNERABILITY' && change.classification === 'SUPPRESSED';
+  const isGenuinelyNew = change.type === 'NEW_VULNERABILITY' && change.classification === 'GENUINELY_NEW';
+
+  const icon = isSuppressed ? '⚪' : typeIcons[change.type] || '📝';
+  const colorClass = isSuppressed
+    ? 'bg-gray-50 dark:bg-gray-800/60 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400'
+    : severityColors[change.severity] || severityColors.INFO;
 
   return (
-    <div className={`p-4 rounded-lg border-l-4 ${colorClass}`} data-component="ChangeCard" data-testid="change-card">
+    <div
+      className={`p-4 rounded-lg border-l-4 ${colorClass} ${isSuppressed ? 'opacity-70' : ''}`}
+      data-component="ChangeCard"
+      data-testid="change-card"
+    >
       <div className="flex items-start justify-between">
         <div className="flex items-start space-x-3 flex-1">
           <span className="text-2xl">{icon}</span>
           <div className="flex-1">
-            <p className="font-semibold" data-testid="change-description">{change.description}</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className={`font-semibold ${isSuppressed ? 'text-gray-500 dark:text-gray-400' : ''}`} data-testid="change-description">
+                {change.description}
+              </p>
+              {isSuppressed && (
+                <span
+                  className="px-2 py-0.5 text-xs font-medium rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300"
+                  data-testid="change-suppressed-tag"
+                  title="Already triaged as false positive or accepted risk"
+                >
+                  suppressed (triaged)
+                </span>
+              )}
+              {isGenuinelyNew && (
+                <span
+                  className="px-2 py-0.5 text-xs font-bold rounded bg-red-600 text-white"
+                  data-testid="change-genuinely-new-tag"
+                >
+                  NEW
+                </span>
+              )}
+            </div>
             <p className="text-sm mt-1">
               {change.device_name && `${change.device_name} - `}
               {change.ip_address}
@@ -150,6 +183,7 @@ export function ChangeCard({ change }: ChangeCardProps) {
         </div>
 
         <span className={`px-2 py-1 text-xs font-bold rounded uppercase ${
+          isSuppressed ? 'bg-gray-400 dark:bg-gray-600 text-white' :
           change.severity === 'POSITIVE' ? 'bg-green-600 text-white' :
           change.severity === 'CRITICAL' ? 'bg-red-600 text-white' :
           change.severity === 'HIGH' ? 'bg-orange-600 text-white' :
