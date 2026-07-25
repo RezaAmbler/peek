@@ -214,6 +214,21 @@ def run_scan(self, scan_id: str):
 
             db.commit()
 
+            # Risk enrichment: resolve CVE identity + CVSS/EPSS/KEV and compute a
+            # risk_score for every finding now that the scan is complete. This runs
+            # for EVERY completed scan (not just scheduled). Scheduled post_scan
+            # notifications run AFTER this (they retry until status==completed), so
+            # alerts can already see kev_flag/risk_score. Wrapped so an enrichment
+            # failure only logs and never fails the scan.
+            try:
+                from ..services.enrichment_service import enrich_scan
+                enrich_scan(db, scan_id)
+            except Exception as enrich_err:
+                logger.warning(
+                    f"Risk enrichment failed for scan {scan_id} (non-fatal): {enrich_err}",
+                    exc_info=True,
+                )
+
         except Exception as e:
             scan.status = ScanStatus.FAILED.value
             scan.current_phase = ScanPhase.FAILED.value

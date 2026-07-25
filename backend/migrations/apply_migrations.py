@@ -146,6 +146,20 @@ def apply_003_soc_findings(cursor):
     added = add_column_if_not_exists(cursor, "vulnerabilities", "fingerprint", "VARCHAR(64)", default=None)
     create_index_if_not_exists(cursor, "ix_vulnerabilities_fingerprint", "vulnerabilities", "fingerprint")
 
+    # --- Risk enrichment columns (SOC hardening) ---
+    # Structured CVE identity + threat-intel context + computed prioritization
+    # score, populated post-scan from NVD/CVSS, FIRST/EPSS and CISA KEV feeds.
+    # Each ADD COLUMN is guarded; columns that already exist are skipped.
+    add_column_if_not_exists(cursor, "vulnerabilities", "cve_id", "VARCHAR", default=None)
+    add_column_if_not_exists(cursor, "vulnerabilities", "cvss_score", "FLOAT", default=None)
+    add_column_if_not_exists(cursor, "vulnerabilities", "cvss_vector", "VARCHAR", default=None)
+    add_column_if_not_exists(cursor, "vulnerabilities", "epss_score", "FLOAT", default=None)
+    add_column_if_not_exists(cursor, "vulnerabilities", "kev_flag", "BOOLEAN", default=False)
+    add_column_if_not_exists(cursor, "vulnerabilities", "exploit_known", "BOOLEAN", default=False)
+    add_column_if_not_exists(cursor, "vulnerabilities", "risk_score", "FLOAT", default=None)
+    create_index_if_not_exists(cursor, "ix_vulnerabilities_cve_id", "vulnerabilities", "cve_id")
+    create_index_if_not_exists(cursor, "ix_vulnerabilities_risk_score", "vulnerabilities", "risk_score")
+
     print("  Migration 003 complete" + ("" if added else " (fingerprint already present)"))
 
 

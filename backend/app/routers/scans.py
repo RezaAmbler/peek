@@ -791,6 +791,15 @@ async def get_scan_vulnerabilities(
             "port": vuln.port,
             "source_tool": vuln.source_tool,
             "discovery_source": vuln.discovery_source,  # 'port' or 'endpoint'
+            # Risk enrichment (post-scan): structured CVE identity + threat-intel
+            # context + computed prioritization score. See enrichment_service.py.
+            "cve_id": vuln.cve_id,
+            "cvss_score": vuln.cvss_score,
+            "cvss_vector": vuln.cvss_vector,
+            "epss_score": vuln.epss_score,
+            "kev_flag": vuln.kev_flag,
+            "exploit_known": vuln.exploit_known,
+            "risk_score": vuln.risk_score,
             "description": vuln.description,
             "reference": vuln.reference,
             "tags": vuln.tags,
