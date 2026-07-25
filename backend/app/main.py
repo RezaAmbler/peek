@@ -7,7 +7,7 @@ import os
 import subprocess
 from .core.config import settings
 from .database import init_db, AsyncSessionLocal
-from .routers import auth, users, configs, scans, comparisons, scheduled_scans, reports, stats
+from .routers import auth, users, configs, scans, comparisons, scheduled_scans, reports, stats, findings
 from .core.security import get_password_hash
 from .models.user import User
 from .models.organization import Organization
@@ -41,6 +41,10 @@ OPENAPI_TAGS = [
     {
         "name": "comparisons",
         "description": "Compare scan results over time. Identify new ports, closed ports, and vulnerability changes."
+    },
+    {
+        "name": "findings",
+        "description": "Triage lifecycle for findings. Set false-positive / accepted-risk / fixed state that persists across scans."
     },
     {
         "name": "reports",
@@ -217,6 +221,7 @@ app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(configs.router, prefix="/api/configs", tags=["configs"])
 app.include_router(scans.router, prefix="/api/scans", tags=["scans"])
 app.include_router(comparisons.router, prefix="/api/comparisons", tags=["comparisons"])
+app.include_router(findings.router, prefix="/api/findings", tags=["findings"])
 app.include_router(scheduled_scans.router, prefix="/api/scheduled-scans", tags=["scheduled-scans"])
 app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
 app.include_router(stats.router, prefix="/api/stats", tags=["stats"])

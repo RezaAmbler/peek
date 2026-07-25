@@ -160,6 +160,38 @@ def apply_003_soc_findings(cursor):
     create_index_if_not_exists(cursor, "ix_vulnerabilities_cve_id", "vulnerabilities", "cve_id")
     create_index_if_not_exists(cursor, "ix_vulnerabilities_risk_score", "vulnerabilities", "risk_score")
 
+    # --- Triage lifecycle / cross-scan finding memory ---
+    # FindingState persists human triage decisions across scans, keyed by
+    # (config_id, fingerprint). CREATE TABLE/INDEX IF NOT EXISTS keeps this
+    # idempotent (mirrors the guarded ADD COLUMNs above). See
+    # models/finding_state.py + services/finding_state_service.py.
+    print("  Ensuring table: finding_states")
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS finding_states (
+            id VARCHAR(36) PRIMARY KEY,
+            config_id VARCHAR(36) NOT NULL,
+            organization_id VARCHAR(36),
+            fingerprint VARCHAR(64) NOT NULL,
+            cve_id VARCHAR,
+            name VARCHAR,
+            status VARCHAR NOT NULL DEFAULT 'open',
+            owner VARCHAR,
+            triage_notes VARCHAR,
+            suppressed_until DATETIME,
+            first_seen_at DATETIME,
+            last_seen_at DATETIME,
+            first_seen_scan_id VARCHAR(36),
+            last_seen_scan_id VARCHAR(36),
+            CONSTRAINT uq_finding_state_config_fp UNIQUE (config_id, fingerprint)
+        )
+        """
+    )
+    create_index_if_not_exists(cursor, "ix_finding_states_config_id", "finding_states", "config_id")
+    create_index_if_not_exists(cursor, "ix_finding_states_organization_id", "finding_states", "organization_id")
+    create_index_if_not_exists(cursor, "ix_finding_states_fingerprint", "finding_states", "fingerprint")
+    create_index_if_not_exists(cursor, "ix_finding_states_config_fp", "finding_states", "config_id, fingerprint")
+
     print("  Migration 003 complete" + ("" if added else " (fingerprint already present)"))
 
 

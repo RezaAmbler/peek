@@ -184,6 +184,19 @@ def post_scan_tasks(self, scan_id: str, scheduled_scan_id: str):
         if scheduled_scan.email_on_completion or scheduled_scan.email_on_changes_only:
             send_notification(scheduled_scan, scan, comparison, db=db)
 
+        # Outbound webhook / Slack push: let the findings that matter LEAVE the
+        # tool. Fires alongside email when this scan has non-suppressed NEW
+        # critical or KEV-listed findings and a webhook URL is configured.
+        # Best-effort: notify_scan_findings is fully wrapped and never raises.
+        try:
+            from ..services.webhook_service import notify_scan_findings
+            notify_scan_findings(db, scan)
+        except Exception as webhook_err:
+            logger.warning(
+                f"Outbound webhook failed for scan {scan_id} (non-fatal): {webhook_err}",
+                exc_info=True,
+            )
+
 def calculate_next_run(cron_expression: str, timezone_str: str, base_time: datetime = None) -> datetime:
     """Calculate the next run time based on cron expression"""
     if base_time is None:

@@ -770,6 +770,18 @@ async def get_scan_vulnerabilities(
     # Sort by severity
     sorted_vulns = sorted(vulns, key=lambda v: severity_order.get(v.severity, 99))
 
+    # Cross-scan triage state: join FindingState on (config_id, fingerprint) so the
+    # UI can show the persistent status/owner/suppression of each finding. Built as
+    # a fingerprint->state map for this scan's config (one query, best-effort).
+    from ..models import FindingState
+    from ..services.fingerprint import finding_fingerprint
+    state_by_fp = {}
+    state_result = await db.execute(
+        select(FindingState).where(FindingState.config_id == scan.config_id)
+    )
+    for st in state_result.scalars().all():
+        state_by_fp[st.fingerprint] = st
+
     # Join with target info
     result_list = []
     for vuln in sorted_vulns:
@@ -777,6 +789,14 @@ async def get_scan_vulnerabilities(
             select(ScanTarget).where(ScanTarget.id == vuln.scan_target_id)
         )
         target = target_result.scalar_one()
+
+        # Resolve this finding's persistent triage state (fall back to computing
+        # the fingerprint for legacy rows that predate the column).
+        fp = vuln.fingerprint or finding_fingerprint(
+            host=vuln.host, template_id=vuln.template_id,
+            port=vuln.port, matched_at=vuln.matched_at, cve_id=vuln.cve_id,
+        )
+        state = state_by_fp.get(fp)
 
         result_list.append({
             "id": str(vuln.id),
@@ -800,6 +820,11 @@ async def get_scan_vulnerabilities(
             "kev_flag": vuln.kev_flag,
             "exploit_known": vuln.exploit_known,
             "risk_score": vuln.risk_score,
+            # Cross-scan triage state (from FindingState, keyed by
+            # (config_id, fingerprint)). None until the post-scan upsert runs.
+            "triage_status": state.status if state else None,
+            "triage_owner": state.owner if state else None,
+            "suppressed_until": state.suppressed_until.isoformat() if state and state.suppressed_until else None,
             "description": vuln.description,
             "reference": vuln.reference,
             "tags": vuln.tags,

@@ -229,6 +229,20 @@ def run_scan(self, scan_id: str):
                     exc_info=True,
                 )
 
+            # Cross-scan triage memory: upsert a FindingState for every finding so
+            # a "false positive"/"risk accepted" decision made in a prior run is
+            # carried forward and this scan's findings become triageable. Runs
+            # right after enrichment so cve_id/name are already resolved. Wrapped
+            # so a failure only logs and never fails the scan.
+            try:
+                from ..services.finding_state_service import upsert_finding_states
+                upsert_finding_states(db, scan_id)
+            except Exception as state_err:
+                logger.warning(
+                    f"FindingState upsert failed for scan {scan_id} (non-fatal): {state_err}",
+                    exc_info=True,
+                )
+
         except Exception as e:
             scan.status = ScanStatus.FAILED.value
             scan.current_phase = ScanPhase.FAILED.value

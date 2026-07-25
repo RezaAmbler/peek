@@ -2,7 +2,8 @@ from typing import List, Dict, Any
 import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import select, text
-from ..models import Scan, ScanTarget, Port, Vulnerability, ScanComparison, SSHAudit
+from ..models import Scan, ScanTarget, Port, Vulnerability, ScanComparison, SSHAudit, FindingState
+from ..models.finding_state import SUPPRESSED_STATUSES
 from .fingerprint import finding_fingerprint, normalize_port
 import uuid
 from datetime import datetime
@@ -62,8 +63,14 @@ class ComparisonService:
         port_changes = self._compare_ports(baseline_scan_id, current_scan_id, baseline_vulns)
         changes.extend(port_changes)
 
-        # 2. Compare vulnerabilities
-        vuln_changes = self._compare_vulnerabilities(baseline_scan_id, current_scan_id, baseline_vulns)
+        # 2. Compare vulnerabilities.
+        # Thread the CURRENT scan's config_id through so new findings can be
+        # checked against persistent triage state (FindingState is keyed by
+        # (config_id, fingerprint)). config_id is always present on a scan.
+        vuln_changes = self._compare_vulnerabilities(
+            baseline_scan_id, current_scan_id, baseline_vulns,
+            current_config_id=current.config_id,
+        )
         changes.extend(vuln_changes)
 
         # 3. Compare SSH audits (if applicable)
@@ -189,7 +196,7 @@ class ComparisonService:
 
         return changes
 
-    def _compare_vulnerabilities(self, baseline_scan_id: str, current_scan_id: str, baseline_vulns: List[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    def _compare_vulnerabilities(self, baseline_scan_id: str, current_scan_id: str, baseline_vulns: List[Dict[str, Any]] = None, current_config_id: str = None) -> List[Dict[str, Any]]:
         """Compare vulnerabilities between two scans"""
         changes = []
 
@@ -216,13 +223,26 @@ class ComparisonService:
                     'info': 'INFO'
                 }.get(vuln['severity'], 'MEDIUM')
 
+                # Cross-scan triage memory: a finding a human already dispositioned
+                # as false_positive / accepted_risk (or time-boxed via
+                # suppressed_until) must NOT be re-surfaced as a new vulnerability
+                # every scan. If (and only if) a suppressing FindingState row
+                # exists for this (config_id, fingerprint), mark the change
+                # SUPPRESSED so _calculate_statistics does not count it as new.
+                # When no state row exists behavior is UNCHANGED (GENUINELY_NEW,
+                # counted) — this guards the existing de-noising tests.
+                classification = 'GENUINELY_NEW'
+                if self._is_suppressed(current_config_id, vuln.get('fingerprint')):
+                    classification = 'SUPPRESSED'
+
                 changes.append({
                     'type': 'NEW_VULNERABILITY',
                     'severity': change_severity,
                     'category': 'vulnerability',
                     # Fingerprint keying + port normalization already suppressed
-                    # scan-noise churn, so anything surfacing here is genuinely new.
-                    'classification': 'GENUINELY_NEW',
+                    # scan-noise churn, so anything surfacing here is genuinely new
+                    # UNLESS a human triage decision suppresses it (see above).
+                    'classification': classification,
                     'ip_address': vuln['ip_address'],
                     'device_name': vuln['device_name'],
                     'port': vuln['port'],
@@ -309,6 +329,33 @@ class ComparisonService:
 
         return changes
 
+    def _is_suppressed(self, config_id: str, fingerprint: str) -> bool:
+        """True if a persistent triage decision suppresses this finding.
+
+        Looks up FindingState by (config_id, fingerprint). Suppression applies
+        when status is false_positive / accepted_risk, OR suppressed_until is set
+        to a future time. Returns False (behavior unchanged) whenever config_id or
+        fingerprint is missing, or no state row exists — this is the guard that
+        keeps the default de-noising comparison path untouched.
+        """
+        if not config_id or not fingerprint:
+            return False
+        state = (
+            self.db.query(FindingState)
+            .filter(
+                FindingState.config_id == config_id,
+                FindingState.fingerprint == fingerprint,
+            )
+            .first()
+        )
+        if state is None:
+            return False
+        if state.status in SUPPRESSED_STATUSES:
+            return True
+        if state.suppressed_until and state.suppressed_until > datetime.utcnow():
+            return True
+        return False
+
     def _calculate_statistics(self, comparison: ScanComparison, changes: List[Dict[str, Any]]):
         """Calculate summary statistics from changes"""
         comparison.total_changes = len(changes)
@@ -316,6 +363,12 @@ class ComparisonService:
         for change in changes:
             change_type = change['type']
             severity = change['severity']
+
+            # A NEW_VULNERABILITY suppressed by persistent triage state is kept in
+            # the changes list (so the UI can show it) but is NOT counted as a new
+            # vulnerability or a severity change.
+            if change.get('classification') == 'SUPPRESSED':
+                continue
 
             # Count by type
             if change_type == 'NEW_PORT':
