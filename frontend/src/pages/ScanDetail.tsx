@@ -7,6 +7,7 @@ import { API_BASE_URL } from '../api/client';
 import { formatDistanceToNow, format } from 'date-fns';
 import { SSHAuditCard } from '../components/SSHAuditCard';
 import { VulnerabilityCard } from '../components/VulnerabilityCard';
+import { RiskLegend } from '../components/RiskInfo';
 import { ServiceIcon } from '../components/ServiceIcon';
 import { SSLScanSection } from '../components/SSLScanSection';
 import { NSEFindingsSection } from '../components/NSEFindingsSection';
@@ -1307,6 +1308,10 @@ export function ScanDetail() {
           </button>
           {showVulnerabilities && (
             <div className="p-6">
+              {/* Reference legend: what Risk / CVSS / EPSS / KEV mean and how the
+                  score is derived. Collapsed by default. */}
+              <RiskLegend />
+              <div className="mt-4" />
               {/* Filter status indicator */}
               {activeSeverities.size < 4 && actualVulnerabilities.length > 0 && (
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
