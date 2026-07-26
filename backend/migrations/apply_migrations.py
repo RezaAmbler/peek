@@ -125,6 +125,76 @@ def apply_002_compare_series(cursor, db_path: Path):
     print(f"  Migration 002 complete — {total_deleted} row(s) removed, sentinel written to {sentinel}")
 
 
+def create_index_if_not_exists(cursor, index_name: str, table: str, column: str):
+    """Create an index if it doesn't already exist (idempotent)."""
+    if not table_exists(cursor, table):
+        print(f"  Table '{table}' does not exist yet, skipping index {index_name}")
+        return
+    sql = f"CREATE INDEX IF NOT EXISTS {index_name} ON {table} ({column})"
+    print(f"  Ensuring index: {index_name} on {table}({column})")
+    cursor.execute(sql)
+
+
+def apply_003_soc_findings(cursor):
+    """Migration 003: SOC-grade finding fingerprints.
+
+    Adds vulnerabilities.fingerprint (stable sha256 hex, indexed) used by the
+    fingerprint-keyed, de-noised scan comparison. See services/fingerprint.py.
+    """
+    print("\nApplying migration 003: SOC finding fingerprints")
+
+    added = add_column_if_not_exists(cursor, "vulnerabilities", "fingerprint", "VARCHAR(64)", default=None)
+    create_index_if_not_exists(cursor, "ix_vulnerabilities_fingerprint", "vulnerabilities", "fingerprint")
+
+    # --- Risk enrichment columns (SOC hardening) ---
+    # Structured CVE identity + threat-intel context + computed prioritization
+    # score, populated post-scan from NVD/CVSS, FIRST/EPSS and CISA KEV feeds.
+    # Each ADD COLUMN is guarded; columns that already exist are skipped.
+    add_column_if_not_exists(cursor, "vulnerabilities", "cve_id", "VARCHAR", default=None)
+    add_column_if_not_exists(cursor, "vulnerabilities", "cvss_score", "FLOAT", default=None)
+    add_column_if_not_exists(cursor, "vulnerabilities", "cvss_vector", "VARCHAR", default=None)
+    add_column_if_not_exists(cursor, "vulnerabilities", "epss_score", "FLOAT", default=None)
+    add_column_if_not_exists(cursor, "vulnerabilities", "kev_flag", "BOOLEAN", default=False)
+    add_column_if_not_exists(cursor, "vulnerabilities", "exploit_known", "BOOLEAN", default=False)
+    add_column_if_not_exists(cursor, "vulnerabilities", "risk_score", "FLOAT", default=None)
+    create_index_if_not_exists(cursor, "ix_vulnerabilities_cve_id", "vulnerabilities", "cve_id")
+    create_index_if_not_exists(cursor, "ix_vulnerabilities_risk_score", "vulnerabilities", "risk_score")
+
+    # --- Triage lifecycle / cross-scan finding memory ---
+    # FindingState persists human triage decisions across scans, keyed by
+    # (config_id, fingerprint). CREATE TABLE/INDEX IF NOT EXISTS keeps this
+    # idempotent (mirrors the guarded ADD COLUMNs above). See
+    # models/finding_state.py + services/finding_state_service.py.
+    print("  Ensuring table: finding_states")
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS finding_states (
+            id VARCHAR(36) PRIMARY KEY,
+            config_id VARCHAR(36) NOT NULL,
+            organization_id VARCHAR(36),
+            fingerprint VARCHAR(64) NOT NULL,
+            cve_id VARCHAR,
+            name VARCHAR,
+            status VARCHAR NOT NULL DEFAULT 'open',
+            owner VARCHAR,
+            triage_notes VARCHAR,
+            suppressed_until DATETIME,
+            first_seen_at DATETIME,
+            last_seen_at DATETIME,
+            first_seen_scan_id VARCHAR(36),
+            last_seen_scan_id VARCHAR(36),
+            CONSTRAINT uq_finding_state_config_fp UNIQUE (config_id, fingerprint)
+        )
+        """
+    )
+    create_index_if_not_exists(cursor, "ix_finding_states_config_id", "finding_states", "config_id")
+    create_index_if_not_exists(cursor, "ix_finding_states_organization_id", "finding_states", "organization_id")
+    create_index_if_not_exists(cursor, "ix_finding_states_fingerprint", "finding_states", "fingerprint")
+    create_index_if_not_exists(cursor, "ix_finding_states_config_fp", "finding_states", "config_id, fingerprint")
+
+    print("  Migration 003 complete" + ("" if added else " (fingerprint already present)"))
+
+
 def apply_all(db_path: str) -> None:
     db_path_obj = Path(db_path)
     if not db_path_obj.exists():
@@ -140,6 +210,7 @@ def apply_all(db_path: str) -> None:
     try:
         apply_001_httpx_screenshots_vhost(cursor)
         apply_002_compare_series(cursor, db_path_obj)
+        apply_003_soc_findings(cursor)
 
         conn.commit()
         print("\nAll migrations applied successfully!")

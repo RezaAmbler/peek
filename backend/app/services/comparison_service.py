@@ -1,9 +1,14 @@
 from typing import List, Dict, Any
+import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import select, text
-from ..models import Scan, ScanTarget, Port, Vulnerability, ScanComparison, SSHAudit
+from ..models import Scan, ScanTarget, Port, Vulnerability, ScanComparison, SSHAudit, FindingState
+from ..models.finding_state import SUPPRESSED_STATUSES
+from .fingerprint import finding_fingerprint, normalize_port
 import uuid
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 class ComparisonService:
     """Service for comparing two scans and generating change reports"""
@@ -58,8 +63,14 @@ class ComparisonService:
         port_changes = self._compare_ports(baseline_scan_id, current_scan_id, baseline_vulns)
         changes.extend(port_changes)
 
-        # 2. Compare vulnerabilities
-        vuln_changes = self._compare_vulnerabilities(baseline_scan_id, current_scan_id, baseline_vulns)
+        # 2. Compare vulnerabilities.
+        # Thread the CURRENT scan's config_id through so new findings can be
+        # checked against persistent triage state (FindingState is keyed by
+        # (config_id, fingerprint)). config_id is always present on a scan.
+        vuln_changes = self._compare_vulnerabilities(
+            baseline_scan_id, current_scan_id, baseline_vulns,
+            current_config_id=current.config_id,
+        )
         changes.extend(vuln_changes)
 
         # 3. Compare SSH audits (if applicable)
@@ -90,9 +101,14 @@ class ComparisonService:
         baseline_ports = self._get_ports_by_scan(baseline_scan_id)
         current_ports = self._get_ports_by_scan(current_scan_id)
 
-        # Create lookup keys: "ip:port:protocol"
+        # Create lookup keys: "ip:normalized_port:protocol" (ephemeral/RPC ports
+        # collapsed to a stable sentinel — see _port_key).
         baseline_keys = {self._port_key(p): p for p in baseline_ports}
         current_keys = {self._port_key(p): p for p in current_ports}
+
+        # Annotate (but do not count) ephemeral-port churn that normalization
+        # suppressed, so it stays visible in logs without polluting the diff.
+        self._log_suppressed_port_churn(baseline_ports, current_ports, baseline_keys, current_keys)
 
         # Create a lookup of baseline vulnerabilities by IP:port for associated_vulnerabilities
         baseline_vulns_by_ip_port: Dict[str, List[Dict[str, Any]]] = {}
@@ -180,7 +196,7 @@ class ComparisonService:
 
         return changes
 
-    def _compare_vulnerabilities(self, baseline_scan_id: str, current_scan_id: str, baseline_vulns: List[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    def _compare_vulnerabilities(self, baseline_scan_id: str, current_scan_id: str, baseline_vulns: List[Dict[str, Any]] = None, current_config_id: str = None) -> List[Dict[str, Any]]:
         """Compare vulnerabilities between two scans"""
         changes = []
 
@@ -207,13 +223,30 @@ class ComparisonService:
                     'info': 'INFO'
                 }.get(vuln['severity'], 'MEDIUM')
 
+                # Cross-scan triage memory: a finding a human already dispositioned
+                # as false_positive / accepted_risk (or time-boxed via
+                # suppressed_until) must NOT be re-surfaced as a new vulnerability
+                # every scan. If (and only if) a suppressing FindingState row
+                # exists for this (config_id, fingerprint), mark the change
+                # SUPPRESSED so _calculate_statistics does not count it as new.
+                # When no state row exists behavior is UNCHANGED (GENUINELY_NEW,
+                # counted) — this guards the existing de-noising tests.
+                classification = 'GENUINELY_NEW'
+                if self._is_suppressed(current_config_id, vuln.get('fingerprint')):
+                    classification = 'SUPPRESSED'
+
                 changes.append({
                     'type': 'NEW_VULNERABILITY',
                     'severity': change_severity,
                     'category': 'vulnerability',
+                    # Fingerprint keying + port normalization already suppressed
+                    # scan-noise churn, so anything surfacing here is genuinely new
+                    # UNLESS a human triage decision suppresses it (see above).
+                    'classification': classification,
                     'ip_address': vuln['ip_address'],
                     'device_name': vuln['device_name'],
                     'port': vuln['port'],
+                    'fingerprint': vuln['fingerprint'],
                     'template_id': vuln['template_id'],
                     'name': vuln['name'],
                     'vuln_severity': vuln['severity'],
@@ -296,6 +329,33 @@ class ComparisonService:
 
         return changes
 
+    def _is_suppressed(self, config_id: str, fingerprint: str) -> bool:
+        """True if a persistent triage decision suppresses this finding.
+
+        Looks up FindingState by (config_id, fingerprint). Suppression applies
+        when status is false_positive / accepted_risk, OR suppressed_until is set
+        to a future time. Returns False (behavior unchanged) whenever config_id or
+        fingerprint is missing, or no state row exists — this is the guard that
+        keeps the default de-noising comparison path untouched.
+        """
+        if not config_id or not fingerprint:
+            return False
+        state = (
+            self.db.query(FindingState)
+            .filter(
+                FindingState.config_id == config_id,
+                FindingState.fingerprint == fingerprint,
+            )
+            .first()
+        )
+        if state is None:
+            return False
+        if state.status in SUPPRESSED_STATUSES:
+            return True
+        if state.suppressed_until and state.suppressed_until > datetime.utcnow():
+            return True
+        return False
+
     def _calculate_statistics(self, comparison: ScanComparison, changes: List[Dict[str, Any]]):
         """Calculate summary statistics from changes"""
         comparison.total_changes = len(changes)
@@ -303,6 +363,12 @@ class ComparisonService:
         for change in changes:
             change_type = change['type']
             severity = change['severity']
+
+            # A NEW_VULNERABILITY suppressed by persistent triage state is kept in
+            # the changes list (so the UI can show it) but is NOT counted as a new
+            # vulnerability or a severity change.
+            if change.get('classification') == 'SUPPRESSED':
+                continue
 
             # Count by type
             if change_type == 'NEW_PORT':
@@ -417,7 +483,8 @@ class ComparisonService:
                 v.port,
                 v.matched_at,
                 v.description,
-                v.reference
+                v.reference,
+                v.fingerprint
             FROM vulnerabilities v
             JOIN scan_targets st ON v.scan_target_id = st.id
             WHERE st.scan_id = :scan_id
@@ -427,6 +494,17 @@ class ComparisonService:
 
         vulns = []
         for row in result:
+            fingerprint = row[9]
+            # Backward-compat: rows ingested before the fingerprint column existed
+            # (or backfilled lazily) may be NULL — compute the same stable value
+            # on the fly so comparison stays fingerprint-keyed.
+            if not fingerprint:
+                fingerprint = finding_fingerprint(
+                    host=row[0],
+                    template_id=row[2],
+                    port=row[5],
+                    matched_at=row[6],
+                )
             vulns.append({
                 'ip_address': row[0],
                 'device_name': row[1],
@@ -436,7 +514,8 @@ class ComparisonService:
                 'port': row[5],
                 'matched_at': row[6],
                 'description': row[7],
-                'reference': row[8]
+                'reference': row[8],
+                'fingerprint': fingerprint
             })
 
         return vulns
@@ -469,11 +548,58 @@ class ComparisonService:
         return audits
 
     def _port_key(self, port: Dict[str, Any]) -> str:
-        """Generate unique key for port comparison"""
-        return f"{port['ip_address']}:{port['port']}:{port['protocol']}"
+        """Generate unique key for port comparison.
+
+        Ephemeral/RPC ports (mountd, nlockmgr, ... on random high ports) are
+        collapsed to a stable sentinel so reboot-driven port churn does NOT
+        surface as NEW_PORT/CLOSED_PORT noise.
+        """
+        norm_port = normalize_port(port['port'], port.get('service_name'))
+        return f"{port['ip_address']}:{norm_port}:{port['protocol']}"
+
+    def _log_suppressed_port_churn(
+        self,
+        baseline_ports: List[Dict[str, Any]],
+        current_ports: List[Dict[str, Any]],
+        baseline_keys: Dict[str, Any],
+        current_keys: Dict[str, Any],
+    ) -> None:
+        """Log ephemeral-port churn that normalization collapsed.
+
+        A raw port present in only one scan but whose *normalized* key exists in
+        both scans is reboot noise (e.g. mountd:49163 vs mountd:50011). We report
+        it at info level so operators can see it was suppressed, but it is never
+        counted as NEW_PORT / CLOSED_PORT.
+        """
+        def raw_key(p: Dict[str, Any]) -> str:
+            return f"{p['ip_address']}:{p['port']}:{p['protocol']}"
+
+        baseline_raw = {raw_key(p) for p in baseline_ports}
+        current_raw = {raw_key(p) for p in current_ports}
+        raw_only = baseline_raw.symmetric_difference(current_raw)
+        if not raw_only:
+            return
+
+        # Of the raw-differing ports, how many resolved to a shared normalized key?
+        suppressed = 0
+        for ports in (baseline_ports, current_ports):
+            for p in ports:
+                if raw_key(p) in raw_only:
+                    k = self._port_key(p)
+                    if k in baseline_keys and k in current_keys:
+                        suppressed += 1
+        if suppressed:
+            logger.info(
+                "Comparison suppressed %d ephemeral/RPC port change(s) as reboot "
+                "noise (collapsed via normalize_port)", suppressed
+            )
 
     def _vuln_key(self, vuln: Dict[str, Any]) -> str:
-        """Generate unique key for vulnerability comparison"""
-        # Key: IP + template_id + port
-        # Note: Ignore matched_at to allow for same vuln on different URLs
-        return f"{vuln['ip_address']}:{vuln['template_id']}:{vuln['port']}"
+        """Generate unique key for vulnerability comparison.
+
+        Uses the stable finding fingerprint (host + template_id/cve + normalized
+        port + normalized URL path) so the same logical finding is not reported as
+        both new and fixed when the crawler hits a different URL or an RPC port
+        rotates between runs.
+        """
+        return vuln['fingerprint']

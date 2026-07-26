@@ -5,7 +5,7 @@ import pytz
 import logging
 from ..celery_app import celery_app
 from ..db.sync_session import get_sync_db
-from ..models import ScheduledScan, Scan, ScanTarget
+from ..models import ScheduledScan, Scan, ScanTarget, Vulnerability
 from ..models.scan import ScanStatus, ScanPhase
 from ..tasks.scan_tasks import run_scan
 from ..services.comparison_service import ComparisonService
@@ -182,7 +182,20 @@ def post_scan_tasks(self, scan_id: str, scheduled_scan_id: str):
 
         # Send notifications
         if scheduled_scan.email_on_completion or scheduled_scan.email_on_changes_only:
-            send_notification(scheduled_scan, scan, comparison)
+            send_notification(scheduled_scan, scan, comparison, db=db)
+
+        # Outbound webhook / Slack push: let the findings that matter LEAVE the
+        # tool. Fires alongside email when this scan has non-suppressed NEW
+        # critical or KEV-listed findings and a webhook URL is configured.
+        # Best-effort: notify_scan_findings is fully wrapped and never raises.
+        try:
+            from ..services.webhook_service import notify_scan_findings
+            notify_scan_findings(db, scan)
+        except Exception as webhook_err:
+            logger.warning(
+                f"Outbound webhook failed for scan {scan_id} (non-fatal): {webhook_err}",
+                exc_info=True,
+            )
 
 def calculate_next_run(cron_expression: str, timezone_str: str, base_time: datetime = None) -> datetime:
     """Calculate the next run time based on cron expression"""
@@ -202,7 +215,27 @@ def calculate_next_run(cron_expression: str, timezone_str: str, base_time: datet
 
     return next_run
 
-def send_notification(scheduled_scan: ScheduledScan, scan: Scan, comparison=None):
+def count_critical_vulnerabilities(db, scan: Scan) -> int:
+    """Count critical-severity findings for a scan.
+
+    Vulnerability rows link to the scan via ScanTarget
+    (Vulnerability.scan_target_id -> ScanTarget.id -> ScanTarget.scan_id). The Scan
+    model has no total_critical column, so we count from the actual findings.
+    """
+    if db is None:
+        return 0
+    return (
+        db.query(Vulnerability)
+        .join(ScanTarget, Vulnerability.scan_target_id == ScanTarget.id)
+        .filter(
+            ScanTarget.scan_id == str(scan.id),
+            Vulnerability.severity == "critical",
+        )
+        .count()
+    )
+
+
+def send_notification(scheduled_scan: ScheduledScan, scan: Scan, comparison=None, db=None):
     """
     Send email notification about scan completion with reports attached
     """
@@ -223,8 +256,7 @@ def send_notification(scheduled_scan: ScheduledScan, scan: Scan, comparison=None
     if scheduled_scan.email_on_completion:
         should_send = True
 
-    if scheduled_scan.alert_on_critical and scan.total_vulnerabilities > 0:
-        # TODO: Check for critical vulnerabilities specifically
+    if scheduled_scan.alert_on_critical and count_critical_vulnerabilities(db, scan) > 0:
         should_send = True
 
     if scheduled_scan.alert_on_new_vulns and comparison:

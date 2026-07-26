@@ -42,6 +42,11 @@ export interface Change {
   new_vuln_count?: number;
   description: string;
   associated_vulnerabilities?: AssociatedVulnerability[];
+  // NEW_VULNERABILITY triage classification (SOC hardening): distinguishes genuinely new
+  // findings from ones already suppressed via triage (excluded from headline counts, but
+  // may still appear in the changes array).
+  classification?: 'GENUINELY_NEW' | 'SUPPRESSED';
+  fingerprint?: string;
 }
 
 export interface AssociatedVulnerability {

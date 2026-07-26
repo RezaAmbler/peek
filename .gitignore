@@ -78,6 +78,9 @@ celerybeat-schedule.db
 # Local analysis / audit output
 _analysis/
 
+# SOC recommendations working notes — never commit
+docs/soc-recommendations.md
+
 # Misc scratch
 tmp/
 .mcp.json

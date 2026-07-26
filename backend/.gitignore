@@ -33,6 +33,11 @@ env/
 
 # Database
 data/
+# The bundled offline KEV snapshot ships with the app; the rest of app/data/
+# (runtime KEV cache, any local DB) stays ignored.
+!app/data/
+app/data/*
+!app/data/kev_snapshot.json
 *.db
 *.sqlite
 *.sqlite3

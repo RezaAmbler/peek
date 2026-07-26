@@ -1,0 +1,114 @@
+# PEEK SOC Verification — A/B End-to-End QA
+
+Purpose: prove the SOC-hardening branch makes PEEK's findings **trustworthy** by running
+the hellbox scan → remediate → re-scan loop twice — once on `main` (baseline) and once on
+`soc-hardening` (treatment) — and contrasting the results.
+
+This runbook is meant to be handed to **Claude Code running on a machine that HAS the AWS
+toolchain** (`aws`, `ssh`, `scp`, `rsync`, `jq`, `curl`, `openssl`) and valid AWS
+credentials (`aws sts get-caller-identity` succeeds). It is a thin wrapper around the
+existing `scripts/qa/end-to-end-qa.prompt`; read that file's prerequisites and cost notes
+first. Typical total runtime: ~3–4 h across both arms; cost under ~$2 if torn down promptly.
+
+> Why two arms? On `main`, hardening the hellbox still reports ~19 phantom "new
+> vulnerabilities" (scan non-determinism + RPC/ephemeral-port churn), the critical alert
+> fires on *any* finding, and there is no risk ranking or triage memory. `soc-hardening`
+> fixes exactly these. The contrast is the deliverable.
+
+---
+
+## Configuration
+
+```
+AWS_REGION=""            # leave empty for auto-discovery
+AWS_KEY_NAME=""          # existing EC2 key pair name
+SSH_KEY_PATH=""          # local .pem matching AWS_KEY_NAME
+PEEK_USERNAME="admin"
+PEEK_PASSWORD="admin"
+
+RUN_BASELINE="yes"       # set to "no" to skip the main arm and contrast against the
+                         # documented baseline in scripts/qa/hellbox-qa.prompt instead
+```
+
+Both arms deploy PEEK by `rsync`-ing the **currently checked-out working tree** (that's how
+`deploy/deploy.sh` works), so the branch under test = the branch you have checked out when
+that arm runs. This runbook checks out the right branch for each arm.
+
+---
+
+## Arm A — Baseline (`main`)   [skip if RUN_BASELINE="no"]
+
+1. `git checkout main && git rev-parse --short HEAD` — record the SHA.
+2. Run `scripts/qa/end-to-end-qa.prompt` end to end (deploy PEEK → provision hellbox →
+   scan #1 → remediate → scan #2). Let it use its own state file.
+3. After scan #2 completes, capture the **baseline artifacts** (see "Artifacts to capture"
+   below) into `tmp/soc-baseline-<TIMESTAMP>/`.
+4. **Tear down the baseline PEEK + hellbox EC2 instances** (the end-to-end prompt prints the
+   exact `aws ec2 terminate-instances` command). Do not leave them running while Arm B runs.
+
+## Arm B — Treatment (`soc-hardening`)
+
+1. `git checkout soc-hardening && git rev-parse --short HEAD` — record the SHA.
+2. Run `scripts/qa/end-to-end-qa.prompt` end to end again (fresh state file).
+3. Capture the **treatment artifacts** into `tmp/soc-treatment-<TIMESTAMP>/`.
+4. Additionally exercise the two treatment-only capabilities:
+   - **Triage suppression:** in scan #1's results pick one finding you consider a false
+     positive, and `PATCH /api/findings/{config_id}/{fingerprint}` with
+     `{"status":"false_positive"}` (config_id = the scan's config; fingerprint is in each
+     vuln object). Re-run the comparison and confirm that finding is no longer counted as
+     new (it should render as SUPPRESSED).
+   - **Webhook (optional):** set `SLACK_WEBHOOK_URL` (or `WEBHOOK_URL`) in the deployed
+     `/opt/peek/backend/.env`, restart, and confirm a push fires on the KEV/critical
+     findings. Skip if you have no webhook endpoint handy.
+5. **Tear down** the treatment EC2 instances.
+
+---
+
+## Artifacts to capture (per arm)
+
+For the scan pair produced by each arm, save these JSON files (auth with a bearer token
+from `POST /api/auth/login`):
+
+```
+# Comparison of scan #1 (vulnerable) vs scan #2 (hardened) — the de-noising evidence
+curl -s -H "Authorization: Bearer $TOKEN" \
+  -X POST "$PEEK_URL/api/comparisons/compare?baseline_scan_id=$SCAN1&current_scan_id=$SCAN2" \
+  > comparison.json
+
+# Scan #2 vulnerabilities — enrichment + triage evidence (treatment arm shows the new fields)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "$PEEK_URL/api/scans/$SCAN2/vulnerabilities" > scan2-vulns.json
+
+# The two raw scan result exports the end-to-end prompt already writes:
+#   tmp/hellbox-scan-1-*.json , tmp/hellbox-scan-2-*.json
+```
+
+So each arm's folder should contain: `comparison.json`, `scan2-vulns.json`, and copies of
+`hellbox-scan-1-*.json` / `hellbox-scan-2-*.json`, plus the recorded git SHA.
+
+---
+
+## Handoff — paste these back into the planning session for compare/contrast
+
+Paste (or attach) both arms' `comparison.json` and `scan2-vulns.json`. I will produce the
+before/after table. Expected contrasts:
+
+| Dimension | Baseline (`main`) | Treatment (`soc-hardening`) |
+|---|---|---|
+| "New vulnerabilities" after hardening | ~19 (mostly noise) | ~0 genuinely-new (noise de-noised/SUPPRESSED) |
+| Ephemeral RPC port churn (mountd/nlockmgr/status) | shows as NEW/CLOSED_PORT | collapsed, not reported |
+| Finding identity | `ip:template_id:port` (unstable) | stable `fingerprint` |
+| Risk ranking | severity label only | `risk_score` (CVSS×EPSS + KEV boost); KEV/exploit badges |
+| Critical alert gate | fires on ANY finding | fires only on real criticals |
+| Triage memory across scans | none | false-positive/accepted-risk persist + suppress |
+| Findings leaving the tool | email only | + webhook/Slack on critical/KEV |
+
+---
+
+## Notes
+- If `RUN_BASELINE="no"`, I contrast the treatment arm against the documented baseline
+  (scan #1 ≈ 89 findings, scan #2 < 20, ~19 false "new") recorded in
+  `scripts/qa/hellbox-qa.prompt`. Running the real baseline arm is more rigorous.
+- Security groups `peek-prod-sg` / `peek-hellbox-qa` are reusable; leave them. Terminate the
+  **EC2 instances** after each arm — a forgotten box is ~$30/mo.
+- Nothing here runs from the isolated planning container; it must run where AWS creds live.

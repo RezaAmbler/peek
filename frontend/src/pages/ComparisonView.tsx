@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { comparisonsApi } from '../api/comparisons';
@@ -6,6 +7,10 @@ import { Navigation } from '../components/Navigation';
 
 export function ComparisonView() {
   const { comparisonId } = useParams({ from: '/comparisons/$comparisonId' });
+
+  // Suppressed NEW_VULNERABILITY changes (already triaged as false positive / accepted risk)
+  // are hidden by default so the list reads as an actionable worklist; toggle to reveal them.
+  const [showSuppressed, setShowSuppressed] = useState(false);
 
   const { data: comparison, isLoading } = useQuery({
     queryKey: ['comparison', comparisonId],
@@ -63,8 +68,16 @@ export function ComparisonView() {
   // Group changes by category
   const portChanges = comparison.changes.filter(c => c.category === 'port');
   const serviceChanges = comparison.changes.filter(c => c.category === 'service');
-  const vulnChanges = comparison.changes.filter(c => c.category === 'vulnerability');
+  const allVulnChanges = comparison.changes.filter(c => c.category === 'vulnerability');
   const sshChanges = comparison.changes.filter(c => c.category === 'ssh');
+
+  const suppressedVulnCount = allVulnChanges.filter(
+    c => c.type === 'NEW_VULNERABILITY' && c.classification === 'SUPPRESSED'
+  ).length;
+
+  const vulnChanges = showSuppressed
+    ? allVulnChanges
+    : allVulnChanges.filter(c => !(c.type === 'NEW_VULNERABILITY' && c.classification === 'SUPPRESSED'));
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900" data-component="ComparisonPage">
@@ -179,9 +192,24 @@ export function ComparisonView() {
           </div>
         )}
 
-        {vulnChanges.length > 0 && (
+        {(vulnChanges.length > 0 || suppressedVulnCount > 0) && (
           <div className="mb-6" data-testid="vuln-changes-section">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Vulnerability Changes ({vulnChanges.length})</h2>
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+                Vulnerability Changes ({vulnChanges.length})
+              </h2>
+              {suppressedVulnCount > 0 && (
+                <button
+                  onClick={() => setShowSuppressed(s => !s)}
+                  className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline"
+                  data-testid="toggle-suppressed-vulns"
+                >
+                  {showSuppressed
+                    ? `Hide ${suppressedVulnCount} suppressed`
+                    : `Show ${suppressedVulnCount} suppressed (already triaged)`}
+                </button>
+              )}
+            </div>
             <div className="space-y-3">
               {vulnChanges.map((change, idx) => (
                 <ChangeCard key={idx} change={change} />

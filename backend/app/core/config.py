@@ -58,6 +58,13 @@ class Settings(BaseSettings):
     # Frontend URL for links in emails
     FRONTEND_URL: str = "http://localhost:3000"
 
+    # Outbound webhook / Slack push (optional). Best-effort: findings leave the
+    # tool to a generic webhook and/or a Slack-compatible incoming webhook when a
+    # scan produces new critical or KEV-listed findings. Both empty = disabled.
+    # requests honors HTTPS_PROXY from the environment automatically.
+    WEBHOOK_URL: str = ""        # generic JSON POST endpoint
+    SLACK_WEBHOOK_URL: str = ""  # Slack incoming webhook (text/blocks payload)
+
     class Config:
         env_file = ".env"
         case_sensitive = True

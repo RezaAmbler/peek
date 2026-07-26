@@ -7,6 +7,7 @@ import { API_BASE_URL } from '../api/client';
 import { formatDistanceToNow, format } from 'date-fns';
 import { SSHAuditCard } from '../components/SSHAuditCard';
 import { VulnerabilityCard } from '../components/VulnerabilityCard';
+import { RiskLegend } from '../components/RiskInfo';
 import { ServiceIcon } from '../components/ServiceIcon';
 import { SSLScanSection } from '../components/SSLScanSection';
 import { NSEFindingsSection } from '../components/NSEFindingsSection';
@@ -17,6 +18,7 @@ import { useState, Fragment, useMemo } from 'react';
 import { Menu, Transition } from '@headlessui/react';
 import { Navigation } from '../components/Navigation';
 import { parseUTC } from '../utils/date';
+import { sortByRiskScoreDesc } from '../utils/risk';
 
 // Port type for sorting
 interface PortData {
@@ -345,7 +347,8 @@ export function ScanDetail() {
     return { actualVulnerabilities: vulns, infoFindings: infos, vulnCounts: counts };
   }, [vulnerabilities]);
 
-  // Filter vulnerabilities by host AND severity
+  // Filter vulnerabilities by host AND severity, then sort into a prioritized worklist
+  // (risk_score descending, nulls last) so the highest-priority findings surface first.
   const filteredVulnerabilities = useMemo(() => {
     let filtered = actualVulnerabilities;
 
@@ -361,7 +364,8 @@ export function ScanDetail() {
       activeSeverities.has(v.severity?.toLowerCase() || 'info')
     );
 
-    return filtered;
+    // Sort into a prioritized worklist: highest risk_score first, unscored findings last.
+    return sortByRiskScoreDesc(filtered);
   }, [actualVulnerabilities, hostFilter, activeSeverities]);
 
   const filteredInfoFindings = useMemo(() => {
@@ -389,6 +393,14 @@ export function ScanDetail() {
   const handleRestart = () => {
     if (!confirm('Restart this scan? A new scan will be created with the same targets and configuration.')) return;
     restartMutation.mutate(scanId);
+  };
+
+  // Reflect a successful triage PATCH (from a VulnerabilityCard) back into the cached
+  // vulnerabilities list, keyed by fingerprint, without forcing a full refetch.
+  const handleTriageUpdate = (fingerprint: string, patch: Partial<Vulnerability>) => {
+    queryClient.setQueryData<Vulnerability[]>(['scan-vulnerabilities', scanId], (prev) =>
+      prev?.map((v) => (v.fingerprint === fingerprint ? { ...v, ...patch } : v))
+    );
   };
 
   const handleExport = (format: string, type: string) => {
@@ -1296,6 +1308,10 @@ export function ScanDetail() {
           </button>
           {showVulnerabilities && (
             <div className="p-6">
+              {/* Reference legend: what Risk / CVSS / EPSS / KEV mean and how the
+                  score is derived. Collapsed by default. */}
+              <RiskLegend />
+              <div className="mt-4" />
               {/* Filter status indicator */}
               {activeSeverities.size < 4 && actualVulnerabilities.length > 0 && (
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
@@ -1306,7 +1322,12 @@ export function ScanDetail() {
               {filteredVulnerabilities.length > 0 ? (
                 <div className="space-y-4">
                   {filteredVulnerabilities.map((vuln: Vulnerability) => (
-                    <VulnerabilityCard key={vuln.id} vulnerability={vuln} />
+                    <VulnerabilityCard
+                      key={vuln.id}
+                      vulnerability={vuln}
+                      configId={scan.config_id}
+                      onTriageUpdate={handleTriageUpdate}
+                    />
                   ))}
                 </div>
               ) : actualVulnerabilities.length > 0 && (hostFilter || activeSeverities.size < 4) ? (

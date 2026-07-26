@@ -14,6 +14,7 @@ from .sslscan_result import SslScanResult
 from .httpx_result import HttpxResult
 from .discovered_endpoint import DiscoveredEndpoint
 from .testssl_result import TestsslResult
+from .finding_state import FindingState
 
 __all__ = [
     "User",
@@ -37,4 +38,5 @@ __all__ = [
     "HttpxResult",
     "DiscoveredEndpoint",
     "TestsslResult",
+    "FindingState",
 ]
