@@ -3,7 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, text
 from typing import Optional, List, Dict, Any
 from ..database import get_db
-from ..models import Scan, ScanComparison, User
+from ..models import Scan, ScanComparison, User, FindingState
+from ..models.finding_state import SUPPRESSED_STATUSES
 from ..routers.auth import get_current_user
 import uuid
 from datetime import datetime
@@ -30,7 +31,7 @@ async def _get_ports_by_scan(db: AsyncSession, scan_id: str) -> List[Dict[str, A
 async def _get_vulnerabilities_by_scan(db: AsyncSession, scan_id: str) -> List[Dict[str, Any]]:
     """Get all vulnerabilities for a scan"""
     query = text("""
-        SELECT st.ip_address, st.device_name, v.template_id, v.name, v.severity, v.port, v.matched_at, v.description, v.reference
+        SELECT st.ip_address, st.device_name, v.template_id, v.name, v.severity, v.port, v.matched_at, v.description, v.reference, v.fingerprint
         FROM vulnerabilities v
         JOIN scan_targets st ON v.scan_target_id = st.id
         WHERE st.scan_id = :scan_id
@@ -38,7 +39,8 @@ async def _get_vulnerabilities_by_scan(db: AsyncSession, scan_id: str) -> List[D
     result = await db.execute(query, {'scan_id': scan_id})
     return [
         {'ip_address': r[0], 'device_name': r[1], 'template_id': r[2], 'name': r[3],
-         'severity': r[4], 'port': r[5], 'matched_at': r[6], 'description': r[7], 'reference': r[8]}
+         'severity': r[4], 'port': r[5], 'matched_at': r[6], 'description': r[7], 'reference': r[8],
+         'fingerprint': r[9]}
         for r in result
     ]
 
@@ -161,6 +163,21 @@ async def create_comparison(
                 'associated_vulnerabilities': associated_vulnerabilities if associated_vulnerabilities else None
             })
 
+    # Cross-scan triage memory: load fingerprints a human already dispositioned as
+    # false_positive / accepted_risk (or time-boxed via suppressed_until) for this
+    # config. A suppressed finding must NOT be re-surfaced as a new vulnerability
+    # every scan. Keyed by (config_id, fingerprint) to match FindingState.
+    supp_result = await db.execute(
+        select(FindingState.fingerprint).where(
+            FindingState.config_id == current.config_id,
+            or_(
+                FindingState.status.in_(SUPPRESSED_STATUSES),
+                FindingState.suppressed_until > datetime.utcnow(),
+            ),
+        )
+    )
+    suppressed_fps = {row[0] for row in supp_result if row[0]}
+
     # Compare vulnerabilities
     baseline_vuln_keys = {f"{v['ip_address']}:{v['template_id']}:{v['port']}": v for v in baseline_vulns}
     current_vuln_keys = {f"{v['ip_address']}:{v['template_id']}:{v['port']}": v for v in current_vulns}
@@ -169,10 +186,16 @@ async def create_comparison(
     for key, vuln in current_vuln_keys.items():
         if key not in baseline_vuln_keys:
             sev_map = {'critical': 'CRITICAL', 'high': 'HIGH', 'medium': 'MEDIUM', 'low': 'LOW', 'info': 'INFO'}
+            fp = vuln.get('fingerprint')
+            # SUPPRESSED changes stay in the list (so the UI can show them as
+            # dispositioned) but are excluded from all counts by the stats pass.
+            classification = 'SUPPRESSED' if (fp and fp in suppressed_fps) else 'GENUINELY_NEW'
             changes.append({
                 'type': 'NEW_VULNERABILITY', 'severity': sev_map.get(vuln['severity'], 'MEDIUM'),
-                'category': 'vulnerability', 'ip_address': vuln['ip_address'],
+                'category': 'vulnerability', 'classification': classification,
+                'ip_address': vuln['ip_address'],
                 'device_name': vuln['device_name'], 'port': vuln['port'],
+                'fingerprint': fp,
                 'template_id': vuln['template_id'], 'name': vuln['name'],
                 'vuln_severity': vuln['severity'], 'matched_at': vuln['matched_at'],
                 'vuln_description': vuln.get('description'),
@@ -193,15 +216,17 @@ async def create_comparison(
                 'description': f"Fixed {vuln['severity']} vulnerability: {vuln['name']}"
             })
 
-    # Calculate statistics
-    new_ports = sum(1 for c in changes if c['type'] == 'NEW_PORT')
-    closed_ports = sum(1 for c in changes if c['type'] == 'CLOSED_PORT')
-    new_vulns = sum(1 for c in changes if c['type'] == 'NEW_VULNERABILITY')
-    fixed_vulns = sum(1 for c in changes if c['type'] == 'FIXED_VULNERABILITY')
-    critical = sum(1 for c in changes if c['severity'] == 'CRITICAL')
-    high = sum(1 for c in changes if c['severity'] == 'HIGH')
-    medium = sum(1 for c in changes if c['severity'] == 'MEDIUM')
-    positive = sum(1 for c in changes if c['severity'] == 'POSITIVE')
+    # Calculate statistics. Changes suppressed by persistent triage state are kept
+    # in the list (for UI display) but excluded from every count.
+    counted = [c for c in changes if c.get('classification') != 'SUPPRESSED']
+    new_ports = sum(1 for c in counted if c['type'] == 'NEW_PORT')
+    closed_ports = sum(1 for c in counted if c['type'] == 'CLOSED_PORT')
+    new_vulns = sum(1 for c in counted if c['type'] == 'NEW_VULNERABILITY')
+    fixed_vulns = sum(1 for c in counted if c['type'] == 'FIXED_VULNERABILITY')
+    critical = sum(1 for c in counted if c['severity'] == 'CRITICAL')
+    high = sum(1 for c in counted if c['severity'] == 'HIGH')
+    medium = sum(1 for c in counted if c['severity'] == 'MEDIUM')
+    positive = sum(1 for c in counted if c['severity'] == 'POSITIVE')
 
     # Generate summary
     summary_lines = [

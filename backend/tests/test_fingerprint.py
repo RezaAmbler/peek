@@ -94,3 +94,31 @@ class TestFindingFingerprint:
     def test_handles_missing_matched_at(self):
         fp = finding_fingerprint("10.0.0.5", "CVE-2023-1", 443, None)
         assert len(fp) == 64
+
+    def test_host_port_suffix_stripped(self):
+        # Ghostcat regression: one scan reported host "ip:8080", the next "ip".
+        # These must fingerprint identically (the port is keyed separately).
+        fp1 = finding_fingerprint("184.72.78.242:8080", "CVE-2020-1938", 8009, "184.72.78.242:8009")
+        fp2 = finding_fingerprint("184.72.78.242", "CVE-2020-1938", 8009, "184.72.78.242:8009")
+        assert fp1 == fp2
+
+    def test_bare_ipv6_host_not_truncated(self):
+        # Bare IPv6 has multiple colons and must NOT be treated as host:port.
+        fp1 = finding_fingerprint("2001:db8::1", "CVE-1", 443, "https://[2001:db8::1]/x")
+        fp2 = finding_fingerprint("2001:db8::1", "CVE-1", 443, "https://[2001:db8::1]/x")
+        assert fp1 == fp2
+
+    def test_random_path_segment_collapsed(self):
+        # Tomcat path-normalization regression: nuclei injects a random cache-buster
+        # segment into the traversal path, different every run -> same finding.
+        fp1 = finding_fingerprint("h", "apache-tomcat-manager-path-normalization", 8180,
+                                  "http://h:8180/3Gyr71aqWq1eqSFtRDKYFaqClfY/..;/manager/html")
+        fp2 = finding_fingerprint("h", "apache-tomcat-manager-path-normalization", 8180,
+                                  "http://h:8180/3Gyw0k3CrDkVj8fy7TWFFPazYtX/..;/manager/html")
+        assert fp1 == fp2
+
+    def test_real_word_path_segments_still_distinguish(self):
+        # Short/word-like segments are NOT random -> distinct paths stay distinct.
+        fp1 = finding_fingerprint("h", "CVE-1", 80, "http://h/manager/html")
+        fp2 = finding_fingerprint("h", "CVE-1", 80, "http://h/admin/html")
+        assert fp1 != fp2

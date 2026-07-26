@@ -17,9 +17,17 @@ noise, by:
 """
 
 import hashlib
+import re
 from typing import Optional
 
 from .url_normalizer import normalize_url
+
+# A path segment that looks like a random token: >=16 chars, alphanumeric, with
+# at least one letter AND one digit. Nuclei traversal payloads embed a random
+# cache-buster segment (e.g. ".../3Gyr71aqWq1eqSFtRDKYFaqClfY/..;/manager/html"),
+# and session tokens / UUIDs show up in paths — all volatile across runs. These
+# collapse to a stable sentinel so the same logical finding fingerprints identically.
+_RANDOM_SEGMENT_RE = re.compile(r"^(?=.*[a-z])(?=.*\d)[a-z0-9]{16,}$", re.IGNORECASE)
 
 
 # --- Ephemeral port ranges ---------------------------------------------------
@@ -100,15 +108,41 @@ def _normalize_path(matched_at: Optional[str]) -> str:
         return "/"
     try:
         _, components = normalize_url(matched_at)
+        path = components.get("path") or "/"
     except Exception:
         # Never let a malformed URL break fingerprinting.
         return matched_at.strip().lower()
-    return components.get("path") or "/"
+    # Collapse high-entropy random path segments (traversal cache-busters, session
+    # tokens, UUIDs) to a stable sentinel. Real path segments (manager, html,
+    # .env, ..;) are short/word-like and pass through unchanged.
+    segments = path.split("/")
+    normalized = ["*" if _RANDOM_SEGMENT_RE.match(seg) else seg for seg in segments]
+    return "/".join(normalized)
 
 
 def _normalize_host(host: Optional[str]) -> str:
-    """Lowercase/strip the host or IP."""
-    return (host or "").strip().lower()
+    """Lowercase/strip the host or IP, dropping any ``:port`` suffix.
+
+    The port is keyed separately (and normalized), but some tools emit the
+    matched-at host as ``ip:port`` inconsistently across runs (e.g. Ghostcat
+    reported ``184.72.78.242:8080`` in one scan and ``184.72.78.242`` in the
+    next), which otherwise splits one logical finding into two fingerprints.
+    Bare IPv6 literals (multiple colons) are left untouched; bracketed IPv6
+    keeps only the ``[...]`` part.
+    """
+    h = (host or "").strip().lower()
+    if not h:
+        return h
+    if h.startswith("["):
+        # Bracketed IPv6, optionally with :port -> keep just "[...]".
+        return h.split("]", 1)[0] + "]" if "]" in h else h
+    # "ipv4:port" or "hostname:port" is exactly one colon with a numeric tail.
+    # Bare IPv6 (multiple colons) has no single-colon port form, so it's untouched.
+    if h.count(":") == 1:
+        left, _, right = h.partition(":")
+        if right.isdigit():
+            return left
+    return h
 
 
 def finding_fingerprint(
