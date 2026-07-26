@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import declarative_base
-from sqlalchemy import text
+from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy import text, create_engine
 from .core.config import settings
 
 def get_connect_args():
@@ -24,6 +24,25 @@ AsyncSessionLocal = async_sessionmaker(
     class_=AsyncSession,
     expire_on_commit=False
 )
+
+
+def _sync_database_url(url: str) -> str:
+    """Strip the async driver so a synchronous Session binds to the SAME database."""
+    for async_driver in ("+aiosqlite", "+asyncpg", "+aiomysql", "+asyncmy"):
+        url = url.replace(async_driver, "")
+    return url
+
+
+# Synchronous engine/session bound to the same DB, for the few code paths that use
+# the sync ORM inside a threadpool (e.g. ComparisonService, which is heavily unit
+# tested against a sync Session). Not for request handlers — those use get_db().
+sync_engine = create_engine(
+    _sync_database_url(settings.DATABASE_URL),
+    connect_args=get_connect_args(),
+    pool_pre_ping=True,
+)
+
+SyncSessionLocal = sessionmaker(bind=sync_engine, expire_on_commit=False)
 
 Base = declarative_base()
 
