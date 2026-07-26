@@ -66,6 +66,11 @@ $SSH_CMD "chmod +x /tmp/setup-host.sh && /tmp/setup-host.sh"
 
 # Step 3: Sync code to remote
 log "Step 3: Syncing code to remote server..."
+# Containers run as root and write runtime files into the tree (e.g.
+# backend/app/data/kev_cache.json), leaving them root-owned. Reclaim ownership for
+# the deploy user first so rsync (running as $SSH_USER) doesn't fail with
+# "Permission denied" on a redeploy. root inside the containers can still write.
+$SSH_CMD "sudo chown -R $SSH_USER:$SSH_USER $REMOTE_DIR 2>/dev/null || true"
 rsync -avz --delete \
     --exclude '_analysis/' \
     --exclude '.git' \
