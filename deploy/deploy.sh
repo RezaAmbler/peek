@@ -73,7 +73,7 @@ rsync -avz --delete \
     --exclude 'backend/.pytest_cache/' \
     --exclude '.venv/' \
     --exclude 'artifacts/' \
-    --exclude 'data/' \
+    --exclude '/data/' \
     --exclude '.env' \
     --exclude 'frontend/coverage/' \
     --exclude 'frontend/dist/' \
