@@ -48,7 +48,7 @@ export const RISK_TOOLTIPS = {
   exploit: 'A public exploit is known — the CVE is KEV-listed or the detection template implies a working exploit (exploit / RCE).',
   cvss: 'CVSS — Common Vulnerability Scoring System (NVD). Severity of impact if exploited, 0–10.',
   epss: 'EPSS — Exploit Prediction Scoring System (FIRST.org). Probability this CVE is exploited in the wild within the next 30 days.',
-  risk: 'Risk score (0–100): a prioritization blend of impact and likelihood. base = CVSS×10 (or the severity rating if no CVSS), scaled by ×(1 + EPSS), then ×1.5 + 25 if KEV-listed or a known exploit exists.',
+  risk: "Risk score (0–100): a prioritization blend of impact and likelihood. base = CVSS×10 (or the severity rating if no CVSS), capped by the finding's own severity so info/low detections can't score like criticals; scaled by ×(1 + EPSS), then ×1.5 + 25 if KEV-listed or a known exploit exists.",
 } as const;
 
 /**
@@ -72,7 +72,10 @@ export function RiskLegend() {
               <code className="text-xs">× 1.5 + 25</code> when KEV-listed or a known
               exploit exists (capped at 100). <code className="text-xs">base</code> is{' '}
               <code className="text-xs">CVSS × 10</code>, or the finding&apos;s severity
-              rating when no CVSS is available.
+              rating when no CVSS is available — and is itself capped by the
+              finding&apos;s severity, so an <code className="text-xs">info</code> or{' '}
+              <code className="text-xs">low</code> detection can&apos;t score like a
+              critical just because its CVE has a high CVSS.
             </dd>
           </div>
           <div>

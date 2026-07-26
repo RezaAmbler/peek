@@ -319,6 +319,20 @@ _SEVERITY_BASE = {
     "unknown": 15.0,
 }
 
+# Ceiling on the risk base by the finding's own (tool-assigned) severity. Prevents
+# a high-CVSS CVE attached to an info/low detection template from scoring like a
+# critical. Medium and above are uncapped (100) so real highs/criticals are
+# unaffected; the EPSS scale and KEV/exploit boost still apply on top of the cap.
+_SEVERITY_CEILING = {
+    "critical": 100.0,
+    "high": 100.0,
+    "medium": 100.0,
+    "low": 40.0,
+    "info": 20.0,
+    "informational": 20.0,
+    "unknown": 100.0,
+}
+
 
 def compute_risk_score(
     cvss: Optional[float],
@@ -334,6 +348,10 @@ def compute_risk_score(
 
         base   = cvss * 10                 if cvss is not None      # 0..100
                = _SEVERITY_BASE[severity]  otherwise (fallback)
+        base   = min(base, _SEVERITY_CEILING[severity])            # info/low cap:
+                                           # an info detection template can't score
+                                           # like a critical just because its CVE
+                                           # has a high CVSS. Medium+ are uncapped.
 
         score  = base * (1.0 + epss)       # EPSS in [0,1] scales up to 2x
                                            # (missing EPSS treated as 0 -> x1)
@@ -349,10 +367,18 @@ def compute_risk_score(
         KEV-listed high      (cvss 7.5, kev True ): 75 * 1 = 75 -> 75*1.5+25 = 100.0
         => the KEV high (100.0) outranks the no-exploit critical (90.0).
     """
+    sev = (severity or "unknown").strip().lower()
     if cvss is not None:
         base = float(cvss) * 10.0
     else:
-        base = _SEVERITY_BASE.get((severity or "unknown").strip().lower(), 15.0)
+        base = _SEVERITY_BASE.get(sev, 15.0)
+
+    # A present CVSS must not silently override the tool's own severity: a
+    # detection/version template rated 'info' that maps to a high-CVSS CVE should
+    # not score like a critical (it merely observed a version, not a live exploit
+    # path). Cap the base by the finding's severity ceiling. Medium and above are
+    # uncapped, so genuine highs/criticals keep the full CVSS-derived base.
+    base = min(base, _SEVERITY_CEILING.get(sev, 100.0))
 
     epss_factor = 1.0 + (epss if epss is not None else 0.0)
     score = base * epss_factor

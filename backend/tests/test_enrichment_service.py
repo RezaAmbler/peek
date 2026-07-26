@@ -192,6 +192,40 @@ class TestComputeRiskScore:
             cvss=0.0, epss=None, kev_flag=False, exploit_known=False, severity="info"
         ) >= 0.0
 
+    def test_info_detection_with_high_cvss_is_capped(self):
+        # Regression: an info-severity detection template mapped to a high-CVSS CVE
+        # (e.g. "OpenSSH Service - Detect" / CVE-2016-6210) must NOT score 100.
+        # base = min(9.9*10, info ceiling 20) = 20.
+        score = es.compute_risk_score(
+            cvss=9.9, epss=None, kev_flag=False, exploit_known=False, severity="info"
+        )
+        assert score == 20.0
+        assert score < 50.0
+
+    def test_low_severity_base_capped_at_40(self):
+        score = es.compute_risk_score(
+            cvss=9.0, epss=None, kev_flag=False, exploit_known=False, severity="low"
+        )
+        assert score == 40.0
+
+    def test_medium_and_above_uncapped_by_ceiling(self):
+        # A real high/critical keeps the full CVSS-derived base (ceiling = 100).
+        assert es.compute_risk_score(
+            cvss=9.0, epss=None, kev_flag=False, exploit_known=False, severity="high"
+        ) == 90.0
+        assert es.compute_risk_score(
+            cvss=9.8, epss=None, kev_flag=False, exploit_known=False, severity="medium"
+        ) == 98.0
+
+    def test_capped_info_still_ranks_below_real_high(self):
+        info_high_cvss = es.compute_risk_score(
+            cvss=9.9, epss=0.5, kev_flag=False, exploit_known=False, severity="info"
+        )
+        real_high = es.compute_risk_score(
+            cvss=7.0, epss=0.0, kev_flag=False, exploit_known=False, severity="high"
+        )
+        assert info_high_cvss < real_high
+
 
 # =============================================================================
 # KEV offline fallback
