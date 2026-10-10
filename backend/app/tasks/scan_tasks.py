@@ -1,15 +1,12 @@
 from celery import Task
 from datetime import datetime
-from typing import List, Tuple, Optional, Any, Dict
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Optional
 from ..celery_app import celery_app
-from ..db.sync_session import get_sync_db, SessionLocal
+from ..db.sync_session import get_sync_db
 from ..models import Scan, ScanTarget, ToolExecution, ScanStatus, ScanPhase, TargetStatus, Port
-from ..tools.masscan import run_masscan
 from ..tools.nmap import run_nmap, run_nmap_discovery
 from ..tools.ssh_audit import run_ssh_audit
 from ..tools.nuclei import run_nuclei, run_nuclei_list
-from ..parsers.masscan_parser import create_ports_from_masscan
 from ..parsers.nmap_discovery_parser import create_ports_from_nmap_discovery
 from ..parsers.nmap_parser import update_ports_from_nmap
 from ..parsers.ssh_audit_parser import create_ssh_audit_from_output
@@ -37,14 +34,159 @@ from ..parsers.testssl_parser import parse_testssl_output, analyze_testssl_secur
 from ..parsers.nikto_parser import create_vulnerabilities_from_nikto
 from ..parsers.zap_parser import create_vulnerabilities_from_zap
 from ..parsers.httpx_parser import create_httpx_result_from_output
-from sqlalchemy import select
+import os
 import uuid
 import logging
-import shutil
 import tempfile
+from ..core.timeutil import utcnow
 
 logger = logging.getLogger(__name__)
-import threading
+
+# raw_output is truncated to this many characters; full output goes to artifacts
+RAW_OUTPUT_LIMIT = 50000
+
+# Single source of truth for the progress bar: (start, end) fraction per phase.
+# Ranges are contiguous and ordered, and progress is only ever written through
+# set_phase_progress(), which never moves it backwards.
+PHASE_PROGRESS = {
+    'nmap_discovery':   (0.00, 0.10),
+    'nmap':             (0.10, 0.75),
+    'httpx':            (0.75, 0.78),
+    'katana':           (0.78, 0.80),
+    'ssh-audit':        (0.80, 0.85),
+    'nuclei':           (0.85, 0.88),
+    'nuclei_endpoints': (0.88, 0.91),
+    'nse':              (0.91, 0.93),
+    'sslscan':          (0.93, 0.95),
+    'testssl':          (0.95, 0.97),
+    'nikto':            (0.97, 0.98),
+    'zap':              (0.98, 1.00),
+}
+
+
+def phase_progress(phase: str, fraction: float = 0.0) -> float:
+    """Overall progress (0..1) for a phase that is `fraction` (0..1) done."""
+    start, end = PHASE_PROGRESS[phase]
+    fraction = min(max(fraction, 0.0), 1.0)
+    return round(start + (end - start) * fraction, 4)
+
+
+def set_phase_progress(db, scan: Scan, phase: str, done: int = 1, total: int = 1) -> None:
+    """Record progress within a phase. Monotonic: never lowers scan.progress_percent."""
+    fraction = (done / total) if total else 1.0
+    value = phase_progress(phase, fraction)
+    if value > (scan.progress_percent or 0.0):
+        scan.progress_percent = value
+    scan.progress_updated_at = utcnow()
+    db.commit()
+
+
+def _truncate(raw: Optional[str]) -> Optional[str]:
+    if not raw:
+        return None
+    return raw[:RAW_OUTPUT_LIMIT]
+
+
+def start_tool_exec(db, target: ScanTarget, tool_name: str, port_rec=None,
+                    command_line: Optional[str] = None) -> ToolExecution:
+    """Create and commit the ToolExecution row for a run that is about to start.
+
+    Committed (not just flushed) so that a later rollback in an error handler
+    cannot make the row disappear: a run that blows up is still recorded.
+    """
+    tool_exec = ToolExecution(
+        id=str(uuid.uuid4()),
+        scan_target_id=str(target.id),
+        port_id=str(port_rec.id) if port_rec is not None else None,
+        tool_name=tool_name,
+        command_line=command_line,
+        started_at=utcnow()
+    )
+    db.add(tool_exec)
+    db.commit()
+    return tool_exec
+
+
+def record_tool_result(tool_exec: ToolExecution, result, raw_output: Optional[str] = None,
+                       raw_format: Optional[str] = None) -> None:
+    """Copy a runner result (ToolResult or *Output dataclass) onto the ToolExecution.
+
+    Stores the real exit code and the exact command line the runner executed.
+    A failed run always carries an error_message.
+    """
+    tool_exec.finished_at = utcnow()
+    tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
+    tool_exec.raw_output = raw_output if raw_output else None
+    if raw_format:
+        tool_exec.raw_format = raw_format
+    command_line = getattr(result, 'command_line', None)
+    if command_line:
+        tool_exec.command_line = command_line
+    exit_code = getattr(result, 'exit_code', None)
+    if exit_code is None:
+        exit_code = 0 if result.success else 1
+    tool_exec.exit_code = exit_code
+    error = result.error
+    if not result.success and not error:
+        error = f"{tool_exec.tool_name} failed (exit code {exit_code})"
+    tool_exec.error_message = error
+    # Plain attribute (not a mapped column): survives the expiry that follows a
+    # failed flush, so fail_tool_exec() can still store what the tool produced.
+    tool_exec._runner_snapshot = {
+        'raw_output': tool_exec.raw_output,
+        'raw_format': tool_exec.raw_format,
+        'command_line': tool_exec.command_line,
+        'exit_code': exit_code,
+    }
+
+
+def fail_tool_exec(db, tool_exec: Optional[ToolExecution], exc: BaseException) -> None:
+    """Finalize a ToolExecution after an unexpected exception in its phase.
+
+    Rolls the session back first (it may be in a failed-flush state, in which
+    case any further commit would raise PendingRollbackError), then records the
+    failure with timing and whatever output had already been captured.
+    """
+    # A failed flush expires the mapped attributes, so what the runner returned
+    # is taken from the plain-Python snapshot kept by record_tool_result().
+    pending = dict(getattr(tool_exec, '_runner_snapshot', None) or {})
+    try:
+        db.rollback()
+    except Exception as rollback_err:  # pragma: no cover - defensive
+        logger.error(f"Session rollback failed: {rollback_err}")
+    if tool_exec is None:
+        return
+    try:
+        for attr in ('raw_output', 'raw_format', 'command_line'):
+            value = pending.get(attr)
+            if value is not None:
+                setattr(tool_exec, attr, _truncate(value) if attr == 'raw_output' else value)
+        tool_exec.finished_at = utcnow()
+        tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
+        tool_exec.error_message = f"{type(exc).__name__}: {exc}"[:2000]
+        # Keep the tool's own non-zero exit code if it had one; otherwise 1
+        tool_exec.exit_code = pending.get('exit_code') or 1
+        db.commit()
+    except Exception as finalize_err:
+        logger.error(f"Could not finalize ToolExecution after error: {finalize_err}")
+        db.rollback()
+
+
+def fail_unfinished_tool_execs(db, scan_id: str, reason: str) -> int:
+    """Mark every ToolExecution of the scan that never finished as failed."""
+    unfinished = db.query(ToolExecution).join(ScanTarget).filter(
+        ScanTarget.scan_id == str(scan_id),
+        ToolExecution.finished_at.is_(None)
+    ).all()
+    now = utcnow()
+    for tool_exec in unfinished:
+        tool_exec.finished_at = now
+        if tool_exec.started_at:
+            tool_exec.duration_ms = int((now - tool_exec.started_at).total_seconds() * 1000)
+        tool_exec.exit_code = tool_exec.exit_code or 1
+        tool_exec.error_message = tool_exec.error_message or reason[:2000]
+    return len(unfinished)
+
 
 class DatabaseTask(Task):
     """Base task with database session"""
@@ -61,15 +203,18 @@ def run_scan(self, scan_id: str):
     """
     Main scan orchestrator.
 
+    Progress ranges come from PHASE_PROGRESS (the single source of truth):
+
     Phase 1: Port Discovery (0% -> 10%)
     Phase 2: Nmap Service Detection (10% -> 75%)
     Phase 3: httpx HTTP Probing (75% -> 78%)
     Phase 3.5: Katana Endpoint Discovery (78% -> 80%)
     Phase 4: SSH-Audit (80% -> 85%)
-    Phase 5: Nuclei (85% -> 92%)
-    Phase 6: NSE Scripts (92% -> 95%)
-    Phase 7: SSLScan (95% -> 96%)
-    Phase 7.5: testssl.sh Deep TLS Analysis (96% -> 97%)
+    Phase 5: Nuclei per-port (85% -> 88%)
+    Phase 5.5: Nuclei endpoint-mode (88% -> 91%)
+    Phase 6: NSE Scripts (91% -> 93%)
+    Phase 7: SSLScan (93% -> 95%)
+    Phase 7.5: testssl.sh Deep TLS Analysis (95% -> 97%)
     Phase 8: Nikto (97% -> 98%)
     Phase 9: ZAP (98% -> 100%)
     """
@@ -89,7 +234,7 @@ def run_scan(self, scan_id: str):
 
         # Update scan status
         scan.status = ScanStatus.RUNNING.value
-        scan.started_at = datetime.utcnow()
+        scan.started_at = utcnow()
         scan.current_phase = ScanPhase.NMAP_DISCOVERY.value
         db.commit()
 
@@ -100,7 +245,7 @@ def run_scan(self, scan_id: str):
             ).order_by(ScanTarget.sequence).all()
 
             # Phase 1: Port Discovery (0% -> 10%)
-            self.update_state(state='PROGRESS', meta={'phase': 'nmap_discovery', 'progress': 0})
+            self.update_state(state='PROGRESS', meta={'phase': 'nmap_discovery', 'progress': phase_progress('nmap_discovery')})
             run_masscan_phase(db, scan, targets, config)
 
             # Update total_open_ports after discovery phase completes
@@ -113,35 +258,35 @@ def run_scan(self, scan_id: str):
             # Phase 2: Nmap (10% -> 75%)
             scan.current_phase = ScanPhase.NMAP.value
             db.commit()
-            self.update_state(state='PROGRESS', meta={'phase': 'nmap', 'progress': 0.1})
+            self.update_state(state='PROGRESS', meta={'phase': 'nmap', 'progress': phase_progress('nmap')})
             run_nmap_phase(db, scan, targets, config)
 
             # Phase 3: httpx HTTP probing (75% -> 78%)
             if getattr(config, 'enable_httpx', True):
                 scan.current_phase = ScanPhase.HTTPX.value
                 db.commit()
-                self.update_state(state='PROGRESS', meta={'phase': 'httpx', 'progress': 0.75})
+                self.update_state(state='PROGRESS', meta={'phase': 'httpx', 'progress': phase_progress('httpx')})
                 run_httpx_phase(db, scan, targets, config)
 
             # Phase 3.5: Katana endpoint discovery (78% -> 80%)
             if getattr(config, 'enable_katana', False):
                 scan.current_phase = ScanPhase.KATANA.value
                 db.commit()
-                self.update_state(state='PROGRESS', meta={'phase': 'katana', 'progress': 0.78})
+                self.update_state(state='PROGRESS', meta={'phase': 'katana', 'progress': phase_progress('katana')})
                 run_katana_phase(db, scan, targets, config)
 
             # Phase 4: SSH-Audit (80% -> 85%)
             if config.enable_ssh_audit:
                 scan.current_phase = ScanPhase.SSH_AUDIT.value
                 db.commit()
-                self.update_state(state='PROGRESS', meta={'phase': 'ssh-audit', 'progress': 0.8})
+                self.update_state(state='PROGRESS', meta={'phase': 'ssh-audit', 'progress': phase_progress('ssh-audit')})
                 run_ssh_audit_phase(db, scan, targets, config)
 
             # Phase 5: Nuclei per-port (85% -> 88%)
             if config.enable_nuclei:
                 scan.current_phase = ScanPhase.NUCLEI.value
                 db.commit()
-                self.update_state(state='PROGRESS', meta={'phase': 'nuclei', 'progress': 0.85})
+                self.update_state(state='PROGRESS', meta={'phase': 'nuclei', 'progress': phase_progress('nuclei')})
                 run_nuclei_phase(db, scan, targets, config)
 
             # Phase 5.5: Nuclei endpoint-mode (88% -> 91%)
@@ -149,20 +294,23 @@ def run_scan(self, scan_id: str):
             if getattr(config, 'enable_nuclei_endpoints', False):
                 scan.current_phase = ScanPhase.NUCLEI_ENDPOINTS.value
                 db.commit()
-                self.update_state(state='PROGRESS', meta={'phase': 'nuclei_endpoints', 'progress': 0.88})
+                self.update_state(state='PROGRESS', meta={'phase': 'nuclei_endpoints', 'progress': phase_progress('nuclei_endpoints')})
                 run_nuclei_endpoints_phase(db, scan, targets, config)
 
             # Phase 6: NSE Scripts (91% -> 93%)
             # NSE runs after nmap service detection to get detailed service info
-            self.update_state(state='PROGRESS', meta={'phase': 'nse', 'progress': 0.91})
-            run_nse_phase(db, scan, targets, config)
+            if getattr(config, 'enable_nse', True):
+                scan.current_phase = ScanPhase.NSE.value
+                db.commit()
+                self.update_state(state='PROGRESS', meta={'phase': 'nse', 'progress': phase_progress('nse')})
+                run_nse_phase(db, scan, targets, config)
 
             # Phase 7: sslscan (93% -> 95%)
             # sslscan runs on SSL/TLS ports for TLS posture analysis
             if getattr(config, 'enable_sslscan', True):
                 scan.current_phase = ScanPhase.SSLSCAN.value
                 db.commit()
-                self.update_state(state='PROGRESS', meta={'phase': 'sslscan', 'progress': 0.93})
+                self.update_state(state='PROGRESS', meta={'phase': 'sslscan', 'progress': phase_progress('sslscan')})
                 run_sslscan_phase(db, scan, targets, config)
 
             # Phase 7.5: testssl.sh (95% -> 97%)
@@ -170,27 +318,27 @@ def run_scan(self, scan_id: str):
             if getattr(config, 'enable_testssl', False):
                 scan.current_phase = ScanPhase.TESTSSL.value
                 db.commit()
-                self.update_state(state='PROGRESS', meta={'phase': 'testssl', 'progress': 0.95})
+                self.update_state(state='PROGRESS', meta={'phase': 'testssl', 'progress': phase_progress('testssl')})
                 run_testssl_phase(db, scan, targets, config)
 
             # Phase 8: Nikto (97% -> 98%)
             if config.enable_nikto:
                 scan.current_phase = ScanPhase.NIKTO.value
                 db.commit()
-                self.update_state(state='PROGRESS', meta={'phase': 'nikto', 'progress': 0.97})
+                self.update_state(state='PROGRESS', meta={'phase': 'nikto', 'progress': phase_progress('nikto')})
                 run_nikto_phase(db, scan, targets, config)
 
             # Phase 9: ZAP (98% -> 100%)
             if config.enable_zap:
                 scan.current_phase = ScanPhase.ZAP.value
                 db.commit()
-                self.update_state(state='PROGRESS', meta={'phase': 'zap', 'progress': 0.98})
+                self.update_state(state='PROGRESS', meta={'phase': 'zap', 'progress': phase_progress('zap')})
                 run_zap_phase(db, scan, targets, config)
 
             # Mark scan as completed
             scan.status = ScanStatus.COMPLETED.value
             scan.current_phase = ScanPhase.COMPLETED.value
-            scan.finished_at = datetime.utcnow()
+            scan.finished_at = utcnow()
             scan.progress_percent = 1.0
 
             # Update statistics
@@ -244,10 +392,19 @@ def run_scan(self, scan_id: str):
                 )
 
         except Exception as e:
-            scan.status = ScanStatus.FAILED.value
-            scan.current_phase = ScanPhase.FAILED.value
-            scan.finished_at = datetime.utcnow()
-            db.commit()
+            # The session may be in a failed-flush state: roll back before
+            # writing, otherwise the commit below raises PendingRollbackError
+            # and the scan stays RUNNING forever.
+            db.rollback()
+            try:
+                fail_unfinished_tool_execs(db, scan_id, f"Scan aborted: {type(e).__name__}: {e}")
+                scan.status = ScanStatus.FAILED.value
+                scan.current_phase = ScanPhase.FAILED.value
+                scan.finished_at = utcnow()
+                db.commit()
+            except Exception as finalize_err:
+                logger.error(f"Could not mark scan {scan_id} as failed: {finalize_err}")
+                db.rollback()
             raise
 
 def run_masscan_phase(db, scan: Scan, targets: List[ScanTarget], config):
@@ -268,24 +425,23 @@ def run_masscan_phase(db, scan: Scan, targets: List[ScanTarget], config):
             # Run nmap discovery for this target (uses same db session)
             scan_target_with_nmap_discovery(db, target, config)
         except Exception as e:
-            # Log error but continue
+            # Log error but continue with the next target
+            logger.error(f"Port discovery failed for target {target.ip_address}: {e}")
+            db.rollback()
+            fail_unfinished_tool_execs(db, scan.id, f"Port discovery aborted: {type(e).__name__}: {e}")
             target.status = TargetStatus.FAILED.value
-            target.error_message = str(e)
-            target.finished_at = datetime.utcnow()
+            target.error_message = str(e)[:2000]
+            target.finished_at = utcnow()
             db.commit()
 
         completed += 1
 
-        # Update progress (discovery is 10% of total)
-        progress = (completed / total) * 0.1
-        scan.progress_percent = progress
-        scan.progress_updated_at = datetime.utcnow()
-        db.commit()
+        set_phase_progress(db, scan, 'nmap_discovery', completed, total)
 
 def scan_target_with_nmap_discovery(db, target: ScanTarget, config):
     """Execute nmap discovery for a single target using the provided db session."""
     target.status = TargetStatus.SCANNING.value
-    target.started_at = datetime.utcnow()
+    target.started_at = utcnow()
     db.commit()
 
     # Use discovery timeout (shorter than full nmap service scan)
@@ -293,14 +449,7 @@ def scan_target_with_nmap_discovery(db, target: ScanTarget, config):
     if config.global_tool_timeout_seconds:
         timeout = config.global_tool_timeout_seconds
 
-    tool_exec = ToolExecution(
-        id=str(uuid.uuid4()),
-        scan_target_id=str(target.id),
-        tool_name="nmap-discovery",
-        started_at=datetime.utcnow()
-    )
-    db.add(tool_exec)
-    db.commit()
+    tool_exec = start_tool_exec(db, target, "nmap-discovery")
 
     # Use nmap discovery with config-based port strategy
     # scan_mode='deep' uses full port scan, 'fast' uses top-ports + additional
@@ -317,7 +466,7 @@ def scan_target_with_nmap_discovery(db, target: ScanTarget, config):
     top_ports = getattr(config, 'discovery_top_ports', None) or 1000
     additional_ports = getattr(config, 'additional_ports', None) or "5432,6379,11211,9200,27017,1433,1521,5984,9042,2375,2376,5672,15672,8080,8443,9000"
 
-    success, raw_xml, error = run_nmap_discovery(
+    result = run_nmap_discovery(
         ip=target.ip_address,
         timing_template="T4",  # Fast timing
         timeout=discovery_timeout,
@@ -325,6 +474,7 @@ def scan_target_with_nmap_discovery(db, target: ScanTarget, config):
         additional_ports=additional_ports,
         full_scan=full_scan
     )
+    success, raw_xml, error = result
 
     # Save debug output (only when DEBUG=True)
     # Get scan_id from target's relationship
@@ -336,187 +486,22 @@ def scan_target_with_nmap_discovery(db, target: ScanTarget, config):
         phase="discovery"
     )
 
-    tool_exec.finished_at = datetime.utcnow()
-    tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
-    tool_exec.raw_output = raw_xml
-    tool_exec.raw_format = "xml"
-    tool_exec.error_message = error
-    tool_exec.exit_code = 0 if success else 1
+    record_tool_result(tool_exec, result, raw_output=raw_xml, raw_format="xml")
 
     if success:
         create_ports_from_nmap_discovery(db, tool_exec, target)
+
+    if success and not tool_exec.error_message:
         target.status = TargetStatus.COMPLETED.value
     else:
+        # Tool failure or unparseable output: never a "0 open ports" result
         target.status = TargetStatus.FAILED.value
-        target.error_message = error
+        target.error_message = tool_exec.error_message
 
-    target.finished_at = datetime.utcnow()
+    target.finished_at = utcnow()
     target.duration_seconds = (target.finished_at - target.started_at).total_seconds()
     db.commit()
 
-
-def scan_target_with_masscan_sequential(db, target: ScanTarget, config):
-    """Execute masscan for a single target using the provided db session. DEPRECATED - use nmap discovery."""
-    target.status = TargetStatus.SCANNING.value
-    target.started_at = datetime.utcnow()
-    db.commit()
-
-    timeout = int(config.host_timeout_seconds * config.masscan_timeout_percent)
-    if config.global_tool_timeout_seconds:
-        timeout = config.global_tool_timeout_seconds
-
-    tool_exec = ToolExecution(
-        id=str(uuid.uuid4()),
-        scan_target_id=str(target.id),
-        tool_name="masscan",
-        started_at=datetime.utcnow()
-    )
-    db.add(tool_exec)
-    db.commit()
-
-    success, raw_json, error = run_masscan(
-        ip=target.ip_address,
-        rate=config.masscan_rate,
-        interface=config.masscan_interface,
-        timeout=timeout
-    )
-
-    tool_exec.finished_at = datetime.utcnow()
-    tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
-    tool_exec.raw_output = raw_json
-    tool_exec.raw_format = "json"
-    tool_exec.error_message = error
-    tool_exec.exit_code = 0 if success else 1
-
-    if success:
-        create_ports_from_masscan(db, tool_exec, target)
-        target.status = TargetStatus.COMPLETED.value
-    else:
-        target.status = TargetStatus.FAILED.value
-        target.error_message = error
-
-    target.finished_at = datetime.utcnow()
-    target.duration_seconds = (target.finished_at - target.started_at).total_seconds()
-    db.commit()
-
-
-def scan_target_with_masscan_thread_safe(target_id: str, config_id: str) -> Tuple[bool, Optional[str]]:
-    """
-    Execute masscan for a single target with its own database session.
-
-    This function is designed to run in a thread pool, creating its own
-    database session to avoid SQLAlchemy threading issues.
-
-    Returns:
-        Tuple of (success: bool, error_message: Optional[str])
-    """
-    db = SessionLocal()
-    try:
-        # Load target and config in this thread's session
-        target = db.query(ScanTarget).filter(ScanTarget.id == target_id).first()
-        if not target:
-            return False, f"Target {target_id} not found"
-
-        from ..models import ScanConfig
-        config = db.query(ScanConfig).filter(ScanConfig.id == config_id).first()
-        if not config:
-            return False, f"Config {config_id} not found"
-
-        # Update target status
-        target.status = TargetStatus.SCANNING.value
-        target.started_at = datetime.utcnow()
-        db.commit()
-
-        timeout = int(config.host_timeout_seconds * config.masscan_timeout_percent)
-        if config.global_tool_timeout_seconds:
-            timeout = config.global_tool_timeout_seconds
-
-        tool_exec = ToolExecution(
-            id=str(uuid.uuid4()),
-            scan_target_id=str(target.id),
-            tool_name="masscan",
-            started_at=datetime.utcnow()
-        )
-        db.add(tool_exec)
-        db.commit()
-
-        success, raw_json, error = run_masscan(
-            ip=target.ip_address,
-            rate=config.masscan_rate,
-            interface=config.masscan_interface,
-            timeout=timeout
-        )
-
-        tool_exec.finished_at = datetime.utcnow()
-        tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
-        tool_exec.raw_output = raw_json
-        tool_exec.raw_format = "json"
-        tool_exec.error_message = error
-        tool_exec.exit_code = 0 if success else 1
-
-        if success:
-            create_ports_from_masscan(db, tool_exec, target)
-            target.status = TargetStatus.COMPLETED.value
-        else:
-            target.status = TargetStatus.FAILED.value
-            target.error_message = error
-
-        target.finished_at = datetime.utcnow()
-        target.duration_seconds = (target.finished_at - target.started_at).total_seconds()
-        db.commit()
-
-        return True, None
-
-    except Exception as e:
-        db.rollback()
-        return False, str(e)
-    finally:
-        db.close()
-
-
-def scan_target_with_masscan(db, target: ScanTarget, config):
-    """Execute masscan for a single target. DEPRECATED - use thread-safe version."""
-    target.status = TargetStatus.SCANNING.value
-    target.started_at = datetime.utcnow()
-    db.commit()
-
-    timeout = int(config.host_timeout_seconds * config.masscan_timeout_percent)
-    if config.global_tool_timeout_seconds:
-        timeout = config.global_tool_timeout_seconds
-
-    tool_exec = ToolExecution(
-        id=str(uuid.uuid4()),
-        scan_target_id=str(target.id),
-        tool_name="masscan",
-        started_at=datetime.utcnow()
-    )
-    db.add(tool_exec)
-    db.flush()
-
-    success, raw_json, error = run_masscan(
-        ip=target.ip_address,
-        rate=config.masscan_rate,
-        interface=config.masscan_interface,
-        timeout=timeout
-    )
-
-    tool_exec.finished_at = datetime.utcnow()
-    tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
-    tool_exec.raw_output = raw_json
-    tool_exec.raw_format = "json"
-    tool_exec.error_message = error
-    tool_exec.exit_code = 0 if success else 1
-
-    if success:
-        create_ports_from_masscan(db, tool_exec, target)
-        target.status = TargetStatus.COMPLETED.value
-    else:
-        target.status = TargetStatus.FAILED.value
-        target.error_message = error
-
-    target.finished_at = datetime.utcnow()
-    target.duration_seconds = (target.finished_at - target.started_at).total_seconds()
-    db.commit()
 
 def run_nmap_phase(db, scan: Scan, targets: List[ScanTarget], config):
     """
@@ -542,8 +527,7 @@ def run_nmap_phase(db, scan: Scan, targets: List[ScanTarget], config):
 
     if not targets_with_ports:
         # No open ports found, skip nmap
-        scan.progress_percent = 0.8  # Skip to 80% (masscan 10% + nmap 70%)
-        db.commit()
+        set_phase_progress(db, scan, 'nmap')
         return
 
     total = len(targets_with_ports)
@@ -555,16 +539,14 @@ def run_nmap_phase(db, scan: Scan, targets: List[ScanTarget], config):
         except Exception as e:
             # Nmap failure doesn't fail the scan, but we log the error
             logger.warning(f"Nmap service detection failed for target {target.ip_address}: {e}")
+            db.rollback()
+            fail_unfinished_tool_execs(db, scan.id, f"Nmap aborted: {type(e).__name__}: {e}")
             target.error_message = f"Nmap failed: {str(e)[:200]}"
             db.commit()
 
         completed += 1
 
-        # Update progress (nmap is 70% of total, from 10% to 80%)
-        progress = 0.1 + (0.7 * completed / total)
-        scan.progress_percent = progress
-        scan.progress_updated_at = datetime.utcnow()
-        db.commit()
+        set_phase_progress(db, scan, 'nmap', completed, total)
 
 def scan_target_with_nmap_sequential(db, target: ScanTarget, config):
     """Execute nmap for a single target using the provided db session."""
@@ -580,149 +562,23 @@ def scan_target_with_nmap_sequential(db, target: ScanTarget, config):
     if config.global_tool_timeout_seconds:
         timeout = config.global_tool_timeout_seconds
 
-    tool_exec = ToolExecution(
-        id=str(uuid.uuid4()),
-        scan_target_id=str(target.id),
-        tool_name="nmap",
-        started_at=datetime.utcnow()
-    )
-    db.add(tool_exec)
-    db.commit()
+    tool_exec = start_tool_exec(db, target, "nmap")
 
-    success, raw_xml, error = run_nmap(
+    result = run_nmap(
         ip=target.ip_address,
         ports=port_numbers,
         nmap_args=config.nmap_args,
         timeout=timeout
     )
+    success, raw_xml, error = result
 
-    tool_exec.finished_at = datetime.utcnow()
-    tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
-    tool_exec.raw_output = raw_xml
-    tool_exec.raw_format = "xml"
-    tool_exec.error_message = error
-    tool_exec.exit_code = 0 if success else 1
+    record_tool_result(tool_exec, result, raw_output=raw_xml, raw_format="xml")
 
     if success:
         update_ports_from_nmap(db, tool_exec, target)
-
-    db.commit()
-
-
-def scan_target_with_nmap_thread_safe(target_id: str, config_id: str) -> Tuple[bool, Optional[str]]:
-    """
-    Execute nmap for a single target with its own database session.
-    DEPRECATED - kept for reference but use sequential version instead.
-    """
-    db = SessionLocal()
-    try:
-        # Load target and config in this thread's session
-        target = db.query(ScanTarget).filter(ScanTarget.id == target_id).first()
-        if not target:
-            return False, f"Target {target_id} not found"
-
-        from ..models import ScanConfig
-        config = db.query(ScanConfig).filter(ScanConfig.id == config_id).first()
-        if not config:
-            return False, f"Config {config_id} not found"
-
-        # Get open ports
-        ports = db.query(Port).filter(
-            Port.scan_target_id == str(target.id),
-            Port.state == 'open'
-        ).all()
-
-        port_numbers = [p.port for p in ports]
-
-        timeout = int(config.host_timeout_seconds * config.nmap_timeout_percent)
-        if config.global_tool_timeout_seconds:
-            timeout = config.global_tool_timeout_seconds
-
-        tool_exec = ToolExecution(
-            id=str(uuid.uuid4()),
-            scan_target_id=str(target.id),
-            tool_name="nmap",
-            started_at=datetime.utcnow()
-        )
-        db.add(tool_exec)
-        db.commit()
-
-        success, raw_xml, error = run_nmap(
-            ip=target.ip_address,
-            ports=port_numbers,
-            nmap_args=config.nmap_args,
-            timeout=timeout
-        )
-
-        tool_exec.finished_at = datetime.utcnow()
-        tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
-        tool_exec.raw_output = raw_xml
-        tool_exec.raw_format = "xml"
-        tool_exec.error_message = error
-        tool_exec.exit_code = 0 if success else 1
-
-        if success:
-            update_ports_from_nmap(db, tool_exec, target)
-
-        db.commit()
-
-        return True, None
-
-    except Exception as e:
-        db.rollback()
-        return False, str(e)
-    finally:
-        db.close()
-
-
-def scan_target_with_nmap(db, target: ScanTarget, config):
-    """Execute nmap for a single target. DEPRECATED - use thread-safe version."""
-    # Get open ports
-    ports = db.query(Port).filter(
-        Port.scan_target_id == str(target.id),
-        Port.state == 'open'
-    ).all()
-
-    port_numbers = [p.port for p in ports]
-
-    timeout = int(config.host_timeout_seconds * config.nmap_timeout_percent)
-    if config.global_tool_timeout_seconds:
-        timeout = config.global_tool_timeout_seconds
-
-    tool_exec = ToolExecution(
-        id=str(uuid.uuid4()),
-        scan_target_id=str(target.id),
-        tool_name="nmap",
-        started_at=datetime.utcnow()
-    )
-    db.add(tool_exec)
-    db.flush()
-
-    success, raw_xml, error = run_nmap(
-        ip=target.ip_address,
-        ports=port_numbers,
-        nmap_args=config.nmap_args,
-        timeout=timeout
-    )
-
-    # Save debug output (only when DEBUG=True)
-    scan_id = target.scan_id if hasattr(target, 'scan_id') else None
-    save_nmap_debug(
-        target=target.ip_address,
-        raw_xml=raw_xml,
-        scan_id=str(scan_id) if scan_id else None,
-        phase="service"
-    )
-
-    tool_exec.finished_at = datetime.utcnow()
-    tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
-    tool_exec.raw_output = raw_xml
-    tool_exec.raw_format = "xml"
-    tool_exec.error_message = error
-    tool_exec.exit_code = 0 if success else 1
-
-    if success:
-        update_ports_from_nmap(db, tool_exec, target)
+    else:
+        logger.warning(f"Nmap service detection failed for {target.ip_address}: {error}")
+        target.error_message = f"Nmap failed: {(error or '')[:200]}"
 
     db.commit()
 
@@ -804,28 +660,12 @@ def run_httpx_phase(db, scan: Scan, targets: List[ScanTarget], config):
 
         logger.info(f"httpx: Probing {target_url}")
 
-        # Build command line for logging
-        cmd_parts = [f"httpx -u {target_url} -json"]
-        if tech_detect:
-            cmd_parts.append("-td")
-        if screenshots_enabled:
-            cmd_parts.append("-ss")
-        if vhost_discovery:
-            cmd_parts.append("-vhost")
+        # Create tool execution record (the exact command line is filled in
+        # from the runner once it has run)
+        tool_exec = start_tool_exec(db, target, "httpx", port_rec,
+                                    command_line=f"httpx -u {target_url} -json")
 
-        # Create tool execution record
-        tool_exec = ToolExecution(
-            id=str(uuid.uuid4()),
-            scan_target_id=str(target.id),
-            port_id=str(port_rec.id),
-            tool_name="httpx",
-            command_line=" ".join(cmd_parts),
-            started_at=datetime.utcnow()
-        )
-        db.add(tool_exec)
-        db.flush()
-
-        temp_dir = None
+        output: Optional[HttpxOutput] = None
         try:
             # Run httpx with new options
             output: HttpxOutput = run_httpx(
@@ -838,16 +678,13 @@ def run_httpx_phase(db, scan: Scan, targets: List[ScanTarget], config):
                 vhost_discovery=vhost_discovery
             )
 
-            tool_exec.finished_at = datetime.utcnow()
-            tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
-            tool_exec.raw_output = output.raw_json[:50000] if output.raw_json else None
-            tool_exec.raw_format = "json"
-            tool_exec.error_message = output.error
-            tool_exec.exit_code = 0 if output.success else 1
+            # Full output first: the parser reads tool_exec.raw_output
+            record_tool_result(tool_exec, output, raw_output=output.raw_json, raw_format="json")
 
             if output.success and output.raw_json:
                 # Parse and create HttpxResult
                 result = create_httpx_result_from_output(db, tool_exec, target, port_rec)
+                tool_exec.raw_output = _truncate(output.raw_json)
                 if result:
                     logger.info(f"httpx: {target_url} -> {result.status_code} {result.title or ''} techs={result.technologies}")
 
@@ -863,10 +700,11 @@ def run_httpx_phase(db, scan: Scan, targets: List[ScanTarget], config):
                             logger.info(f"httpx: Saved screenshot for {target_url}")
 
                     # Log virtual hosts if discovered
-                    if result.virtual_hosts:
+                    if isinstance(result.virtual_hosts, list) and result.virtual_hosts:
                         logger.info(f"httpx: Discovered {len(result.virtual_hosts)} virtual host(s) for {target_url}")
             else:
                 # Create failed result
+                tool_exec.raw_output = _truncate(output.raw_json)
                 failed_result = HttpxResult(
                     id=str(uuid.uuid4()),
                     port_id=str(port_rec.id),
@@ -880,27 +718,15 @@ def run_httpx_phase(db, scan: Scan, targets: List[ScanTarget], config):
 
         except Exception as e:
             logger.error(f"httpx error for {target_url}: {e}")
-            tool_exec.finished_at = datetime.utcnow()
-            tool_exec.error_message = str(e)
-            tool_exec.exit_code = 1
-            db.commit()
+            fail_tool_exec(db, tool_exec, e)
         finally:
-            # Cleanup temp directory from httpx if it exists
-            if output and output.screenshot_path:
-                temp_dir = output.screenshot_path.parent.parent
-                if temp_dir and temp_dir.exists() and 'httpx_' in str(temp_dir):
-                    try:
-                        shutil.rmtree(str(temp_dir))
-                    except Exception as cleanup_err:
-                        logger.debug(f"Failed to cleanup temp dir: {cleanup_err}")
+            # Remove the runner's temp directory (screenshot already copied)
+            if output is not None:
+                output.cleanup()
 
         completed += 1
 
-        # Update progress (httpx is 5% of total, from 75% to 80%)
-        progress = 0.75 + (0.05 * completed / total)
-        scan.progress_percent = progress
-        scan.progress_updated_at = datetime.utcnow()
-        db.commit()
+        set_phase_progress(db, scan, 'httpx', completed, total)
 
     logger.info(f"httpx complete: {completed} ports probed")
 
@@ -977,20 +803,9 @@ def run_katana_phase(db, scan: Scan, targets: List[ScanTarget], config):
 
         logger.info(f"Katana: Crawling {target_url} (depth={max_depth}, timeout={timeout}s)")
 
-        # Build command line for logging
-        cmd_line = f"katana -u {target_url} -d {max_depth} -c {concurrency} -rate-limit {rate_limit} -timeout {timeout} -jsonl"
-
-        # Create tool execution record
-        tool_exec = ToolExecution(
-            id=str(uuid.uuid4()),
-            scan_target_id=str(target.id),
-            port_id=str(port_rec.id),
-            tool_name="katana",
-            command_line=cmd_line,
-            started_at=datetime.utcnow()
-        )
-        db.add(tool_exec)
-        db.flush()
+        # Create tool execution record (exact command line comes from the runner)
+        tool_exec = start_tool_exec(db, target, "katana", port_rec,
+                                    command_line=f"katana -u {target_url} -jsonl")
 
         try:
             # Run Katana
@@ -1004,10 +819,7 @@ def run_katana_phase(db, scan: Scan, targets: List[ScanTarget], config):
                 headless=False  # Standard mode, not headless browser
             )
 
-            tool_exec.finished_at = datetime.utcnow()
-            tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
-            tool_exec.error_message = output.error
-            tool_exec.exit_code = 0 if output.success else 1
+            record_tool_result(tool_exec, output, raw_output=_truncate(output.raw_output), raw_format="jsonl")
 
             # Save full raw output to artifact storage
             if output.raw_output:
@@ -1021,11 +833,9 @@ def run_katana_phase(db, scan: Scan, targets: List[ScanTarget], config):
                     tool_exec.artifact_path = artifact_path
                     logger.debug(f"Katana: Saved artifact to {artifact_path}")
 
-                # Store truncated version in raw_output for quick access
-                tool_exec.raw_output = output.raw_output[:50000] if len(output.raw_output) > 50000 else output.raw_output
-            tool_exec.raw_format = "jsonl"
-
-            if output.success and output.endpoints:
+            if output.endpoints:
+                # Endpoints are kept even from a failed/timed-out crawl (partial
+                # results); the ToolExecution still records the failure.
                 # Parse and create DiscoveredEndpoint records
                 endpoints = create_endpoints_from_katana(
                     db=db,
@@ -1039,25 +849,19 @@ def run_katana_phase(db, scan: Scan, targets: List[ScanTarget], config):
                 logger.info(f"Katana: Discovered {len(endpoints)} endpoint(s) from {target_url}")
             elif output.success:
                 logger.info(f"Katana: No endpoints discovered from {target_url}")
-            else:
+
+            if not output.success:
                 logger.warning(f"Katana crawl failed for {target_url}: {output.error}")
 
             db.commit()
 
         except Exception as e:
             logger.error(f"Katana error for {target_url}: {e}")
-            tool_exec.finished_at = datetime.utcnow()
-            tool_exec.error_message = str(e)
-            tool_exec.exit_code = 1
-            db.commit()
+            fail_tool_exec(db, tool_exec, e)
 
         completed += 1
 
-        # Update progress (katana is 2% of total, from 78% to 80%)
-        progress = 0.78 + (0.02 * completed / total)
-        scan.progress_percent = progress
-        scan.progress_updated_at = datetime.utcnow()
-        db.commit()
+        set_phase_progress(db, scan, 'katana', completed, total)
 
     logger.info(f"Katana complete: {completed} ports crawled, {total_endpoints} total endpoints discovered")
 
@@ -1080,8 +884,7 @@ def run_ssh_audit_phase(db, scan: Scan, targets: List[ScanTarget], config):
 
     if not ssh_port_records:
         # No SSH ports found, skip phase
-        scan.progress_percent = 0.9  # Skip to 90%
-        db.commit()
+        set_phase_progress(db, scan, 'ssh-audit')
         return
 
     total = len(ssh_port_records)
@@ -1096,70 +899,59 @@ def run_ssh_audit_phase(db, scan: Scan, targets: List[ScanTarget], config):
         ).first()
 
         if not target:
+            completed += 1
             continue
 
-        # Create tool execution record
-        tool_exec = ToolExecution(
-            id=str(uuid.uuid4()),
-            scan_target_id=str(target.id),
-            tool_name="ssh-audit",
-            started_at=datetime.utcnow()
-        )
-        db.add(tool_exec)
-        db.flush()
+        tool_exec = start_tool_exec(db, target, "ssh-audit", port_record)
 
-        # Run ssh-audit
-        # Use 60s timeout (ssh-audit is usually fast)
-        timeout = 60
-        if config.global_tool_timeout_seconds:
-            timeout = config.global_tool_timeout_seconds
+        try:
+            # Run ssh-audit
+            # Use 60s timeout (ssh-audit is usually fast)
+            timeout = 60
+            if config.global_tool_timeout_seconds:
+                timeout = config.global_tool_timeout_seconds
 
-        success, raw_json, error = run_ssh_audit(
-            ip=target.ip_address,
-            port=port_record.port,
-            timeout=timeout
-        )
-
-        # Save debug output (only when DEBUG=True)
-        save_ssh_audit_debug(
-            target=target.ip_address,
-            raw_json=raw_json,
-            scan_id=str(scan.id),
-            port=port_record.port
-        )
-
-        # Update tool execution
-        tool_exec.finished_at = datetime.utcnow()
-        tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
-        tool_exec.raw_output = raw_json
-        tool_exec.raw_format = "json"
-        tool_exec.error_message = error
-        tool_exec.exit_code = 0 if success else 1
-
-        if success:
-            # Parse and create SSHAudit record
-            create_ssh_audit_from_output(db, tool_exec, port_record)
-        else:
-            # Create failed audit record
-            from ..models import SSHAudit
-            failed_audit = SSHAudit(
-                id=str(uuid.uuid4()),
-                port_id=str(port_record.id),
-                tool_execution_id=str(tool_exec.id),
-                connection_failed=True,
-                failure_reason=error
+            result = run_ssh_audit(
+                ip=target.ip_address,
+                port=port_record.port,
+                timeout=timeout
             )
-            db.add(failed_audit)
+            success, raw_json, error = result
 
-        db.commit()
+            # Save debug output (only when DEBUG=True)
+            save_ssh_audit_debug(
+                target=target.ip_address,
+                raw_json=raw_json,
+                scan_id=str(scan.id),
+                port=port_record.port
+            )
+
+            record_tool_result(tool_exec, result, raw_output=raw_json, raw_format="json")
+
+            if success:
+                # Parse and create SSHAudit record
+                create_ssh_audit_from_output(db, tool_exec, port_record)
+            else:
+                # Create failed audit record
+                from ..models import SSHAudit
+                failed_audit = SSHAudit(
+                    id=str(uuid.uuid4()),
+                    port_id=str(port_record.id),
+                    tool_execution_id=str(tool_exec.id),
+                    connection_failed=True,
+                    failure_reason=error
+                )
+                db.add(failed_audit)
+
+            db.commit()
+
+        except Exception as e:
+            logger.error(f"ssh-audit error for {target.ip_address}:{port_record.port}: {e}")
+            fail_tool_exec(db, tool_exec, e)
 
         completed += 1
 
-        # Update scan progress (ssh-audit is 10% of total, from 80% to 90%)
-        progress = 0.8 + (0.1 * completed / total)
-        scan.progress_percent = progress
-        scan.progress_updated_at = datetime.utcnow()
-        db.commit()
+        set_phase_progress(db, scan, 'ssh-audit', completed, total)
 
 def run_nuclei_phase(db, scan: Scan, targets: List[ScanTarget], config):
     """
@@ -1178,8 +970,7 @@ def run_nuclei_phase(db, scan: Scan, targets: List[ScanTarget], config):
 
     if not all_ports:
         logger.info("No open ports for Nuclei scanning")
-        scan.progress_percent = 1.0
-        db.commit()
+        set_phase_progress(db, scan, 'nuclei')
         return
 
     # Get excluded templates once for all scans
@@ -1211,13 +1002,13 @@ def run_nuclei_phase(db, scan: Scan, targets: List[ScanTarget], config):
 
     if not scannable_ports:
         logger.info("No scannable services found for Nuclei")
-        scan.progress_percent = 1.0
-        db.commit()
+        set_phase_progress(db, scan, 'nuclei')
         return
 
     total = len(scannable_ports)
     scanned = 0
     skipped = 0
+    failed = 0
     vulns_found = 0
 
     logger.info(f"Nuclei: {total} scannable ports from {len(all_ports)} total open ports")
@@ -1229,6 +1020,7 @@ def run_nuclei_phase(db, scan: Scan, targets: List[ScanTarget], config):
 
         if not target:
             skipped += 1
+            set_phase_progress(db, scan, 'nuclei', scanned + skipped, total)
             continue
 
         ip = target.ip_address
@@ -1240,6 +1032,7 @@ def run_nuclei_phase(db, scan: Scan, targets: List[ScanTarget], config):
             if not has_templates:
                 logger.warning(f"No templates found for tags {profile.tags} on {ip}:{port}, skipping")
                 skipped += 1
+                set_phase_progress(db, scan, 'nuclei', scanned + skipped, total)
                 continue
             logger.debug(f"Tags {profile.tags} have {template_count} templates")
 
@@ -1252,21 +1045,10 @@ def run_nuclei_phase(db, scan: Scan, targets: List[ScanTarget], config):
         tags_info = f"tags={profile.tags}" if profile.tags else "tags=[] (comprehensive)"
         logger.info(f"Nuclei: {nuclei_target} {tags_info} service={port_rec.service_name}")
 
-        # Create tool execution record - show actual command that will run
-        if profile.tags:
-            cmd_line = f"nuclei -u {nuclei_target} -tags {','.join(profile.tags)}"
-        else:
-            cmd_line = f"nuclei -u {nuclei_target} (comprehensive - no tag filter)"
-        tool_exec = ToolExecution(
-            id=str(uuid.uuid4()),
-            scan_target_id=str(target.id),
-            port_id=str(port_rec.id),  # Link ToolExecution directly to Port
-            tool_name="nuclei",
-            command_line=cmd_line,
-            started_at=datetime.utcnow()
-        )
-        db.add(tool_exec)
-        db.flush()
+        # Create tool execution record, linked directly to the Port. The
+        # placeholder command line is replaced by the exact one after the run.
+        tool_exec = start_tool_exec(db, target, "nuclei", port_rec,
+                                    command_line=f"nuclei -target {nuclei_target}")
 
         try:
             # Calculate timeout with profile multiplier
@@ -1278,7 +1060,7 @@ def run_nuclei_phase(db, scan: Scan, targets: List[ScanTarget], config):
             # Use profile-specific rate limit or default
             rate_limit = profile.rate_limit or 150
 
-            success, raw_jsonl, error = run_nuclei(
+            result = run_nuclei(
                 target=nuclei_target,
                 severity=config.nuclei_severity or "critical,high,medium,low,info",
                 templates=config.nuclei_templates,
@@ -1287,6 +1069,7 @@ def run_nuclei_phase(db, scan: Scan, targets: List[ScanTarget], config):
                 rate_limit=rate_limit,
                 exclude_templates=excluded_templates
             )
+            success, raw_jsonl, error = result
 
             # Save debug output (only when DEBUG=True)
             save_nuclei_debug(
@@ -1296,18 +1079,12 @@ def run_nuclei_phase(db, scan: Scan, targets: List[ScanTarget], config):
                 port=port
             )
 
-            # Update tool execution
-            tool_exec.finished_at = datetime.utcnow()
-            tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
-            tool_exec.raw_format = "jsonl"
-            tool_exec.error_message = error
-            tool_exec.exit_code = 0 if success else 1
+            # Update tool execution.
+            # IMPORTANT: full raw_output is set BEFORE parsing and truncated AFTER:
+            # the parser reads from tool_exec.raw_output, so it needs full data first
+            record_tool_result(tool_exec, result, raw_output=raw_jsonl, raw_format="jsonl")
 
             if success:
-                # IMPORTANT: Set full raw_output BEFORE parsing, then truncate AFTER
-                # Parser reads from tool_exec.raw_output, so we need full data first
-                tool_exec.raw_output = raw_jsonl if raw_jsonl else None
-
                 # Parse and create Vulnerability records (pass port_rec for direct linking)
                 vulns = create_vulnerabilities_from_nuclei(
                     db, tool_exec, target, port_rec,
@@ -1318,32 +1095,30 @@ def run_nuclei_phase(db, scan: Scan, targets: List[ScanTarget], config):
                 # Log observability info
                 logger.info(f"Nuclei output: {len(raw_jsonl) if raw_jsonl else 0} bytes, parsed {len(vulns)} vulnerabilities for {nuclei_target}")
 
-                # Now truncate for storage (parsing already complete on full data)
-                tool_exec.raw_output = raw_jsonl[:50000] if raw_jsonl else None
-
                 # Update scan vulnerability count
                 scan.total_vulnerabilities += len(vulns)
             else:
-                tool_exec.raw_output = raw_jsonl[:50000] if raw_jsonl else None
+                logger.warning(f"Nuclei failed for {nuclei_target}: {error}")
+                failed += 1
+
+            # Now truncate for storage (parsing already complete on full data)
+            tool_exec.raw_output = _truncate(raw_jsonl)
 
             db.commit()
             scanned += 1
 
         except Exception as e:
             logger.error(f"Nuclei error for {nuclei_target}: {e}")
-            tool_exec.finished_at = datetime.utcnow()
-            tool_exec.error_message = str(e)
-            tool_exec.exit_code = 1
-            db.commit()
+            fail_tool_exec(db, tool_exec, e)
             skipped += 1
+            failed += 1
 
-        # Update scan progress (nuclei is 10% of total, from 90% to 100%)
-        progress = 0.9 + (0.1 * (scanned + skipped) / total)
-        scan.progress_percent = progress
-        scan.progress_updated_at = datetime.utcnow()
-        db.commit()
+        set_phase_progress(db, scan, 'nuclei', scanned + skipped, total)
 
-    logger.info(f"Nuclei complete: {scanned} scanned, {skipped} skipped, {vulns_found} vulnerabilities found")
+    logger.info(
+        f"Nuclei complete: {scanned} scanned ({failed} failed), {skipped} skipped, "
+        f"{vulns_found} vulnerabilities found"
+    )
 
 
 def run_nuclei_endpoints_phase(db, scan: Scan, targets: List[ScanTarget], config):
@@ -1368,8 +1143,7 @@ def run_nuclei_endpoints_phase(db, scan: Scan, targets: List[ScanTarget], config
 
     if not endpoints:
         logger.info("No discovered endpoints for Nuclei endpoint scanning")
-        scan.progress_percent = 0.91
-        db.commit()
+        set_phase_progress(db, scan, 'nuclei_endpoints')
         return
 
     # Get excluded templates
@@ -1395,8 +1169,7 @@ def run_nuclei_endpoints_phase(db, scan: Scan, targets: List[ScanTarget], config
     total_targets = len(endpoints_by_target)
     if total_targets == 0:
         logger.info("No endpoints matched to scan targets")
-        scan.progress_percent = 0.91
-        db.commit()
+        set_phase_progress(db, scan, 'nuclei_endpoints')
         return
 
     scanned = 0
@@ -1410,25 +1183,19 @@ def run_nuclei_endpoints_phase(db, scan: Scan, targets: List[ScanTarget], config
 
         logger.info(f"Nuclei endpoints: scanning {len(urls)} URLs for {target.ip_address}")
 
-        # Write URLs to temp file
-        import tempfile
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        # Write URLs to a private temp file (removed in the finally below)
+        fd, urls_file = tempfile.mkstemp(prefix='nuclei_urls_', suffix='.txt')
+        with os.fdopen(fd, 'w') as f:
             for url in urls:
                 f.write(url + '\n')
-            urls_file = f.name
 
+        tool_exec = None
         try:
             # Create tool execution record
-            tool_exec = ToolExecution(
-                id=str(uuid.uuid4()),
-                scan_target_id=str(target.id),
-                port_id=None,  # No specific port for endpoint scanning
-                tool_name="nuclei-endpoints",
+            tool_exec = start_tool_exec(
+                db, target, "nuclei-endpoints",
                 command_line=f"nuclei -list <{len(urls)} urls> -tags http,cve,exposure,misconfig,tech",
-                started_at=datetime.utcnow()
             )
-            db.add(tool_exec)
-            db.flush()
 
             # Get timeout from config
             timeout = getattr(config, 'nuclei_endpoint_timeout', 600) or 600
@@ -1439,7 +1206,7 @@ def run_nuclei_endpoints_phase(db, scan: Scan, targets: List[ScanTarget], config
             severity_list = getattr(config, 'nuclei_endpoint_severity', ['critical', 'high', 'medium']) or ['critical', 'high', 'medium']
             severity = ','.join(severity_list) if isinstance(severity_list, list) else severity_list
 
-            success, raw_jsonl, error = run_nuclei_list(
+            result = run_nuclei_list(
                 urls_file=urls_file,
                 severity=severity,
                 tags=['http', 'cve', 'exposure', 'misconfig', 'tech'],
@@ -1447,18 +1214,12 @@ def run_nuclei_endpoints_phase(db, scan: Scan, targets: List[ScanTarget], config
                 rate_limit=50,  # Conservative rate limit for safety
                 exclude_templates=excluded_templates
             )
+            success, raw_jsonl, error = result
 
-            # Update tool execution
-            tool_exec.finished_at = datetime.utcnow()
-            tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
-            tool_exec.raw_format = "jsonl"
-            tool_exec.error_message = error
-            tool_exec.exit_code = 0 if success else 1
+            # Full raw output first (the parser reads it), truncated below
+            record_tool_result(tool_exec, result, raw_output=raw_jsonl, raw_format="jsonl")
 
             if success:
-                # Set raw output for parser
-                tool_exec.raw_output = raw_jsonl if raw_jsonl else None
-
                 # Parse and create Vulnerability records with discovery_source='endpoint'
                 vulns = create_vulnerabilities_from_nuclei(
                     db, tool_exec, target,
@@ -1469,35 +1230,30 @@ def run_nuclei_endpoints_phase(db, scan: Scan, targets: List[ScanTarget], config
 
                 logger.info(f"Nuclei endpoints: {len(raw_jsonl) if raw_jsonl else 0} bytes output, {len(vulns)} vulnerabilities for {target.ip_address}")
 
-                # Truncate for storage
-                tool_exec.raw_output = raw_jsonl[:50000] if raw_jsonl else None
-
                 # Update scan vulnerability count
                 scan.total_vulnerabilities += len(vulns)
             else:
-                tool_exec.raw_output = raw_jsonl[:50000] if raw_jsonl else None
+                logger.warning(f"Nuclei endpoints failed for {target.ip_address}: {error}")
+
+            # Truncate for storage
+            tool_exec.raw_output = _truncate(raw_jsonl)
 
             db.commit()
-            scanned += 1
 
         except Exception as e:
             logger.error(f"Nuclei endpoints error for {target.ip_address}: {e}")
-            tool_exec.finished_at = datetime.utcnow()
-            tool_exec.error_message = str(e)
-            tool_exec.exit_code = 1
-            db.commit()
+            fail_tool_exec(db, tool_exec, e)
 
         finally:
             # Cleanup temp file
-            import os
-            if os.path.exists(urls_file):
+            try:
                 os.unlink(urls_file)
+            except OSError:
+                pass
 
-        # Update progress (88% -> 91% range)
-        progress = 0.88 + (0.03 * scanned / total_targets)
-        scan.progress_percent = progress
-        scan.progress_updated_at = datetime.utcnow()
-        db.commit()
+        # Count the target whether it succeeded or not so progress always advances
+        scanned += 1
+        set_phase_progress(db, scan, 'nuclei_endpoints', scanned, total_targets)
 
     logger.info(f"Nuclei endpoints complete: {scanned} targets scanned, {vulns_found} vulnerabilities found")
 
@@ -1570,34 +1326,26 @@ def run_nse_phase(db, scan: Scan, targets: List[ScanTarget], config):
 
         logger.info(f"NSE: Running {len(scripts)} scripts on {ip}:{port} (profile: {profile_name})")
 
-        # Create tool execution record
-        tool_exec = ToolExecution(
-            id=str(uuid.uuid4()),
-            scan_target_id=str(target.id),
-            port_id=str(port_record.id),
-            tool_name="nmap-nse",
+        # Create tool execution record (exact command line comes from the runner)
+        tool_exec = start_tool_exec(
+            db, target, "nmap-nse", port_record,
             command_line=f"nmap -p{port} --script={','.join(scripts)} {ip}",
-            started_at=datetime.utcnow()
         )
-        db.add(tool_exec)
-        db.flush()
 
         try:
             # Run NSE scripts
-            success, raw_xml, error = run_nmap_nse(
+            result = run_nmap_nse(
                 ip=ip,
                 port=port,
                 scripts=scripts,
                 protocol=protocol,
                 timeout=timeout
             )
+            success, raw_xml, error = result
 
-            tool_exec.finished_at = datetime.utcnow()
-            tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
-            tool_exec.raw_output = raw_xml[:50000] if raw_xml else None
-            tool_exec.raw_format = "xml"
-            tool_exec.error_message = error
-            tool_exec.exit_code = 0 if success else 1
+            record_tool_result(tool_exec, result, raw_output=_truncate(raw_xml), raw_format="xml")
+            if not success:
+                logger.warning(f"NSE failed for {ip}:{port}: {error}")
 
             if success and raw_xml:
                 # Parse NSE output
@@ -1631,12 +1379,11 @@ def run_nse_phase(db, scan: Scan, targets: List[ScanTarget], config):
 
         except Exception as e:
             logger.error(f"NSE error for {ip}:{port}: {e}")
-            tool_exec.finished_at = datetime.utcnow()
-            tool_exec.error_message = str(e)
-            tool_exec.exit_code = 1
-            db.commit()
+            fail_tool_exec(db, tool_exec, e)
 
         completed += 1
+
+        set_phase_progress(db, scan, 'nse', completed, total)
 
     logger.info(f"NSE complete: {completed} ports scanned, {findings_total} findings")
 
@@ -1689,33 +1436,22 @@ def run_sslscan_phase(db, scan: Scan, targets: List[ScanTarget], config):
 
         logger.info(f"sslscan: Scanning {ip}:{port}")
 
-        # Create tool execution record
-        tool_exec = ToolExecution(
-            id=str(uuid.uuid4()),
-            scan_target_id=str(target.id),
-            port_id=str(port_record.id),
-            tool_name="sslscan",
-            command_line=f"sslscan {ip}:{port}",
-            started_at=datetime.utcnow()
-        )
-        db.add(tool_exec)
-        db.flush()
+        # Create tool execution record (exact command line comes from the runner)
+        tool_exec = start_tool_exec(db, target, "sslscan", port_record,
+                                    command_line=f"sslscan {ip}:{port}")
 
         try:
             # Run sslscan
-            success, raw_xml, error = run_sslscan(
+            sslscan_timeout = config.global_tool_timeout_seconds or 60
+            result = run_sslscan(
                 ip=ip,
                 port=port,
-                timeout=60,
+                timeout=sslscan_timeout,
                 connect_timeout=10
             )
+            success, raw_xml, error = result
 
-            tool_exec.finished_at = datetime.utcnow()
-            tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
-            tool_exec.raw_output = raw_xml[:50000] if raw_xml else None
-            tool_exec.raw_format = "xml"
-            tool_exec.error_message = error
-            tool_exec.exit_code = 0 if success else 1
+            record_tool_result(tool_exec, result, raw_output=_truncate(raw_xml), raw_format="xml")
 
             if success and raw_xml:
                 try:
@@ -1789,12 +1525,11 @@ def run_sslscan_phase(db, scan: Scan, targets: List[ScanTarget], config):
 
         except Exception as e:
             logger.error(f"sslscan error for {ip}:{port}: {e}")
-            tool_exec.finished_at = datetime.utcnow()
-            tool_exec.error_message = str(e)
-            tool_exec.exit_code = 1
-            db.commit()
+            fail_tool_exec(db, tool_exec, e)
 
         completed += 1
+
+        set_phase_progress(db, scan, 'sslscan', completed, total)
 
     logger.info(f"sslscan complete: {completed} ports scanned, {results_total} successful results")
 
@@ -1824,7 +1559,7 @@ def run_testssl_phase(db, scan: Scan, targets: List[ScanTarget], config):
     logger.info(f"testssl: {len(tls_ports)} potential TLS ports")
 
     # Get timeout from config (default 300s)
-    timeout = getattr(config, 'testssl_timeout', 300)
+    timeout = getattr(config, 'testssl_timeout', 300) or 300
 
     total = len(tls_ports)
     completed = 0
@@ -1845,20 +1580,9 @@ def run_testssl_phase(db, scan: Scan, targets: List[ScanTarget], config):
 
         logger.info(f"testssl: Scanning {host}:{port}")
 
-        # Build command line for logging
-        cmd_line = f"testssl --fast --jsonfile=output.json {host}:{port}"
-
-        # Create tool execution record
-        tool_exec = ToolExecution(
-            id=str(uuid.uuid4()),
-            scan_target_id=str(target.id),
-            port_id=str(port_record.id),
-            tool_name="testssl",
-            command_line=cmd_line,
-            started_at=datetime.utcnow()
-        )
-        db.add(tool_exec)
-        db.flush()
+        # Create tool execution record (exact command line comes from the runner)
+        tool_exec = start_tool_exec(db, target, "testssl", port_record,
+                                    command_line=f"testssl {host}:{port}")
 
         try:
             # Run testssl.sh
@@ -1869,10 +1593,8 @@ def run_testssl_phase(db, scan: Scan, targets: List[ScanTarget], config):
                 fast_mode=True
             )
 
-            tool_exec.finished_at = datetime.utcnow()
-            tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
-            tool_exec.exit_code = 0 if output.success else 1
-            tool_exec.error_message = output.error
+            # Raw output (also partial output of a failed/timed-out run) is kept
+            record_tool_result(tool_exec, output, raw_output=_truncate(output.raw_json), raw_format='json')
 
             if output.success and output.parsed_data:
                 try:
@@ -1890,10 +1612,6 @@ def run_testssl_phase(db, scan: Scan, targets: List[ScanTarget], config):
                         )
                         tool_exec.artifact_path = artifact_path
                         tool_exec.raw_format = 'json'
-
-                    # Store truncated raw output in tool execution
-                    if output.raw_json:
-                        tool_exec.raw_output = output.raw_json[:50000] if len(output.raw_json) > 50000 else output.raw_json
 
                     if not parsed.get('connection_failed'):
                         # Create TestsslResult record
@@ -1957,18 +1675,11 @@ def run_testssl_phase(db, scan: Scan, targets: List[ScanTarget], config):
 
         except Exception as e:
             logger.error(f"testssl error for {host}:{port}: {e}")
-            tool_exec.finished_at = datetime.utcnow()
-            tool_exec.error_message = str(e)
-            tool_exec.exit_code = 1
-            db.commit()
+            fail_tool_exec(db, tool_exec, e)
 
         completed += 1
 
-        # Update progress
-        progress = 0.96 + (completed / total) * 0.01  # 96% -> 97%
-        scan.progress_percent = progress
-        scan.progress_updated_at = datetime.utcnow()
-        db.commit()
+        set_phase_progress(db, scan, 'testssl', completed, total)
 
     logger.info(f"testssl complete: {completed} ports scanned, {results_total} successful results")
 
@@ -2024,38 +1735,26 @@ def run_nikto_phase(db, scan: Scan, targets: List[ScanTarget], config):
 
             logger.info(f"Nikto: Scanning {ip}:{port} (ssl={ssl})")
 
-            # Create tool execution record
+            # Create tool execution record (exact command line comes from the runner)
             cmd_line = f"nikto -h {ip} -p {port} -Format json"
             if ssl:
                 cmd_line += " -ssl"
 
-            tool_exec = ToolExecution(
-                id=str(uuid.uuid4()),
-                scan_target_id=str(target.id),
-                port_id=str(port_rec.id),
-                tool_name="nikto",
-                command_line=cmd_line,
-                started_at=datetime.utcnow()
-            )
-            db.add(tool_exec)
-            db.flush()
+            tool_exec = start_tool_exec(db, target, "nikto", port_rec, command_line=cmd_line)
 
             try:
                 # Run Nikto
                 timeout = config.nikto_timeout or 120
-                success, raw_json, error = run_nikto(
+                result = run_nikto(
                     target=ip,
                     port=port,
                     timeout=timeout,
                     ssl=ssl
                 )
+                success, raw_json, error = result
 
-                tool_exec.finished_at = datetime.utcnow()
-                tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
-                tool_exec.raw_output = raw_json[:50000] if raw_json else None  # Truncate if needed
-                tool_exec.raw_format = "json"
-                tool_exec.error_message = error
-                tool_exec.exit_code = 0 if success else 1
+                # Full output first (the parser reads it), truncated below
+                record_tool_result(tool_exec, result, raw_output=raw_json, raw_format="json")
 
                 if success and raw_json:
                     # Parse and create vulnerability records
@@ -2072,15 +1771,14 @@ def run_nikto_phase(db, scan: Scan, targets: List[ScanTarget], config):
                 else:
                     logger.warning(f"Nikto scan failed for {ip}:{port}: {error}")
 
+                tool_exec.raw_output = _truncate(raw_json)
+
                 db.commit()
                 total_scanned += 1
 
             except Exception as e:
                 logger.error(f"Nikto error for {ip}:{port}: {e}")
-                tool_exec.finished_at = datetime.utcnow()
-                tool_exec.error_message = str(e)
-                tool_exec.exit_code = 1
-                db.commit()
+                fail_tool_exec(db, tool_exec, e)
 
     # Update scan statistics
     from ..models.vulnerability import Vulnerability
@@ -2089,6 +1787,7 @@ def run_nikto_phase(db, scan: Scan, targets: List[ScanTarget], config):
     ).count()
     scan.total_vulnerabilities = total_vulns
     db.commit()
+    set_phase_progress(db, scan, 'nikto')
 
     logger.info(f"Nikto complete: {total_scanned} ports scanned, {total_findings} findings")
 
@@ -2148,33 +1847,23 @@ def run_zap_phase(db, scan: Scan, targets: List[ScanTarget], config):
 
             logger.info(f"ZAP: Scanning {target_url}")
 
-            # Create tool execution record
-            tool_exec = ToolExecution(
-                id=str(uuid.uuid4()),
-                scan_target_id=str(target.id),
-                port_id=str(port_rec.id),
-                tool_name="zap",
-                command_line=f"zap-baseline {target_url}",
-                started_at=datetime.utcnow()
-            )
-            db.add(tool_exec)
-            db.flush()
+            # Create tool execution record (ZAP is driven over its API, so the
+            # runner reports the API calls it made as the "command line")
+            tool_exec = start_tool_exec(db, target, "zap", port_rec,
+                                        command_line=f"zap-baseline {target_url}")
 
             try:
                 # Run ZAP baseline scan
                 timeout = config.zap_timeout or 300
-                success, alerts_json, error = run_zap_baseline(
+                result = run_zap_baseline(
                     target_url=target_url,
                     timeout=timeout,
                     spider_timeout=60
                 )
+                success, alerts_json, error = result
 
-                tool_exec.finished_at = datetime.utcnow()
-                tool_exec.duration_ms = int((tool_exec.finished_at - tool_exec.started_at).total_seconds() * 1000)
-                tool_exec.raw_output = alerts_json[:50000] if alerts_json else None  # Truncate if needed
-                tool_exec.raw_format = "json"
-                tool_exec.error_message = error
-                tool_exec.exit_code = 0 if success else 1
+                # Full output first (the parser reads it), truncated below
+                record_tool_result(tool_exec, result, raw_output=alerts_json, raw_format="json")
 
                 if success and alerts_json:
                     # Parse and create vulnerability records
@@ -2191,15 +1880,14 @@ def run_zap_phase(db, scan: Scan, targets: List[ScanTarget], config):
                 else:
                     logger.warning(f"ZAP scan failed for {target_url}: {error}")
 
+                tool_exec.raw_output = _truncate(alerts_json)
+
                 db.commit()
                 total_scanned += 1
 
             except Exception as e:
                 logger.error(f"ZAP error for {target_url}: {e}")
-                tool_exec.finished_at = datetime.utcnow()
-                tool_exec.error_message = str(e)
-                tool_exec.exit_code = 1
-                db.commit()
+                fail_tool_exec(db, tool_exec, e)
 
     # Update scan statistics
     from ..models.vulnerability import Vulnerability
@@ -2208,5 +1896,6 @@ def run_zap_phase(db, scan: Scan, targets: List[ScanTarget], config):
     ).count()
     scan.total_vulnerabilities = total_vulns
     db.commit()
+    set_phase_progress(db, scan, 'zap')
 
     logger.info(f"ZAP complete: {total_scanned} ports scanned, {total_findings} findings")
