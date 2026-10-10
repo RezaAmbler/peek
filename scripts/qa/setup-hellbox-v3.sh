@@ -1439,6 +1439,27 @@ server {
 EOF
 
 systemctl enable nginx php*-fpm 2>/dev/null
+# nginx loads the certificate before it applies ssl_ciphers, so the
+# "@SECLEVEL=0" above does not stop OpenSSL 3 rejecting the 1024-bit key
+# ("ee key too small") and nginx (ports 80 and 443) never starts. Lower the
+# security level for the nginx process only, through its own OpenSSL config.
+cat >/etc/nginx/openssl-weak.cnf <<'EOF'
+openssl_conf = openssl_init
+[openssl_init]
+ssl_conf = ssl_sect
+[ssl_sect]
+system_default = system_default_sect
+[system_default_sect]
+MinProtocol = TLSv1
+CipherString = DEFAULT:@SECLEVEL=0
+EOF
+mkdir -p /etc/systemd/system/nginx.service.d
+cat >/etc/systemd/system/nginx.service.d/weak-tls.conf <<'EOF'
+[Service]
+Environment=OPENSSL_CONF=/etc/nginx/openssl-weak.cnf
+EOF
+systemctl daemon-reload
+
 systemctl restart nginx php*-fpm 2>/dev/null || log_warn "Nginx/PHP restart failed"
 log_ok "Nginx configured on ports 80/443 with weak TLS"
 

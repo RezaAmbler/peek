@@ -191,17 +191,20 @@ Skip if state.phases.install_hellbox.status == "complete".
 
 Skip if state.phases.scan_1.status == "complete".
 
-1. Authenticate to PEEK:
+1. Authenticate to PEEK. The login endpoint takes a form (OAuth2 password flow), not JSON, and is rate limited to 5 attempts per minute per IP - log in once and reuse the token (valid for 24 hours with the deploy.sh defaults):
    ```
-   TOKEN=$(curl -fsS -X POST "${PEEK_API_URL}/api/v1/auth/login" \
-     -H "Content-Type: application/json" \
-     -d "{\"username\":\"${PEEK_USERNAME}\",\"password\":\"${PEEK_PASSWORD}\"}" \
+   TOKEN=$(curl -fsS -X POST "${PEEK_API_URL}/api/auth/login" \
+     --data-urlencode "username=${PEEK_USERNAME}" \
+     --data-urlencode "password=${PEEK_PASSWORD}" \
      | jq -r '.access_token')
    ```
-2. Create scan config named `hellbox-vulnerable-${TIMESTAMP}` targeting `$HELLBOX_IP` with all tools enabled (port_scan_intensity=comprehensive, enable_nuclei/nikto/zap/sslscan/ssh_audit/nmap_scripts/httpx/testssl all true). Capture `CONFIG_ID`. Write to state as `scan_1.config_id` so Phase 6 can reuse it (PEEK's compare-scans feature requires both scans to share a config_id).
-3. Trigger scan: `POST /api/v1/scan-configs/${CONFIG_ID}/scan`. Capture `SCAN_ID`. Write to state as `scan_1_id`.
-4. Poll status every 60s. Log every poll. Max wait 90 minutes — if still not complete, log warning and continue (do not auto-fail).
-5. When complete or failed: fetch results to `tmp/hellbox-scan-1-${TIMESTAMP}.json` via `GET /api/v1/scans/${SCAN_ID}/results`
+   On a deployment made by deploy.sh (no `INITIAL_ADMIN_PASSWORD`), the password is the generated one, printed once in the backend log:
+   `ssh ubuntu@$PEEK_IP "cd /opt/peek && sudo docker compose logs backend" | grep 'random password was generated'`
+2. Create a scan config with `POST /api/configs`, named `hellbox-vulnerable-${TIMESTAMP}`, with `targets: ["$HELLBOX_IP"]` and every tool enabled (`scan_mode=deep`, `discovery_top_ports=10000`, and `enable_nuclei`, `enable_nuclei_endpoints`, `enable_nse`, `enable_ssh_audit`, `enable_sslscan`, `enable_testssl`, `enable_httpx`, `httpx_screenshots`, `enable_katana`, `enable_nikto`, `enable_zap` all true). Capture `CONFIG_ID` (`.id`). Write to state as `scan_1.config_id` so Phase 6 can reuse it (PEEK's compare-scans feature requires both scans to share a config).
+3. Create and start the scan: `POST /api/scans` with `{"config_id": "$CONFIG_ID"}` (capture `.id` as `SCAN_ID`), then `POST /api/scans/${SCAN_ID}/start`. Write to state as `scan_1_id`.
+4. Poll `GET /api/scans/${SCAN_ID}` every 60s (`.status`, `.current_phase`, `.progress_percent`). Log every poll. Max wait 90 minutes — if still not complete, log warning and continue (do not auto-fail).
+5. When `status` is `completed`, `failed` or `cancelled`: there is no single results endpoint, so assemble `tmp/hellbox-scan-1-${TIMESTAMP}.json` as one object from
+   `GET /api/scans/${SCAN_ID}` (`scan`), `/ports`, `/vulnerabilities`, `/ssh-audits`, `/nse-findings`, `/sslscan-results`, `/testssl-results`, `/httpx-results` and `/discovered-endpoints` (keys named after the endpoints, with `-` replaced by `_`).
 6. Mark state.phases.scan_1.status = "complete" (or "failed" if scan errored — but proceed to remediate anyway).
 
 ---
@@ -230,7 +233,7 @@ Skip if state.phases.scan_2.status == "complete".
    If `state.scan_1.config_id` is missing, fall back to creating a new config named `hellbox-hardened-${TIMESTAMP}` and warn the operator that PEEK's in-UI comparison will not be available for this run.
 
 3. Trigger scan against the existing config:
-   `POST /api/v1/scan-configs/${state.scan_1.config_id}/scan`. Capture `SCAN_ID`. Write to state as `scan_2_id`.
+   `POST /api/scans` with `{"config_id": "${state.scan_1.config_id}"}`, then `POST /api/scans/${SCAN_ID}/start`. Capture `SCAN_ID`. Write to state as `scan_2_id`.
 
 4. Poll status every 60s (same as Phase 4 step 4).
 
