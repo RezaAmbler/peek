@@ -36,8 +36,10 @@ services:
     depends_on:
       - redis
       - backend
-    # Run as root to allow sudo masscan
-    user: root
+    # The image's entrypoint starts as root only to fix ownership of ./data and
+    # then drops to the unprivileged "peek" user. nmap/masscan get raw sockets
+    # from file capabilities (NET_RAW is in Docker's default capability set).
+    # Set PEEK_WORKER_RUN_AS_ROOT=1 in the environment to run the worker as root.
 
   celery-beat:
     build:
@@ -52,7 +54,8 @@ services:
       - DATABASE_URL=sqlite+aiosqlite:///./data/peek.db
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
-    command: celery -A app.celery_app beat --loglevel=info
+    # Schedule state lives in the shared data volume (writable by the worker user)
+    command: celery -A app.celery_app beat --loglevel=info --schedule /app/data/celerybeat-schedule
     depends_on:
       - redis
       - backend

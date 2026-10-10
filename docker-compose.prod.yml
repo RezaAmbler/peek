@@ -50,7 +50,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile.celery
     restart: unless-stopped
-    command: celery -A app.celery_app beat --loglevel=info
+    # Schedule state lives in the shared data volume (writable by the worker user)
+    command: celery -A app.celery_app beat --loglevel=info --schedule /app/data/celerybeat-schedule
     depends_on:
       redis:
         condition: service_healthy

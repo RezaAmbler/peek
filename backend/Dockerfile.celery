@@ -1,84 +1,226 @@
-FROM python:3.13-slim
+# PEEK Celery worker image: Python app + pinned, checksum-verified scanners.
+#
+# Every external download is pinned and verified:
+#   - base image ......... by digest (multi-arch index of python:3.13-slim, Debian trixie)
+#   - nmap tarball ....... sha256 from https://nmap.org/dist/sigs/nmap-7.991.tar.bz2.digest.txt
+#   - nuclei/httpx/katana  sha256 from the upstream release checksum files
+#   - nikto/testssl.sh ... tag + commit SHA (a moved tag fails the build)
+#   - nuclei-templates ... tag + commit SHA (no floating `nuclei -update-templates`)
+# To bump a tool, change its version AND its checksum/commit below.
+# Debian packages (masscan, sslscan, chromium, ...) come from the trixie archive
+# at build time and are NOT version-pinned.
+#
+# Refresh the base digest with:
+#   docker buildx imagetools inspect python:3.13-slim   (or the registry API)
+ARG PYTHON_IMAGE=python:3.13-slim@sha256:70729b46c69b4f1e97c4822c1af3df53a1476cf5ddc6c087c0c10bc3a5678c2f
+
+# ---------------------------------------------------------------------------
+# Stage 1: build nmap from source (parallel DNS, current signatures)
+# ---------------------------------------------------------------------------
+FROM ${PYTHON_IMAGE} AS nmap-build
+
+ARG NMAP_VERSION=7.991
+ARG NMAP_SHA256=a5d507f29437bef3bedd4771ff9aaa8fc1c2a109ddba1f5b1cf12027456929be
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        bzip2 \
+        ca-certificates \
+        curl \
+        libssl-dev \
+        libssh2-1-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+RUN set -eux; \
+    curl -fsSL --retry 3 -o nmap.tar.bz2 "https://nmap.org/dist/nmap-${NMAP_VERSION}.tar.bz2"; \
+    echo "${NMAP_SHA256}  nmap.tar.bz2" | sha256sum -c -; \
+    tar xjf nmap.tar.bz2; \
+    cd "nmap-${NMAP_VERSION}"; \
+    ./configure --prefix=/usr/local --without-ncat --without-ndiff --without-nping --without-zenmap; \
+    make -j"$(nproc)"; \
+    make install DESTDIR=/out
+
+# ---------------------------------------------------------------------------
+# Stage 2: fetch and verify the release binaries, git-pinned tools and templates
+# ---------------------------------------------------------------------------
+FROM ${PYTHON_IMAGE} AS tools
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG NUCLEI_VERSION=3.11.1
+ARG HTTPX_VERSION=1.12.0
+ARG KATANA_VERSION=1.8.0
+
+# sha256 of the release zips, copied from the upstream checksum files:
+#   nuclei_3.11.1_checksums.txt, httpx_1.12.0_checksums.txt, katana-1.8.0-checksums.txt
+WORKDIR /dl
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) \
+        nuclei_sha=ea63d4ae232808cd7c6bc00d0142428e231fab59dae01042246097d195835ab6; \
+        httpx_sha=9d8439e8b6c9aa7d1e2314817a392e00d5178da3af5652f7475f88868f418f76; \
+        katana_sha=cb027ae99d0757061b70c07a15c7a80f62c5a535ab52c4a329f80c4b0a7309d2 ;; \
+      arm64) \
+        nuclei_sha=8044e3d9768ba0a744b2872c1a87e813006f013da97ca9f50f7661a4203bec07; \
+        httpx_sha=fd7b123c1dfbc3d69f19f524e4eebcd6ec06b9a6cbd56813c76f11645197331e; \
+        katana_sha=80e269210727a855511ffac8dfb01297b2344742acec71a35e8ba4a67a90f0f2 ;; \
+      *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac; \
+    fetch() { \
+      name="$1"; version="$2"; sha="$3"; \
+      zip="${name}_${version}_linux_${arch}.zip"; \
+      curl -fsSL --retry 3 -o "$zip" \
+        "https://github.com/projectdiscovery/${name}/releases/download/v${version}/${zip}"; \
+      echo "${sha}  ${zip}" | sha256sum -c -; \
+      mkdir -p "/dl/${name}" /out/bin; \
+      unzip -q "$zip" "$name" -d "/dl/${name}"; \
+      install -m 0755 "/dl/${name}/${name}" "/out/bin/${name}"; \
+    }; \
+    fetch nuclei "${NUCLEI_VERSION}" "$nuclei_sha"; \
+    fetch httpx  "${HTTPX_VERSION}"  "$httpx_sha"; \
+    fetch katana "${KATANA_VERSION}" "$katana_sha"
+
+# Git-pinned tools: the tag is only used to fetch, the commit SHA is what is trusted.
+ARG NIKTO_TAG=2.6.1
+ARG NIKTO_COMMIT=d201dac320fc5187eac75e723dd07a716196ec5a
+ARG TESTSSL_TAG=v3.2.4
+ARG TESTSSL_COMMIT=97763a411c525720a5f9bd9d2cded416b10f210a
+# Template set is pinned on purpose: two builds of the same commit must scan
+# with the same templates. Bump the tag and commit together to update them.
+ARG NUCLEI_TEMPLATES_TAG=v10.5.0
+ARG NUCLEI_TEMPLATES_COMMIT=f8b8b8dcd70d93826c3767e1829ef8243af9f03b
+
+RUN set -eux; \
+    clone_pinned() { \
+      url="$1"; tag="$2"; commit="$3"; dest="$4"; \
+      git clone --quiet --branch "$tag" --depth 1 "$url" "$dest"; \
+      actual="$(git -C "$dest" rev-parse HEAD)"; \
+      if [ "$actual" != "$commit" ]; then \
+        echo "pin mismatch for $url@$tag: expected $commit, got $actual" >&2; exit 1; \
+      fi; \
+      rm -rf "$dest/.git"; \
+    }; \
+    clone_pinned https://github.com/sullo/nikto.git "${NIKTO_TAG}" "${NIKTO_COMMIT}" /out/nikto; \
+    clone_pinned https://github.com/drwetter/testssl.sh.git "${TESTSSL_TAG}" "${TESTSSL_COMMIT}" /out/testssl.sh; \
+    clone_pinned https://github.com/projectdiscovery/nuclei-templates.git \
+        "${NUCLEI_TEMPLATES_TAG}" "${NUCLEI_TEMPLATES_COMMIT}" /out/nuclei-templates; \
+    chmod +x /out/nikto/program/nikto.pl /out/testssl.sh/testssl.sh
+
+# ---------------------------------------------------------------------------
+# Stage 3: Python dependencies (compiler stays out of the final image)
+# ---------------------------------------------------------------------------
+FROM ${PYTHON_IMAGE} AS python-deps
+
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --prefix=/install -r /tmp/requirements.txt
+
+# ---------------------------------------------------------------------------
+# Final image
+# ---------------------------------------------------------------------------
+FROM ${PYTHON_IMAGE}
+
+# Chromium is only needed for httpx screenshots (config.httpx_screenshots, off by
+# default) and katana -headless. Build with --build-arg INSTALL_CHROMIUM=false
+# for a ~350 MB smaller image; screenshot runs then fail with a clear
+# "chrome browser is not installed" error on their ToolExecution.
+ARG INSTALL_CHROMIUM=true
+
+# Runtime packages only - no compiler, no sudo:
+#   masscan, sslscan ........ scanners from Debian
+#   perl, libnet-ssleay-perl, libxml-writer-perl  nikto (2.6.x exits at startup
+#                              with "Required module not found" without XML::Writer)
+#   bsdextrautils, bind9-dnsutils, procps, openssl  testssl.sh (hexdump/column, dig, ps)
+#   libcap2-bin .............. setcap for nmap/masscan raw sockets
+#   libssh2 .................. runtime library for the nmap built in stage 1
+RUN set -eux; \
+    apt-get update; \
+    libssh2_pkg="$(apt-cache search --names-only '^libssh2-1(t64)?$' | cut -d' ' -f1 | head -n1)"; \
+    apt-get install -y --no-install-recommends \
+        "$libssh2_pkg" \
+        masscan \
+        sslscan \
+        perl \
+        libnet-ssleay-perl \
+        libxml-writer-perl \
+        bsdextrautils \
+        bind9-dnsutils \
+        procps \
+        openssl \
+        libcap2-bin \
+        ca-certificates; \
+    if [ "$INSTALL_CHROMIUM" = "true" ]; then \
+        apt-get install -y --no-install-recommends chromium fonts-liberation; \
+    fi; \
+    rm -rf /var/lib/apt/lists/*
+
+# Unprivileged user the worker runs as (see docker/celery-entrypoint.sh)
+RUN groupadd --gid 10001 peek \
+    && useradd --uid 10001 --gid peek --create-home --home-dir /home/peek --shell /usr/sbin/nologin peek
+# nuclei keeps templates in $HOME/nuclei-templates and its config in
+# $HOME/.config/nuclei; fixed here so it is the same whichever user runs it.
+ENV HOME=/home/peek
+
+COPY --from=nmap-build /out/usr/local/ /usr/local/
+COPY --from=tools /out/bin/ /usr/local/bin/
+COPY --from=tools /out/nikto /opt/nikto
+COPY --from=tools /out/testssl.sh /opt/testssl.sh
+COPY --from=tools --chown=peek:peek /out/nuclei-templates /home/peek/nuclei-templates
+COPY --from=python-deps /install/ /usr/local/
+
+RUN set -eux; \
+    ln -s /opt/nikto/program/nikto.pl /usr/local/bin/nikto; \
+    ln -s /opt/testssl.sh/testssl.sh /usr/local/bin/testssl; \
+    # The template repo ships the list of tags/templates nuclei must not run by
+    # default (dos, fuzz, ...); nuclei reads it from its config directory.
+    install -d -o peek -g peek /home/peek/.config/nuclei; \
+    install -o peek -g peek -m 0644 /home/peek/nuclei-templates/.nuclei-ignore \
+        /home/peek/.config/nuclei/.nuclei-ignore; \
+    # Raw sockets for SYN/UDP scans without root or sudo. Only capabilities in
+    # Docker's default bounding set are used; if the container is started with
+    # cap_drop, add NET_RAW back or these binaries will refuse to start.
+    setcap cap_net_raw,cap_net_bind_service+eip /usr/local/bin/nmap; \
+    setcap cap_net_raw+eip "$(command -v masscan)"
 
 WORKDIR /app
+COPY --chown=peek:peek . .
+COPY docker/celery-entrypoint.sh /usr/local/bin/peek-entrypoint
+RUN chmod 0755 /usr/local/bin/peek-entrypoint \
+    && mkdir -p /app/data \
+    && chown peek:peek /app /app/data
 
-# Build nmap 7.991 from source for parallel DNS and updated signatures
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    libssl-dev \
-    libssh2-1-dev \
-    wget \
-    && wget -q https://nmap.org/dist/nmap-7.991.tar.bz2 \
-    && tar xjf nmap-7.991.tar.bz2 \
-    && cd nmap-7.991 \
-    && ./configure --without-ncat --without-ndiff --without-nping --without-zenmap \
-    && make -j$(nproc) \
-    && make install \
-    && cd .. && rm -rf nmap-7.991 nmap-7.991.tar.bz2 \
-    && rm -rf /var/lib/apt/lists/*
+# Build-time smoke test, run as the worker user: a binary that cannot start, a
+# missing Perl module or a template set that does not load fails the build
+# instead of producing scans that silently find nothing.
+RUN set -eux; \
+    run() { setpriv --reuid peek --regid peek --init-groups "$@"; }; \
+    for tool in nmap masscan sslscan httpx katana nuclei nikto testssl ssh-audit; do \
+        command -v "$tool"; \
+    done; \
+    run nmap --version; \
+    run httpx -version; \
+    run katana -version; \
+    run nuclei -version; \
+    getcap /usr/local/bin/nmap | grep -q cap_net_raw; \
+    getcap "$(command -v masscan)" | grep -q cap_net_raw; \
+    # nikto checks its required modules before anything else
+    run perl -MXML::Writer -MJSON::PP -MTime::Piece -MNet::SSLeay -e 1; \
+    # same call the app uses to validate tags (services/service_profile.py)
+    count="$(run nuclei -tl -duc -tags cve | wc -l)"; \
+    echo "nuclei templates tagged cve: $count"; \
+    test "$count" -gt 100; \
+    if [ "$INSTALL_CHROMIUM" = "true" ]; then command -v chromium; fi
 
-# Install system dependencies for scanning tools
-RUN apt-get update && apt-get install -y \
-    gcc \
-    sudo \
-    masscan \
-    sslscan \
-    unzip \
-    git \
-    perl \
-    libnet-ssleay-perl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Nikto from source, pinned to tag 2.6.1
-RUN git clone --branch 2.6.1 --depth 1 https://github.com/sullo/nikto.git /opt/nikto && \
-    ln -s /opt/nikto/program/nikto.pl /usr/local/bin/nikto && \
-    chmod +x /opt/nikto/program/nikto.pl
-
-# Install Nuclei v3.11.1
-RUN wget -q https://github.com/projectdiscovery/nuclei/releases/download/v3.11.1/nuclei_3.11.1_linux_amd64.zip && \
-    unzip -o nuclei_3.11.1_linux_amd64.zip && \
-    mv nuclei /usr/local/bin/ && \
-    chmod +x /usr/local/bin/nuclei && \
-    rm nuclei_3.11.1_linux_amd64.zip
-
-# Update Nuclei templates
-RUN nuclei -update-templates
-
-# Install httpx v1.12.0 for HTTP technology fingerprinting (ProjectDiscovery)
-RUN wget -q https://github.com/projectdiscovery/httpx/releases/download/v1.12.0/httpx_1.12.0_linux_amd64.zip && \
-    unzip -o httpx_1.12.0_linux_amd64.zip && \
-    mv httpx /usr/local/bin/ && \
-    chmod +x /usr/local/bin/httpx && \
-    rm httpx_1.12.0_linux_amd64.zip
-
-# Install Katana v1.8.0 for endpoint discovery/crawling (ProjectDiscovery)
-RUN wget -q https://github.com/projectdiscovery/katana/releases/download/v1.8.0/katana_1.8.0_linux_amd64.zip && \
-    unzip -o katana_1.8.0_linux_amd64.zip && \
-    mv katana /usr/local/bin/ && \
-    chmod +x /usr/local/bin/katana && \
-    rm katana_1.8.0_linux_amd64.zip
-
-# Install testssl.sh for deep TLS/SSL analysis
-# Dependencies: bash, openssl, bsdmainutils (hexdump/column), dnsutils (dig), procps (ps)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    bsdmainutils \
-    dnsutils \
-    procps \
-    && rm -rf /var/lib/apt/lists/* \
-    && git clone --branch v3.2.4 --depth 1 https://github.com/drwetter/testssl.sh.git /opt/testssl.sh \
-    && chmod +x /opt/testssl.sh/testssl.sh \
-    && ln -s /opt/testssl.sh/testssl.sh /usr/local/bin/testssl
-
-# Copy requirements and install (ssh-audit is now pinned in requirements.txt)
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application
-COPY . .
-
-# Create sudoers entry for masscan and nmap (passwordless sudo)
-# nmap installed to /usr/local/bin from source build
-RUN echo "root ALL=(ALL) NOPASSWD: /usr/bin/masscan" >> /etc/sudoers && \
-    echo "root ALL=(ALL) NOPASSWD: /usr/local/bin/nmap" >> /etc/sudoers
-
+# Starts as root, fixes ownership of the shared data volume, then drops to the
+# "peek" user for the actual process.
+ENTRYPOINT ["peek-entrypoint"]
 CMD ["celery", "-A", "app.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
