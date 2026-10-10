@@ -36,7 +36,9 @@ if ! command -v openssl >/dev/null 2>&1; then
 fi
 
 # SSH options
-SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i $SSH_KEY"
+# Keepalives: the image build can be silent for minutes, and a dropped
+# connection must fail the deploy rather than hang it.
+SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ServerAliveInterval=30 -o ServerAliveCountMax=6 -i $SSH_KEY"
 SSH_CMD="ssh $SSH_OPTS $SSH_USER@$TARGET_IP"
 SCP_CMD="scp $SSH_OPTS"
 

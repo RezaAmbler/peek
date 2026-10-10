@@ -183,7 +183,10 @@ RUN set -eux; \
     ln -s /opt/testssl.sh/testssl.sh /usr/local/bin/testssl; \
     # The template repo ships the list of tags/templates nuclei must not run by
     # default (dos, fuzz, ...); nuclei reads it from its config directory.
-    install -d -o peek -g peek /home/peek/.config/nuclei; \
+    # Both levels are named: `install -d` leaves parents it creates owned by
+    # root, and katana/httpx exit with "permission denied" when they cannot
+    # create their own directory under ~/.config.
+    install -d -o peek -g peek /home/peek/.config /home/peek/.config/nuclei; \
     install -o peek -g peek -m 0644 /home/peek/nuclei-templates/.nuclei-ignore \
         /home/peek/.config/nuclei/.nuclei-ignore; \
     # Raw sockets for SYN/UDP scans without root or sudo. Only capabilities in

@@ -33,6 +33,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.celery
+    # PID 1 must reap: headless Chromium (httpx screenshots, katana) leaves
+    # orphaned children behind that would otherwise pile up as zombies.
+    init: true
     restart: unless-stopped
     depends_on:
       redis:
