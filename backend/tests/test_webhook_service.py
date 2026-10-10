@@ -28,6 +28,7 @@ def db():
         yield session
     finally:
         session.close()
+        engine.dispose()
 
 
 @pytest.fixture

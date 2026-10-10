@@ -33,6 +33,7 @@ def db():
         yield session
     finally:
         session.close()
+        engine.dispose()
 
 
 def _make_scan(db, name):

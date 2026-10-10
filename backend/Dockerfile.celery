@@ -2,19 +2,19 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-# Build nmap 7.98 from source for parallel DNS and updated signatures
+# Build nmap 7.991 from source for parallel DNS and updated signatures
 RUN apt-get update && apt-get install -y \
     build-essential \
     libssl-dev \
     libssh2-1-dev \
     wget \
-    && wget -q https://nmap.org/dist/nmap-7.98.tar.bz2 \
-    && tar xjf nmap-7.98.tar.bz2 \
-    && cd nmap-7.98 \
+    && wget -q https://nmap.org/dist/nmap-7.991.tar.bz2 \
+    && tar xjf nmap-7.991.tar.bz2 \
+    && cd nmap-7.991 \
     && ./configure --without-ncat --without-ndiff --without-nping --without-zenmap \
     && make -j$(nproc) \
     && make install \
-    && cd .. && rm -rf nmap-7.98 nmap-7.98.tar.bz2 \
+    && cd .. && rm -rf nmap-7.991 nmap-7.991.tar.bz2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install system dependencies for scanning tools
@@ -29,35 +29,34 @@ RUN apt-get update && apt-get install -y \
     libnet-ssleay-perl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Nikto from source, pinned to tag 2.6.0
-RUN git clone --branch 2.6.0 --depth 1 https://github.com/sullo/nikto.git /opt/nikto && \
+# Install Nikto from source, pinned to tag 2.6.1
+RUN git clone --branch 2.6.1 --depth 1 https://github.com/sullo/nikto.git /opt/nikto && \
     ln -s /opt/nikto/program/nikto.pl /usr/local/bin/nikto && \
     chmod +x /opt/nikto/program/nikto.pl
 
-# Install Nuclei v3.6.2 - TLS session caching, memory efficiency improvements
-RUN wget -q https://github.com/projectdiscovery/nuclei/releases/download/v3.6.2/nuclei_3.6.2_linux_amd64.zip && \
-    unzip -o nuclei_3.6.2_linux_amd64.zip && \
+# Install Nuclei v3.11.1
+RUN wget -q https://github.com/projectdiscovery/nuclei/releases/download/v3.11.1/nuclei_3.11.1_linux_amd64.zip && \
+    unzip -o nuclei_3.11.1_linux_amd64.zip && \
     mv nuclei /usr/local/bin/ && \
     chmod +x /usr/local/bin/nuclei && \
-    rm nuclei_3.6.2_linux_amd64.zip
+    rm nuclei_3.11.1_linux_amd64.zip
 
 # Update Nuclei templates
 RUN nuclei -update-templates
 
-# Install httpx v1.7.4 for HTTP technology fingerprinting (ProjectDiscovery)
-# Includes panic guard for malformed HTML, auto-referer flag
-RUN wget -q https://github.com/projectdiscovery/httpx/releases/download/v1.7.4/httpx_1.7.4_linux_amd64.zip && \
-    unzip -o httpx_1.7.4_linux_amd64.zip && \
+# Install httpx v1.12.0 for HTTP technology fingerprinting (ProjectDiscovery)
+RUN wget -q https://github.com/projectdiscovery/httpx/releases/download/v1.12.0/httpx_1.12.0_linux_amd64.zip && \
+    unzip -o httpx_1.12.0_linux_amd64.zip && \
     mv httpx /usr/local/bin/ && \
     chmod +x /usr/local/bin/httpx && \
-    rm httpx_1.7.4_linux_amd64.zip
+    rm httpx_1.12.0_linux_amd64.zip
 
-# Install Katana v1.1.0 for endpoint discovery/crawling (ProjectDiscovery)
-RUN wget -q https://github.com/projectdiscovery/katana/releases/download/v1.1.0/katana_1.1.0_linux_amd64.zip && \
-    unzip -o katana_1.1.0_linux_amd64.zip && \
+# Install Katana v1.8.0 for endpoint discovery/crawling (ProjectDiscovery)
+RUN wget -q https://github.com/projectdiscovery/katana/releases/download/v1.8.0/katana_1.8.0_linux_amd64.zip && \
+    unzip -o katana_1.8.0_linux_amd64.zip && \
     mv katana /usr/local/bin/ && \
     chmod +x /usr/local/bin/katana && \
-    rm katana_1.1.0_linux_amd64.zip
+    rm katana_1.8.0_linux_amd64.zip
 
 # Install testssl.sh for deep TLS/SSL analysis
 # Dependencies: bash, openssl, bsdmainutils (hexdump/column), dnsutils (dig), procps (ps)
@@ -66,7 +65,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     dnsutils \
     procps \
     && rm -rf /var/lib/apt/lists/* \
-    && git clone --branch v3.2.3 --depth 1 https://github.com/drwetter/testssl.sh.git /opt/testssl.sh \
+    && git clone --branch v3.2.4 --depth 1 https://github.com/drwetter/testssl.sh.git /opt/testssl.sh \
     && chmod +x /opt/testssl.sh/testssl.sh \
     && ln -s /opt/testssl.sh/testssl.sh /usr/local/bin/testssl
 

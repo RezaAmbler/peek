@@ -26,6 +26,7 @@ def db():
         yield session
     finally:
         session.close()
+        engine.dispose()
 
 
 def _setup_scan(db, severities):
