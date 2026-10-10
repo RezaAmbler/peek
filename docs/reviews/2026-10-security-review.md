@@ -214,13 +214,31 @@ Not assessed by the agent, and not changed: the stdlib `xml.etree` parsers used 
 
 These need a running deployment (Docker was not available in the fix environment). The scanner-side checklist is in `2026-10-scan-tool-review.md`.
 
-- [ ] Fresh install with `INITIAL_ADMIN_PASSWORD` set: login works with it; the password does not appear in `docker compose logs backend`.
-- [ ] Fresh install without it: the generated password appears exactly once in the backend log and works; it is not printed again after a restart.
-- [ ] A weak `INITIAL_ADMIN_PASSWORD` (for example `admin`) stops the backend with a clear message and creates no account.
-- [ ] Upgrade of an existing deployment seeded with `admin`/`admin`: login still works, the `SECURITY` warning is logged on every start, and it disappears after the password is changed.
-- [ ] Existing users with cost-12 hashes log in unchanged; after setting `BCRYPT_ROUNDS=13` their hash is upgraded on the next login (check the `$2b$13$` prefix in the database).
-- [ ] Corrupt a test user's `hashed_password` in the database: login returns 401, not 500.
-- [ ] Through the real HTTP stack, `POST /api/auth/login` with `password=a%00b` returns 401 (the handler was tested directly, not through uvicorn/form parsing).
-- [ ] As a non-admin user, `PATCH /api/configs/{id}` with `nmap_args: ["-sV","-oN","/app/data/x"]` or `nuclei_templates: "/etc/passwd"` returns 422.
-- [ ] Inside the worker, a scanner child process has no `SECRET_KEY` in `/proc/<pid>/environ`.
-- [ ] The hellbox QA flow (`scripts/qa/hellbox-qa.prompt`) logs in with the new credential source.
+**Checked on 2026-10-10** by the end-to-end QA run (`scripts/qa/end-to-end-qa.prompt`): PEEK on a t3.medium (Ubuntu 22.04, amd64) deployed with `deploy/deploy.sh`, target built by `scripts/qa/setup-hellbox-v3.sh` on a t3.large. A ticked box means the item was exercised; the line under it says **PASS**, or **FAIL → fixed** with the commit when the check found a defect that was then fixed, redeployed and re-checked. Unticked items were not (fully) verified.
+
+All ten items pass. Items 1-5 were run in a throwaway backend container on the QA instance (own database file), the others against the deployed instance. Security-relevant behaviour changed by the fixes made during this run:
+
+- `POST /api/scans/{id}/cancel` now actually stops the scan. Before, a cancelled scan kept sending traffic to the target until it finished (`11a1bb7`).
+- Scanner processes run in their own process group and get a private `TMPDIR`; a timeout or cancel kills the whole group, including headless Chromium (`11a1bb7`).
+- The runner adds `-e <interface>` to some nmap runs itself (after validation). `-e` is still not accepted from a config (`fc2796b`).
+
+- [x] Fresh install with `INITIAL_ADMIN_PASSWORD` set: login works with it; the password does not appear in `docker compose logs backend`.
+  - **PASS.** Login 200 with it, 401 with `admin`; the log has `Admin user created (username: admin, password from INITIAL_ADMIN_PASSWORD)` and not the password.
+- [x] Fresh install without it: the generated password appears exactly once in the backend log and works; it is not printed again after a restart.
+  - **PASS.** One `random password was generated` line, login works with it, no second line after a restart (also true for the deployed instance across three redeploys).
+- [x] A weak `INITIAL_ADMIN_PASSWORD` (for example `admin`) stops the backend with a clear message and creates no account.
+  - **PASS.** The backend exits (code 3) with `RuntimeError: INITIAL_ADMIN_PASSWORD is not acceptable: Password is too common. …`; the `users` table has no admin row.
+- [x] Upgrade of an existing deployment seeded with `admin`/`admin`: login still works, the `SECURITY` warning is logged on every start, and it disappears after the password is changed.
+  - **PASS.** Login with `admin`/`admin` works, one `SECURITY` warning per start, none after the password was reset.
+- [x] Existing users with cost-12 hashes log in unchanged; after setting `BCRYPT_ROUNDS=13` their hash is upgraded on the next login (check the `$2b$13$` prefix in the database).
+  - **PASS.** With `BCRYPT_ROUNDS=13` the cost-12 hash logs in and is `$2b$13$` afterwards; the next login works too.
+- [x] Corrupt a test user's `hashed_password` in the database: login returns 401, not 500.
+  - **PASS.** 401 for `not-a-bcrypt-hash` and for a truncated `$2b$12$tooshort`; no traceback in the backend log.
+- [x] Through the real HTTP stack, `POST /api/auth/login` with `password=a%00b` returns 401 (the handler was tested directly, not through uvicorn/form parsing).
+  - **PASS.** 401 through nginx and uvicorn.
+- [x] As a non-admin user, `PATCH /api/configs/{id}` with `nmap_args: ["-sV","-oN","/app/data/x"]` or `nuclei_templates: "/etc/passwd"` returns 422.
+  - **PASS.** 422 for both, and for `../../etc` and `--script=/tmp/x.nse`. The same values written straight into the database are refused by the runner (see the scan-tool checklist).
+- [x] Inside the worker, a scanner child process has no `SECRET_KEY` in `/proc/<pid>/environ`.
+  - **PASS.** `/proc/<pid>/environ` of a running nmap has no `SECRET_KEY`, `DATABASE_URL`, `CELERY_*` or `ACCESS_TOKEN_EXPIRE_MINUTES`; the worker itself has them.
+- [x] The hellbox QA flow (`scripts/qa/hellbox-qa.prompt`) logs in with the new credential source.
+  - **PASS, after a fix to the prompt (`d9e2d28`).** Login works with the generated password from the backend log. The prompt itself called endpoints that do not exist (`/api/v1/auth/login` with JSON, `/api/v1/scan-configs/{id}/scan`, `/api/v1/scans/{id}/results`) and is now corrected. Note the login rate limit (5 per minute per IP): log in once and reuse the token.

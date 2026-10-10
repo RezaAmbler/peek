@@ -318,39 +318,92 @@ The `scan-tool-reviewer` agent re-reviewed `381f8b0..5fc1564` read-only, ran the
 
 Nothing below could be checked in the fix environment: Docker is not available there and no scanner binary was executed. Run it with the real image against a hellbox target (`scripts/qa/hellbox-qa.prompt`, target built by `scripts/qa/setup-hellbox-v3.sh`).
 
+**Checked on 2026-10-10** by the end-to-end QA run (`scripts/qa/end-to-end-qa.prompt`): PEEK on a t3.medium (Ubuntu 22.04, amd64) deployed with `deploy/deploy.sh`, target built by `scripts/qa/setup-hellbox-v3.sh` on a t3.large. A ticked box means the item was exercised; the line under it says **PASS**, or **FAIL → fixed** with the commit when the check found a defect that was then fixed, redeployed and re-checked. Unticked items were not (fully) verified.
+
+### Defects found by the live run
+
+All fixed on `review/scan-security-2026-10`, redeployed and re-checked unless noted.
+
+| # | Defect | Fix |
+|---|---|---|
+| 1 | Worker image does not build: `~/.config` is root-owned, so katana fails the smoke test | `e75ae91` |
+| 2 | Cancelling a scan only changed its status; the worker kept scanning the target and finished the scan as `completed` | `11a1bb7` |
+| 3 | A scan interrupted by a worker kill stayed `running` with unfinished tool runs; an API restart marked healthy running scans as cancelled | `11a1bb7` |
+| 4 | nmap 7.991 loses version detection in any raw-socket run: every service-probe connection is bound to the same local port and the second probe fails with `Cannot assign requested address` (7.95 is not affected). Default config left Tomcat, Elasticsearch, IMAPS and POP3S unidentified, so nuclei skipped or mis-profiled them | `11a1bb7`, `fc2796b` |
+| 5 | nuclei tag validation counted the `Listing available nuclei templates` header as a template: ports with unknown services ran with tags matching nothing and failed with `no templates provided for scan` | `11a1bb7` |
+| 6 | A nuclei run that hit its timeout lost all findings (the JSONL export is only written on a clean exit) | `11a1bb7` |
+| 7 | Tool timeouts killed only the direct child; headless Chromium children were never reaped | `11a1bb7`, `e75ae91` |
+| 8 | nuclei left several `nuclei-*` directories in `/tmp` per run | `11a1bb7` |
+| 9 | `httpx_screenshots` was not part of the config API, so screenshots could not be enabled; `tls_cipher` was not returned | `11a1bb7` |
+| 10 | katana `content_type` never stored | `a26f8da` |
+| 11 | sslscan run against an unreachable port recorded as a success | `a26f8da` |
+| 12 | ZAP alerts of earlier scans and of other ports on the same host were reported again | `a26f8da` |
+
+Seen and left as is:
+
+- nuclei's `javascript/` Redis templates connect to 6379 whatever the target port is; a Redis CVE was reported once against `http://host:8080` in the first scan.
+- The per-port nuclei timeout (300 s) is too short for the slowest targets (Drupal, Webmin); the endpoint run hit its 600 s limit in every scan. Partial findings are kept now, but templates late in the run are not reached.
+- A scan whose nmap run fails validation still ends `completed`.
+- The image carries three `nuclei-*` directories in `/tmp` from the build-time smoke test.
+
 **Image build**
 
-- [ ] `docker compose build celery` succeeds on amd64 (and arm64 if used): digest pull, every `sha256sum -c`, the three commit-pin checks, the nmap source build with `DESTDIR`, the `libssh2` runtime package lookup.
-- [ ] The build-time smoke test passes: binaries start as user `peek`, `getcap` shows `cap_net_raw` on nmap and masscan, `perl -MXML::Writer …` loads, `nuclei -tl -duc -tags cve` lists more than 100 templates from the pinned set.
-- [ ] `docker compose build --build-arg INSTALL_CHROMIUM=false celery` also builds.
+- [x] `docker compose build celery` succeeds on amd64 (and arm64 if used): digest pull, every `sha256sum -c`, the three commit-pin checks, the nmap source build with `DESTDIR`, the `libssh2` runtime package lookup.
+  - **FAIL → fixed (`e75ae91`), then PASS** on amd64. Digest pull, every `sha256sum -c`, the three commit pins, the nmap `DESTDIR` build and the `libssh2` lookup all passed; the build stopped in the smoke test (next item). arm64 was not built.
+- [x] The build-time smoke test passes: binaries start as user `peek`, `getcap` shows `cap_net_raw` on nmap and masscan, `perl -MXML::Writer …` loads, `nuclei -tl -duc -tags cve` lists more than 100 templates from the pinned set.
+  - **FAIL → fixed (`e75ae91`), then PASS.** `katana -version` as `peek` exited with `Could not read flags: permission denied`: `install -d …/.config/nuclei` had left `~/.config` owned by root. After the fix: binaries start as `peek`, both `getcap` checks pass, the Perl modules load, 4528 templates are tagged `cve`.
+- [x] `docker compose build --build-arg INSTALL_CHROMIUM=false celery` also builds.
+  - **PASS** (built as a separate tag: 1.32 GB against 2.32 GB). A screenshot run in that image fails with `httpx exited with code 1: [FTL] Could not create runner: the chrome browser is not installed`.
 
 **Non-root worker**
 
-- [ ] Worker and beat start; `docker compose exec celery id` shows uid 10001 (`peek`).
-- [ ] Fresh install (empty `./data`): the backend creates `peek.db`, the worker can write to it, and a scan runs end to end. Repeat on an existing deployment whose `./data` is root-owned.
-- [ ] After a backend restart the worker can still write (SQLite `-wal`/`-shm` ownership).
-- [ ] `celery beat` writes `/app/data/celerybeat-schedule` and scheduled scans fire.
-- [ ] A config with `-sS` in `nmap_args` (the schema default) works as non-root via `--privileged` + `cap_net_raw`. Also try `-O` and a UDP NSE profile, which may want `cap_net_admin`.
-- [ ] `PEEK_WORKER_RUN_AS_ROOT=1` still works, including nuclei finding its templates.
+- [x] Worker and beat start; `docker compose exec celery id` shows uid 10001 (`peek`).
+  - **PASS, with a correction to the check.** The worker and beat processes run as uid 10001 (`ps -eo uid,args` inside the containers). `docker compose exec celery id` prints uid 0: `exec` starts a new process as the image user (root); it does not go through the entrypoint.
+- [x] Fresh install (empty `./data`): the backend creates `peek.db`, the worker can write to it, and a scan runs end to end. Repeat on an existing deployment whose `./data` is root-owned.
+  - **PASS** for the fresh install (database created by the backend, owned by 10001 after the worker started, full scans ran). The root-owned case was checked in a throwaway worker container with a root-owned `peek.db`/`-wal` mounted at `/app/data`: the entrypoint changed the owner and `peek` could write. A real pre-existing deployment was not upgraded.
+- [x] After a backend restart the worker can still write (SQLite `-wal`/`-shm` ownership).
+  - **PASS.** Backend restarted in the middle of a scan: `-wal`/`-shm` stayed owned by 10001 and the scan kept writing tool runs. (Before `11a1bb7` the restarted backend also marked the running scan as cancelled; see "Defects found" below.)
+- [x] `celery beat` writes `/app/data/celerybeat-schedule` and scheduled scans fire.
+  - **PASS.** Schedule files are written by uid 10001; a `* * * * *` scheduled scan fired within a minute and completed.
+- [x] A config with `-sS` in `nmap_args` (the schema default) works as non-root via `--privileged` + `cap_net_raw`. Also try `-O` and a UDP NSE profile, which may want `cap_net_admin`.
+  - **PASS for raw sockets, FAIL → fixed (`11a1bb7`, `fc2796b`) for what the default arguments produced.** `-sS`, `-O` and a UDP NSE run (`snmp-info` on 161/udp) all work as `peek` with `cap_net_raw` only; `cap_net_admin` was not needed. But with the pinned nmap 7.991 any raw-socket run loses version detection (see "Defects found"): the schema default `-sS -sV -sC` left Tomcat, Elasticsearch and IMAPS/POP3S unidentified.
+- [x] `PEEK_WORKER_RUN_AS_ROOT=1` still works, including nuclei finding its templates.
+  - **PASS.** uid 0, `HOME=/home/peek`, `nuclei -tl -tags tomcat` lists 33 templates, `nmap -sS` works without `--privileged`.
 
 **Scanners against hellbox**
 
-- [ ] nuclei 3.11.1: findings appear for the hellbox CVEs; `ToolExecution.command_line` is the real command; no template download happens at scan time (run with egress blocked or watch the log); the `.nuclei-ignore` copied from the pinned template repo is honoured (no `dos`/`fuzz` templates run).
-- [ ] Failure path: temporarily break a run (e.g. `NUCLEI_PATH=/bin/false`, or stop the target mid-scan) and confirm the `ToolExecution` has a non-zero `exit_code` and an `error_message`, and that no "0 findings" result is shown as clean.
-- [ ] httpx 1.12.0: `HttpxResult` has status, title, technologies, `tls_version`/`tls_cipher` (from `-tls-grab`), `jarm_hash`, `redirect_chain`, CDN/WAF fields. Confirm no requests go to certificate SAN hosts.
-- [ ] httpx screenshots: enable `httpx_screenshots`; a PNG is stored and served by `GET /api/scans/{id}/screenshots/{port_id}`; Chromium starts as non-root with `--no-sandbox`; `-st 10s` is accepted; `/tmp` has no leftover `httpx_*` or Chromium profile directories.
-- [ ] katana 1.8.0: endpoints are stored; the crawl stops at `-crawl-duration`; `content_type` is filled from the response headers; check the size of the stored JSONL with `-omit-raw -omit-body`.
-- [ ] nikto 2.6.1: starts (XML::Writer present), the JSON report is a list of host records, and findings are stored as individual vulnerabilities. Check what Nikto does for a port with no web server (exit code and report content).
-- [ ] nmap 7.991: discovery, service detection and NSE XML parse as before; a filtered host hits `--host-timeout` and is handled sensibly.
-- [ ] testssl.sh 3.2.4: runs with the installed `bsdextrautils`/`bind9-dnsutils`; a non-TLS port yields a `FATAL` record and a failed execution; note the exit codes seen on hellbox.
-- [ ] sslscan, ssh-audit, masscan (legacy) and ZAP: one successful and one failing run each.
+- [x] nuclei 3.11.1: findings appear for the hellbox CVEs; `ToolExecution.command_line` is the real command; no template download happens at scan time (run with egress blocked or watch the log); the `.nuclei-ignore` copied from the pinned template repo is honoured (no `dos`/`fuzz` templates run).
+  - **PASS with notes.** Of the ten CVEs hellbox is meant to carry, three were reported after the fixes (CVE-2020-1938, CVE-2019-15107, CVE-2015-1427; one before them), plus `tomcat-default-login`, exposed Docker/Redis/MySQL and `.env` findings. Not reported: CVE-2011-2523 and CVE-2015-3306 (vsftpd 2.3.4 and ProFTPD did not install on the target), CVE-2021-41773 (the target's Apache does not serve the traversal; checked by hand), CVE-2018-7600 (the Drupal run hit the 300 s timeout before reaching that template), CVE-2017-12615, CVE-2018-12613 and CVE-2017-7494 (cause not established before the target was remediated). `command_line` is the real command. No template was installed or changed at scan time (no file under `nuclei-templates` newer than the image; `-disable-update-check` on every run) - checked by inspection, not with egress blocked. No finding carries a `dos`/`fuzz`/`bruteforce` tag.
+- [x] Failure path: temporarily break a run (e.g. `NUCLEI_PATH=/bin/false`, or stop the target mid-scan) and confirm the `ToolExecution` has a non-zero `exit_code` and an `error_message`, and that no "0 findings" result is shown as clean.
+  - **PASS.** `NUCLEI_PATH=/bin/false` → exit 1, `Nuclei exited with code 1: no output`; a missing binary → 127; timeouts → 124. In the scans every failed run had a non-zero exit code and an `error_message`, and none was stored as a clean result. A run that times out now keeps the findings made so far (`11a1bb7`); before, Drupal and Webmin lost all of theirs.
+- [x] httpx 1.12.0: `HttpxResult` has status, title, technologies, `tls_version`/`tls_cipher` (from `-tls-grab`), `jarm_hash`, `redirect_chain`, CDN/WAF fields. Confirm no requests go to certificate SAN hosts.
+  - **PASS.** Status, title, technologies, `tls_version`, `tls_cipher`, `jarm_hash`, `redirect_chain` and the CDN/WAF fields are stored. `tls_cipher` was stored but missing from `GET /api/scans/{id}/httpx-results` → added (`11a1bb7`). SAN hosts: the command has `-tls-grab` and no `-tls-probe`; the hellbox certificate has no SAN host to watch, so this part is by inspection only.
+- [x] httpx screenshots: enable `httpx_screenshots`; a PNG is stored and served by `GET /api/scans/{id}/screenshots/{port_id}`; Chromium starts as non-root with `--no-sandbox`; `-st 10s` is accepted; `/tmp` has no leftover `httpx_*` or Chromium profile directories.
+  - **PASS, after a fix.** `httpx_screenshots` could not be enabled at all: the field was missing from the config schemas, so the API dropped it (`11a1bb7`). With it on: PNGs stored for the web ports and served as `image/png` (401 without a token), Chromium runs as `peek` with `--no-sandbox`, `-st 10s` is accepted, no `httpx_*` or profile directory is left in `/tmp`. Chromium's orphaned children piled up as zombies (55 half-way through a scan) → the worker now runs under an init process (`e75ae91`).
+- [x] katana 1.8.0: endpoints are stored; the crawl stops at `-crawl-duration`; `content_type` is filled from the response headers; check the size of the stored JSONL with `-omit-raw -omit-body`.
+  - **PASS for storage, FAIL → fixed (`a26f8da`) for `content_type`.** 125 endpoints stored. `content_type` was empty on every row: katana reports the header as `Content-Type`, the parser looked for `content-type`. `-crawl-duration` was never reached (crawls took 10-14 s), so that limit is untested. Stored JSONL with `-omit-raw -omit-body`: 0.3-7 KB per target; the Tomcat documentation tree hit the 50,000-character `raw_output` cap.
+- [x] nikto 2.6.1: starts (XML::Writer present), the JSON report is a list of host records, and findings are stored as individual vulnerabilities. Check what Nikto does for a port with no web server (exit code and report content).
+  - **PASS.** Starts, writes a JSON list of host records, findings are stored one per vulnerability (253 in the baseline scan). On a port with no web server (6379) nikto does not give up: it runs past `-maxtime` and is killed at the runner timeout → exit 124, empty report, failed run.
+- [x] nmap 7.991: discovery, service detection and NSE XML parse as before; a filtered host hits `--host-timeout` and is handled sensibly.
+  - **FAIL → fixed (`11a1bb7`, `fc2796b`) for service detection; PASS for discovery and NSE XML.** See "Defects found". The `--host-timeout` part is **not verified**: no filtered host was available (the test addresses answered at once from EC2).
+- [x] testssl.sh 3.2.4: runs with the installed `bsdextrautils`/`bind9-dnsutils`; a non-TLS port yields a `FATAL` record and a failed execution; note the exit codes seen on hellbox.
+  - **PASS.** Exit codes on hellbox: 0 on 443 and 8443, 7 on 993 and 995 (results parsed and stored; the run is recorded with exit code 7 and no error message). A non-TLS port (8080) → exit 245 and a failed run with testssl's message; no JSON was written, so there is no `FATAL` record to parse. testssl also warns that `--fast` is deprecated.
+- [x] sslscan, ssh-audit, masscan (legacy) and ZAP: one successful and one failing run each.
+  - **PASS, after two fixes (`a26f8da`).** sslscan: success on 443; a closed port was recorded as a *successful* run (sslscan 2.1.5 exits 0 and says `Could not open a connection`, not `Failed to connect`) → now a failed run. ssh-audit: exit 3 with findings is a success, a non-SSH port fails with `did not receive banner`. masscan: 37 ports found; a bad interface fails with masscan's message. ZAP: 10 successful runs; a rescan re-reported the previous scan's alerts and `http://host:80` matched `:8080` alerts → fixed. ZAP against a closed port still returns success with zero alerts.
 - [ ] Capture one real output per tool from these runs and replace the schema-derived samples in `backend/tests/test_tool_parsers.py`.
+  - **Not done.** Captured output was added only where it exposed a defect (katana line, sslscan `<error>` document, the `nuclei -tl` header). The raw outputs of all runs are in `tool_executions.raw_output` on the QA instance.
 
 **Pipeline**
 
-- [ ] A stored config with a now-disallowed `nmap_args` entry fails the nmap run with a readable validation error; configs with only allowed flags are unaffected.
-- [ ] `nuclei_templates` set to a relative path (e.g. `http/cves/2024`) resolves inside the pinned template set and runs.
-- [ ] After a tool timeout no scanner or Chromium child processes are left running in the worker (`ps` inside the container).
-- [ ] The progress bar only moves forward across all 12 phases, including with katana + nuclei endpoints enabled.
-- [ ] With `enable_nse=false` the NSE phase is skipped.
-- [ ] Kill the worker mid-scan: the scan ends `FAILED`/cancelled and no `ToolExecution` is left without `finished_at`.
+- [x] A stored config with a now-disallowed `nmap_args` entry fails the nmap run with a readable validation error; configs with only allowed flags are unaffected.
+  - **PASS.** `nmap_args` set to `["-sV","-oN","/app/data/x"]` directly in the database: the nmap run failed with `Input validation failed: nmap argument not allowed: '-oN'. Allowed: …`; other configs were unaffected.
+- [x] `nuclei_templates` set to a relative path (e.g. `http/cves/2024`) resolves inside the pinned template set and runs.
+  - **PASS** (`http/cves/2021/CVE-2021-41773.yaml,http/misconfiguration/apache` resolved inside the pinned set and ran; `/etc/passwd` was refused before nuclei started).
+- [x] After a tool timeout no scanner or Chromium child processes are left running in the worker (`ps` inside the container).
+  - **FAIL → fixed (`11a1bb7`), then PASS.** `subprocess.run` only killed the direct child. Commands now run in their own process group, which is killed on timeout or cancel; httpx with a screenshot and `katana -headless` cut off by a timeout left no process behind.
+- [x] The progress bar only moves forward across all 12 phases, including with katana + nuclei endpoints enabled.
+  - **PASS.** 60 one-minute samples over a scan with all 12 phases (katana and nuclei endpoints on): never backwards.
+- [x] With `enable_nse=false` the NSE phase is skipped.
+  - **PASS** (only `nmap-discovery` and `nmap` runs were recorded).
+- [x] Kill the worker mid-scan: the scan ends `FAILED`/cancelled and no `ToolExecution` is left without `finished_at`.
+  - **FAIL → fixed (`11a1bb7`), then PASS.** After `docker compose kill celery` the scan stayed `running` (for up to 4 hours, until the stuck-scan detector) with an nmap run that had no `finished_at`. The worker now fails interrupted scans and closes their tool runs when it starts.
