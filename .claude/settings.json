@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./backend/.env)",
+      "Edit(./backend/.env)",
+      "Write(./backend/.env)",
+      "Edit(./data/peek.db*)",
+      "Write(./data/peek.db*)",
+      "Edit(./data/*.db)",
+      "Write(./data/*.db)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/format-frontend.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}

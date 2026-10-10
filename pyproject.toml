@@ -1,5 +1,8 @@
 [tool.pytest.ini_options]
 minversion = "8.0"
+# Put backend/ on sys.path so `import app...` works regardless of which test
+# file collects first.
+pythonpath = ["backend"]
 testpaths = ["backend/tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]

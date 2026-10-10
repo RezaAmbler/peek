@@ -47,7 +47,9 @@ frontend/.env.local
 frontend/.env.*.local
 
 # Claude / AI Agents
-.claude/
+# Shared Claude Code config (.claude/, .mcp.json) is tracked; only
+# developer-local settings stay ignored.
+.claude/settings.local.json
 .claude_history
 .anthropic/
 .cursor/
@@ -83,7 +85,6 @@ docs/soc-recommendations.md
 
 # Misc scratch
 tmp/
-.mcp.json
 artifacts/
 *.log
 
