@@ -63,6 +63,7 @@ class ScanConfigBase(BaseModel):
     enable_httpx: bool = Field(default=True, description="Run httpx HTTP prober with technology detection")
     httpx_timeout: int = Field(default=30, ge=5, le=120, description="httpx HTTP timeout per target (seconds)")
     httpx_tech_detect: bool = Field(default=True, description="Enable httpx technology fingerprinting")
+    httpx_screenshots: bool = Field(default=False, description="Capture a screenshot of every web service (httpx + headless Chromium)")
     nuclei_severity: str = Field(default="critical,high,medium,low,info", description="Nuclei severity filter", json_schema_extra={"example": "critical,high,medium,low,info"})
     nuclei_templates: Optional[str] = Field(None, description="Custom Nuclei template paths")
     nuclei_timeout: int = Field(default=300, ge=60, le=1800, description="Nuclei timeout per target (seconds)")
@@ -189,6 +190,7 @@ class ScanConfigUpdate(BaseModel):
     enable_httpx: Optional[bool] = None
     httpx_timeout: Optional[int] = Field(None, ge=5, le=120)
     httpx_tech_detect: Optional[bool] = None
+    httpx_screenshots: Optional[bool] = None
     nuclei_severity: Optional[str] = None
     nuclei_templates: Optional[str] = None
     nuclei_timeout: Optional[int] = Field(None, ge=60, le=1800)

@@ -49,6 +49,10 @@ def _build_nuclei_command(
         settings.NUCLEI_PATH or 'nuclei',
         '-severity', severity,
         '-jsonl-export', str(output_path),  # Export results to JSONL file
+        # Also stream each finding to stdout as it is found: the export file is
+        # only written on a clean shutdown, so after a timeout stdout is all
+        # that is left of the findings made so far.
+        '-jsonl',
         '-silent',  # Suppress banner
         '-no-color',
         '-no-interactsh',  # Disable interactsh for faster scans
@@ -69,6 +73,25 @@ def _build_nuclei_command(
     return cmd
 
 
+def _streamed_findings(stdout: str) -> str:
+    """JSONL findings nuclei printed (``-jsonl``) before it was stopped.
+
+    A line cut off mid-write by the kill is dropped: only complete JSON objects
+    are kept.
+    """
+    lines = []
+    for line in (stdout or "").splitlines():
+        line = line.strip()
+        if not line.startswith('{'):
+            continue
+        try:
+            json.loads(line)
+        except ValueError:
+            continue
+        lines.append(line)
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
 def _execute_nuclei(cmd: List[str], output_path: Path, timeout: int, label: str) -> ToolResult:
     """Run nuclei and decide success from the exit code, not from the output file.
 
@@ -83,7 +106,10 @@ def _execute_nuclei(cmd: List[str], output_path: Path, timeout: int, label: str)
     error = failure_reason(label, run, timeout)
     if error:
         logger.warning(f"{label} failed: {error}")
-        return ToolResult.from_command(False, raw_jsonl if raw_jsonl.strip() else "", error, run)
+        partial = raw_jsonl if raw_jsonl.strip() else _streamed_findings(run.stdout)
+        if partial:
+            error = f"{error} (partial results kept: {len(partial.splitlines())} finding(s))"
+        return ToolResult.from_command(False, partial, error, run)
 
     if not raw_jsonl.strip():
         # Clean exit and no results = no vulnerabilities found

@@ -14,10 +14,8 @@ from .schemas.user import validate_password_strength
 from .models.user import User
 from .models.organization import Organization
 from .models.scan_config import ScanConfig
-from .models.scan import Scan, ScanStatus
-from sqlalchemy import select, or_
+from sqlalchemy import select
 from .services.config_service import ensure_user_has_default_config, seed_system_presets
-from .core.timeutil import utcnow
 
 # OpenAPI tag descriptions for Swagger UI grouping
 OPENAPI_TAGS = [
@@ -91,7 +89,10 @@ async def lifespan(app: FastAPI):
     await init_db()
     apply_migrations_on_startup()
     await create_default_admin()
-    await cleanup_orphaned_scans()
+    # Scans are not touched here: a scan that is running belongs to the Celery
+    # worker, which may be perfectly healthy while only the API restarts.
+    # Interrupted scans are failed by the worker itself when it starts
+    # (celery_app.fail_scans_interrupted_by_restart) and by check_stuck_scans.
     yield
     # Shutdown (if needed)
 
@@ -126,29 +127,6 @@ def apply_migrations_on_startup() -> None:
     except Exception as exc:
         print(f"⚠️  Migration runner raised: {exc}")
         raise
-
-async def cleanup_orphaned_scans():
-    """Mark any running/queued scans as cancelled on startup.
-
-    These are orphaned scans from a previous run where the worker was killed.
-    """
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(Scan).where(
-                or_(
-                    Scan.status == ScanStatus.RUNNING.value,
-                    Scan.status == ScanStatus.QUEUED.value
-                )
-            )
-        )
-        orphaned_scans = result.scalars().all()
-
-        if orphaned_scans:
-            for scan in orphaned_scans:
-                scan.status = ScanStatus.CANCELLED.value
-                scan.finished_at = utcnow()
-            await session.commit()
-            print(f"⚠️  Marked {len(orphaned_scans)} orphaned scan(s) as cancelled")
 
 def resolve_initial_admin_password() -> tuple[str, bool]:
     """Password for a newly created admin account: (password, was_generated).

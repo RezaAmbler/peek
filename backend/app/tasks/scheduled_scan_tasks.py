@@ -7,7 +7,7 @@ from ..celery_app import celery_app
 from ..db.sync_session import get_sync_db
 from ..models import ScheduledScan, Scan, ScanTarget, Vulnerability
 from ..models.scan import ScanStatus, ScanPhase
-from ..tasks.scan_tasks import run_scan
+from ..tasks.scan_tasks import run_scan, fail_unfinished_tool_execs
 from ..services.comparison_service import ComparisonService
 import uuid
 from sqlalchemy import desc
@@ -348,6 +348,7 @@ def check_stuck_scans():
                 f"Scan {scan.id} ({scan.name}) stuck in 'running' state for {hours_running:.1f} hours. "
                 f"Last phase: {scan.current_phase}. Marking as failed."
             )
+            fail_unfinished_tool_execs(db, scan.id, "Scan stuck in 'running' state; marked as failed")
             scan.status = ScanStatus.FAILED.value
             scan.current_phase = ScanPhase.FAILED.value
             scan.finished_at = now

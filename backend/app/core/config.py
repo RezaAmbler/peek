@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     # If unset, a random password is generated and printed once to the log.
     INITIAL_ADMIN_PASSWORD: str = ""
 
+    # When the Celery worker starts, scans still marked "running" are failed:
+    # they were cut off with the previous worker. Disable only when several
+    # workers share one database, where another worker may own the scan.
+    FAIL_RUNNING_SCANS_ON_WORKER_START: bool = True
+
     # CORS
     ALLOWED_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173"]
 

@@ -256,3 +256,12 @@ class TestNucleiTemplatePaths:
         with pytest.raises(PydanticValidationError):
             ScanConfigUpdate(nuclei_templates="https://evil.example/t.yaml")
         assert ScanConfigUpdate(nuclei_templates="http/cves").nuclei_templates == "http/cves"
+
+
+def test_httpx_screenshots_is_part_of_the_config_api():
+    # The Configs page sends this flag; it used to be dropped silently because
+    # the schemas did not declare it, so screenshots could never be enabled.
+    assert ScanConfigCreate(name="x").httpx_screenshots is False
+    assert ScanConfigCreate(name="x", httpx_screenshots=True).model_dump()["httpx_screenshots"] is True
+    assert ScanConfigUpdate(httpx_screenshots=True).model_dump(exclude_unset=True) == {"httpx_screenshots": True}
+    assert "httpx_screenshots" not in ScanConfigUpdate().model_dump(exclude_unset=True)

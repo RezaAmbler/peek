@@ -250,6 +250,7 @@ export interface HttpxResult {
   response_time_ms?: number;
   // TLS info
   tls_version?: string;
+  tls_cipher?: string;
   jarm_hash?: string;
   // Connection status
   connection_failed: boolean;

@@ -5,7 +5,7 @@ from typing import List, Optional
 
 
 class FakeSubprocess:
-    """Stand-in for ``subprocess.run`` used by ``app.tools.base.run_command``.
+    """Stand-in for ``app.tools.base._run_process`` (what ``run_command`` executes).
 
     Records every command and, like the real tool, optionally writes the
     output file named on the command line before "exiting".

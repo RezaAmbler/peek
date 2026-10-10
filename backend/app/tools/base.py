@@ -13,13 +13,14 @@ import logging
 import os
 import shlex
 import shutil
+import signal
 import subprocess
 import tempfile
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, List, Optional
+from typing import Callable, Iterator, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,39 @@ EXIT_NOT_RUN = 1  # validation / internal error before or around the process
 
 # Max characters of stderr/stdout quoted in an error message.
 ERROR_SNIPPET_CHARS = 500
+
+# How often a running command checks whether its scan was cancelled.
+CANCEL_POLL_SECONDS = 5.0
+
+
+class ScanCancelled(BaseException):
+    """The scan this command belongs to was cancelled while the command ran.
+
+    Deliberately not an ``Exception``: the runners and scan phases catch
+    ``Exception`` to record a failed tool and move on to the next one, and a
+    cancellation must stop the whole scan instead.
+    """
+
+
+# Set by the scan task for the duration of a scan (one scan per worker process).
+_cancel_check: Optional[Callable[[], bool]] = None
+
+
+def set_cancel_check(check: Optional[Callable[[], bool]]) -> None:
+    """Install (or clear, with None) the "has this scan been cancelled?" callback."""
+    global _cancel_check
+    _cancel_check = check
+
+
+def cancel_requested() -> bool:
+    """True if the installed cancel check says the current scan was cancelled."""
+    if _cancel_check is None:
+        return False
+    try:
+        return bool(_cancel_check())
+    except Exception as exc:  # a failing check must never break a scan
+        logger.warning(f"Cancel check failed: {exc}")
+        return False
 
 
 @dataclass
@@ -145,22 +179,82 @@ def scanner_environment() -> dict:
     return env
 
 
+def _kill_process_group(proc: "subprocess.Popen") -> None:
+    """SIGKILL everything in the command's process group (it leads its own session)."""
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass  # nothing left in the group
+    except OSError as exc:
+        logger.warning(f"Could not kill process group {proc.pid}: {exc}")
+
+
+def _run_process(cmd: List[str], *, timeout: float, env: dict, **_ignored) -> "subprocess.CompletedProcess":
+    """``subprocess.run`` replacement that owns the whole process tree.
+
+    The command runs in its own session, so on a timeout or a cancelled scan the
+    scanner *and* whatever it started (nmap NSE helpers, the headless Chromium
+    behind httpx/katana) are killed together - ``subprocess.run`` only kills the
+    direct child. The group is also swept after a normal exit, for children the
+    tool left behind.
+
+    Raises ``subprocess.TimeoutExpired`` (with the partial output) on a timeout
+    and :class:`ScanCancelled` when the scan was cancelled meanwhile.
+    """
+    proc = subprocess.Popen(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        errors="replace",
+        env=env,
+        start_new_session=True,
+    )
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            try:
+                stdout, stderr = proc.communicate(timeout=max(0.0, min(CANCEL_POLL_SECONDS, remaining)))
+                break
+            except subprocess.TimeoutExpired:
+                timed_out = time.monotonic() >= deadline
+                if not timed_out and not cancel_requested():
+                    continue
+                _kill_process_group(proc)
+                try:
+                    stdout, stderr = proc.communicate(timeout=10)
+                except subprocess.TimeoutExpired:
+                    stdout, stderr = "", ""  # a child outside the group still holds the pipes
+                if timed_out:
+                    raise subprocess.TimeoutExpired(cmd, timeout, output=stdout, stderr=stderr)
+                raise ScanCancelled(f"scan cancelled while running {cmd[0]}")
+    finally:
+        _kill_process_group(proc)
+    return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+
+
 def run_command(cmd: List[str], timeout: float) -> CommandResult:
     """Run ``cmd`` (argv list, never a shell string) and capture everything.
 
     Never raises for the expected failure modes: a timeout, a missing binary or
-    an OS error are reported on the returned :class:`CommandResult`.
+    an OS error are reported on the returned :class:`CommandResult`. The one
+    thing it does raise is :class:`ScanCancelled`.
     """
     result = CommandResult(command=[str(part) for part in cmd])
     started = time.monotonic()
+    # Scratch space of the tool itself (nuclei leaves several nuclei-* directories
+    # per run, Chromium its profile): give every run a TMPDIR of its own and
+    # remove it afterwards, instead of letting /tmp fill up over the worker's life.
+    scratch = tempfile.mkdtemp(prefix="peek_tmp_")
+    env = scanner_environment()
+    env["TMPDIR"] = scratch
     try:
-        completed = subprocess.run(
+        completed = _run_process(
             result.command,
-            capture_output=True,
-            text=True,
-            errors="replace",
             timeout=timeout,
-            env=scanner_environment(),
+            env=env,
         )
         result.returncode = completed.returncode
         result.stdout = completed.stdout or ""
@@ -173,6 +267,8 @@ def run_command(cmd: List[str], timeout: float) -> CommandResult:
         result.not_found = True
     except Exception as exc:  # PermissionError, OSError, ...
         result.exception = f"{type(exc).__name__}: {exc}"
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
     result.duration_ms = int((time.monotonic() - started) * 1000)
     return result
 

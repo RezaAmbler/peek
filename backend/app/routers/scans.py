@@ -367,8 +367,11 @@ async def cancel_scan(
     if scan.status not in [ScanStatus.PENDING.value, ScanStatus.QUEUED.value, ScanStatus.RUNNING.value]:
         raise HTTPException(status_code=400, detail="Scan is not running or pending")
 
-    # TODO: Phase 2B - Actually cancel Celery task using scan.celery_task_id
-
+    # The worker polls the status (tasks.scan_tasks.make_cancel_check): it kills
+    # the tool that is running, closes the open ToolExecution rows and stops.
+    # A scan that never reached the worker is finished right here.
+    if scan.status != ScanStatus.RUNNING.value:
+        scan.finished_at = utcnow()
     scan.status = ScanStatus.CANCELLED.value
     await db.commit()
     await db.refresh(scan)
@@ -1158,6 +1161,7 @@ async def get_scan_httpx_results(
             "response_time_ms": httpx_result.response_time_ms,
             # TLS info
             "tls_version": httpx_result.tls_version,
+            "tls_cipher": httpx_result.tls_cipher,
             "jarm_hash": httpx_result.jarm_hash,
             # Connection status
             "connection_failed": httpx_result.connection_failed,

@@ -1,5 +1,6 @@
 from celery import Celery
 from celery.schedules import crontab
+from celery.signals import worker_ready
 from .core.config import settings
 
 celery_app = Celery(
@@ -32,3 +33,31 @@ celery_app.conf.update(
         },
     },
 )
+
+
+@worker_ready.connect
+def fail_scans_interrupted_by_restart(**_kwargs):
+    """A worker that is just starting cannot have a scan in flight.
+
+    Whatever is still marked "running" was cut off when the previous worker
+    stopped (crash, OOM kill, redeploy). Without this such a scan sat at
+    "running" until the stuck-scan detector fired hours later, with tool runs
+    that never got a finished_at. Queued scans are left alone: their tasks are
+    still in the broker and run normally.
+
+    Assumes the single worker of docker-compose.yml. Set
+    FAIL_RUNNING_SCANS_ON_WORKER_START=false when running several workers.
+    """
+    if not settings.FAIL_RUNNING_SCANS_ON_WORKER_START:
+        return
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        from .db.sync_session import get_sync_db
+        from .tasks.scan_tasks import fail_interrupted_scans
+        with get_sync_db() as db:
+            count = fail_interrupted_scans(db, "Scan interrupted: the worker was restarted while it was running")
+        if count:
+            logger.warning(f"Marked {count} scan(s) interrupted by a worker restart as failed")
+    except Exception as exc:  # never keep the worker from starting
+        logger.error(f"Could not clean up interrupted scans: {exc}")

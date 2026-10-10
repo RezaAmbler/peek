@@ -4,7 +4,10 @@ Synchronous database session for Celery workers.
 FastAPI uses async SQLAlchemy, but Celery workers need sync sessions
 since subprocess calls (masscan, nmap) are blocking anyway.
 """
-from sqlalchemy import create_engine, event
+from typing import Optional
+
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.pool import NullPool
 from sqlalchemy.orm import sessionmaker, Session
 from contextlib import contextmanager
 from ..core.config import settings
@@ -58,3 +61,21 @@ def get_sync_db() -> Session:
         raise
     finally:
         db.close()
+
+
+# Scan-status reads happen while the task's own session is busy with a tool run
+# (and `engine` has a single pooled connection), so they get short-lived
+# connections of their own.
+_status_engine = create_engine(
+    sync_database_url,
+    connect_args={"check_same_thread": False, "timeout": 30} if "sqlite" in sync_database_url else {},
+    poolclass=NullPool,
+)
+
+
+def read_scan_status(scan_id: str) -> Optional[str]:
+    """Current committed status of a scan (None if it no longer exists)."""
+    with _status_engine.connect() as connection:
+        return connection.execute(
+            text("SELECT status FROM scans WHERE id = :scan_id"), {"scan_id": str(scan_id)}
+        ).scalar()

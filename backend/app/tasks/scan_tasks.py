@@ -2,7 +2,7 @@ from celery import Task
 from datetime import datetime
 from typing import List, Optional
 from ..celery_app import celery_app
-from ..db.sync_session import get_sync_db
+from ..db.sync_session import get_sync_db, read_scan_status
 from ..models import Scan, ScanTarget, ToolExecution, ScanStatus, ScanPhase, TargetStatus, Port
 from ..tools.nmap import run_nmap, run_nmap_discovery
 from ..tools.ssh_audit import run_ssh_audit
@@ -35,10 +35,12 @@ from ..parsers.nikto_parser import create_vulnerabilities_from_nikto
 from ..parsers.zap_parser import create_vulnerabilities_from_zap
 from ..parsers.httpx_parser import create_httpx_result_from_output
 import os
+import time
 import uuid
 from urllib.parse import urlsplit
 import logging
 import tempfile
+from ..tools.base import ScanCancelled, set_cancel_check
 from ..core.timeutil import utcnow
 
 logger = logging.getLogger(__name__)
@@ -189,6 +191,69 @@ def fail_unfinished_tool_execs(db, scan_id: str, reason: str) -> int:
     return len(unfinished)
 
 
+# Minimum seconds between two status reads made on behalf of a running tool.
+CANCEL_CHECK_INTERVAL_SECONDS = 5.0
+
+
+def make_cancel_check(scan_id: str, min_interval: float = CANCEL_CHECK_INTERVAL_SECONDS):
+    """Callable for tools.base.set_cancel_check: True once the scan is cancelled.
+
+    `POST /api/scans/{id}/cancel` only writes status=cancelled; this is how the
+    worker notices. A deleted scan counts as cancelled too.
+    """
+    state = {"checked_at": 0.0, "cancelled": False}
+
+    def check(force: bool = False) -> bool:
+        now = time.monotonic()
+        if state["cancelled"] or (not force and now - state["checked_at"] < min_interval):
+            return state["cancelled"]
+        state["checked_at"] = now
+        status = read_scan_status(scan_id)
+        state["cancelled"] = status is None or status == ScanStatus.CANCELLED.value
+        return state["cancelled"]
+
+    return check
+
+
+def finish_cancelled_scan(db, scan_id: str) -> None:
+    """Close out a scan that was cancelled: no tool run stays open, status stays cancelled."""
+    db.rollback()
+    try:
+        fail_unfinished_tool_execs(db, scan_id, "Scan cancelled")
+        scan = db.query(Scan).filter(Scan.id == scan_id).first()
+        if scan:
+            scan.status = ScanStatus.CANCELLED.value
+            if not scan.finished_at:
+                scan.finished_at = utcnow()
+        db.commit()
+    except Exception as finalize_err:
+        logger.error(f"Could not finalize cancelled scan {scan_id}: {finalize_err}")
+        db.rollback()
+
+
+def fail_interrupted_scans(db, reason: str) -> int:
+    """Fail every scan still marked running and close its open tool runs.
+
+    Called when the worker starts: a scan cannot survive the worker that was
+    running it, so anything still "running" at that point was interrupted.
+    """
+    interrupted = db.query(Scan).filter(Scan.status == ScanStatus.RUNNING.value).all()
+    now = utcnow()
+    for scan in interrupted:
+        fail_unfinished_tool_execs(db, scan.id, reason)
+        scan.status = ScanStatus.FAILED.value
+        scan.current_phase = ScanPhase.FAILED.value
+        scan.finished_at = now
+    # Cancelled scans whose worker died before it could close them out
+    for scan in db.query(Scan).filter(Scan.status == ScanStatus.CANCELLED.value).all():
+        closed = fail_unfinished_tool_execs(db, scan.id, "Scan cancelled")
+        if closed or not scan.finished_at:
+            scan.finished_at = scan.finished_at or now
+    db.commit()
+    return len(interrupted)
+
+
+
 class DatabaseTask(Task):
     """Base task with database session"""
     _db = None
@@ -233,11 +298,25 @@ def run_scan(self, scan_id: str):
         if not config:
             raise ValueError(f"Config {scan.config_id} not found")
 
+        # Cancelled while it was still waiting in the queue: nothing to run
+        if scan.status == ScanStatus.CANCELLED.value:
+            logger.info(f"Scan {scan_id} was cancelled before it started")
+            finish_cancelled_scan(db, scan_id)
+            return
+
         # Update scan status
         scan.status = ScanStatus.RUNNING.value
         scan.started_at = utcnow()
         scan.current_phase = ScanPhase.NMAP_DISCOVERY.value
         db.commit()
+
+        # Running tools poll this (tools.base.run_command); phases check it too
+        cancel_check = make_cancel_check(scan_id)
+        set_cancel_check(cancel_check)
+
+        def stop_if_cancelled():
+            if cancel_check(force=True):
+                raise ScanCancelled(f"scan {scan_id} cancelled")
 
         try:
             # Load targets
@@ -257,6 +336,7 @@ def run_scan(self, scan_id: str):
             db.commit()
 
             # Phase 2: Nmap (10% -> 75%)
+            stop_if_cancelled()
             scan.current_phase = ScanPhase.NMAP.value
             db.commit()
             self.update_state(state='PROGRESS', meta={'phase': 'nmap', 'progress': phase_progress('nmap')})
@@ -264,6 +344,7 @@ def run_scan(self, scan_id: str):
 
             # Phase 3: httpx HTTP probing (75% -> 78%)
             if getattr(config, 'enable_httpx', True):
+                stop_if_cancelled()
                 scan.current_phase = ScanPhase.HTTPX.value
                 db.commit()
                 self.update_state(state='PROGRESS', meta={'phase': 'httpx', 'progress': phase_progress('httpx')})
@@ -271,6 +352,7 @@ def run_scan(self, scan_id: str):
 
             # Phase 3.5: Katana endpoint discovery (78% -> 80%)
             if getattr(config, 'enable_katana', False):
+                stop_if_cancelled()
                 scan.current_phase = ScanPhase.KATANA.value
                 db.commit()
                 self.update_state(state='PROGRESS', meta={'phase': 'katana', 'progress': phase_progress('katana')})
@@ -278,6 +360,7 @@ def run_scan(self, scan_id: str):
 
             # Phase 4: SSH-Audit (80% -> 85%)
             if config.enable_ssh_audit:
+                stop_if_cancelled()
                 scan.current_phase = ScanPhase.SSH_AUDIT.value
                 db.commit()
                 self.update_state(state='PROGRESS', meta={'phase': 'ssh-audit', 'progress': phase_progress('ssh-audit')})
@@ -285,6 +368,7 @@ def run_scan(self, scan_id: str):
 
             # Phase 5: Nuclei per-port (85% -> 88%)
             if config.enable_nuclei:
+                stop_if_cancelled()
                 scan.current_phase = ScanPhase.NUCLEI.value
                 db.commit()
                 self.update_state(state='PROGRESS', meta={'phase': 'nuclei', 'progress': phase_progress('nuclei')})
@@ -293,6 +377,7 @@ def run_scan(self, scan_id: str):
             # Phase 5.5: Nuclei endpoint-mode (88% -> 91%)
             # Scans discovered endpoints from Katana
             if getattr(config, 'enable_nuclei_endpoints', False):
+                stop_if_cancelled()
                 scan.current_phase = ScanPhase.NUCLEI_ENDPOINTS.value
                 db.commit()
                 self.update_state(state='PROGRESS', meta={'phase': 'nuclei_endpoints', 'progress': phase_progress('nuclei_endpoints')})
@@ -301,6 +386,7 @@ def run_scan(self, scan_id: str):
             # Phase 6: NSE Scripts (91% -> 93%)
             # NSE runs after nmap service detection to get detailed service info
             if getattr(config, 'enable_nse', True):
+                stop_if_cancelled()
                 scan.current_phase = ScanPhase.NSE.value
                 db.commit()
                 self.update_state(state='PROGRESS', meta={'phase': 'nse', 'progress': phase_progress('nse')})
@@ -309,6 +395,7 @@ def run_scan(self, scan_id: str):
             # Phase 7: sslscan (93% -> 95%)
             # sslscan runs on SSL/TLS ports for TLS posture analysis
             if getattr(config, 'enable_sslscan', True):
+                stop_if_cancelled()
                 scan.current_phase = ScanPhase.SSLSCAN.value
                 db.commit()
                 self.update_state(state='PROGRESS', meta={'phase': 'sslscan', 'progress': phase_progress('sslscan')})
@@ -317,6 +404,7 @@ def run_scan(self, scan_id: str):
             # Phase 7.5: testssl.sh (95% -> 97%)
             # Deep TLS analysis with testssl.sh (more comprehensive than sslscan)
             if getattr(config, 'enable_testssl', False):
+                stop_if_cancelled()
                 scan.current_phase = ScanPhase.TESTSSL.value
                 db.commit()
                 self.update_state(state='PROGRESS', meta={'phase': 'testssl', 'progress': phase_progress('testssl')})
@@ -324,6 +412,7 @@ def run_scan(self, scan_id: str):
 
             # Phase 8: Nikto (97% -> 98%)
             if config.enable_nikto:
+                stop_if_cancelled()
                 scan.current_phase = ScanPhase.NIKTO.value
                 db.commit()
                 self.update_state(state='PROGRESS', meta={'phase': 'nikto', 'progress': phase_progress('nikto')})
@@ -331,12 +420,14 @@ def run_scan(self, scan_id: str):
 
             # Phase 9: ZAP (98% -> 100%)
             if config.enable_zap:
+                stop_if_cancelled()
                 scan.current_phase = ScanPhase.ZAP.value
                 db.commit()
                 self.update_state(state='PROGRESS', meta={'phase': 'zap', 'progress': phase_progress('zap')})
                 run_zap_phase(db, scan, targets, config)
 
-            # Mark scan as completed
+            # Mark scan as completed (unless it was cancelled during the last phase)
+            stop_if_cancelled()
             scan.status = ScanStatus.COMPLETED.value
             scan.current_phase = ScanPhase.COMPLETED.value
             scan.finished_at = utcnow()
@@ -392,6 +483,11 @@ def run_scan(self, scan_id: str):
                     exc_info=True,
                 )
 
+        except ScanCancelled:
+            logger.info(f"Scan {scan_id} cancelled; stopping")
+            finish_cancelled_scan(db, scan_id)
+            return
+
         except Exception as e:
             # The session may be in a failed-flush state: roll back before
             # writing, otherwise the commit below raises PendingRollbackError
@@ -407,6 +503,9 @@ def run_scan(self, scan_id: str):
                 logger.error(f"Could not mark scan {scan_id} as failed: {finalize_err}")
                 db.rollback()
             raise
+
+        finally:
+            set_cancel_check(None)
 
 def run_masscan_phase(db, scan: Scan, targets: List[ScanTarget], config):
     """
@@ -1101,6 +1200,15 @@ def run_nuclei_phase(db, scan: Scan, targets: List[ScanTarget], config):
             else:
                 logger.warning(f"Nuclei failed for {nuclei_target}: {error}")
                 failed += 1
+                if raw_jsonl and raw_jsonl.strip():
+                    # Timed out (or died) after reporting findings: keep them.
+                    # The run still counts as failed on its ToolExecution.
+                    vulns = create_vulnerabilities_from_nuclei(
+                        db, tool_exec, target, port_rec, discovery_source='port'
+                    )
+                    vulns_found += len(vulns)
+                    scan.total_vulnerabilities += len(vulns)
+                    logger.info(f"Nuclei: kept {len(vulns)} partial finding(s) for {nuclei_target}")
 
             # Now truncate for storage (parsing already complete on full data)
             tool_exec.raw_output = _truncate(raw_jsonl)
@@ -1256,6 +1364,13 @@ def run_nuclei_endpoints_phase(db, scan: Scan, targets: List[ScanTarget], config
                 scan.total_vulnerabilities += len(vulns)
             else:
                 logger.warning(f"Nuclei endpoints failed for {target.ip_address}: {error}")
+                if raw_jsonl and raw_jsonl.strip():
+                    # Partial findings of a run that timed out: keep them
+                    vulns = create_vulnerabilities_from_nuclei(
+                        db, tool_exec, target, port_rec=None, discovery_source='endpoint'
+                    )
+                    vulns_found += len(vulns)
+                    scan.total_vulnerabilities += len(vulns)
 
             # Truncate for storage
             tool_exec.raw_output = _truncate(raw_jsonl)

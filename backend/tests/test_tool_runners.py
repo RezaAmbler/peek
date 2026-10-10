@@ -38,7 +38,7 @@ def fake(monkeypatch):
     """Install a FakeSubprocess; the test configures it through the returned factory."""
     def install(**kwargs):
         instance = FakeSubprocess(**kwargs)
-        monkeypatch.setattr(base.subprocess, "run", instance)
+        monkeypatch.setattr(base, "_run_process", instance)
         return instance
     return install
 
@@ -157,6 +157,27 @@ class TestNuclei:
         assert not result.success and result.timed_out
         assert result.exit_code == EXIT_TIMEOUT
         assert result.error == "Nuclei timed out after 5 seconds"
+        assert result.output == ""
+
+    def test_timeout_keeps_findings_streamed_to_stdout(self, fake):
+        # the export file is only written on a clean exit; -jsonl streams to stdout
+        stdout = (NUCLEI_LINE + "\n" + "[INF] not a finding\n" + NUCLEI_LINE + "\n" + '{"template-id": "cut-off')
+        fake(raises=subprocess.TimeoutExpired(cmd="nuclei", timeout=5, output=stdout.encode()),
+             output_flag="-jsonl-export")
+
+        result = run_nuclei(target="http://10.0.0.5:80", timeout=5)
+
+        assert not result.success and result.timed_out and result.exit_code == EXIT_TIMEOUT
+        assert result.output == NUCLEI_LINE + "\n" + NUCLEI_LINE + "\n"
+        assert result.error == "Nuclei timed out after 5 seconds (partial results kept: 2 finding(s))"
+
+    def test_streams_findings_to_stdout_as_well_as_the_export_file(self, fake):
+        proc = fake(returncode=0, output=NUCLEI_LINE + "\n", output_flag="-jsonl-export", stdout=NUCLEI_LINE + "\n")
+
+        result = run_nuclei(target="http://10.0.0.5:80")
+
+        assert "-jsonl" in proc.cmd
+        assert result.success and result.output == NUCLEI_LINE + "\n"  # the file wins on a clean exit
 
     def test_missing_binary(self, fake):
         fake(raises=FileNotFoundError("nuclei"))
@@ -311,7 +332,7 @@ class TestNmap:
         monkeypatch.setattr("app.tools.nmap.os.geteuid", lambda: 1000)
         proc = fake(returncode=0, output=NMAP_XML, output_flag="-oX")
 
-        result = run_nmap("10.0.0.5", [80, 22, 80], ["-sS", "-sV", "-p1-10"])
+        result = run_nmap("10.0.0.5", [80, 22, 80], ["-sS", "-p1-10"])
 
         assert tuple(result) == (True, NMAP_XML, None)
         cmd = proc.cmd
@@ -319,6 +340,37 @@ class TestNmap:
         assert "--privileged" in cmd  # raw-socket scan as non-root relies on file capabilities
         assert flag_value(cmd, "-p") == "22,80" and "-p1-10" not in cmd
         assert cmd[-1] == "10.0.0.5"
+
+    @pytest.mark.parametrize("args, expected", [
+        # the schema default: SYN scan + version/script detection
+        (["-sS", "-sV", "-sC", "-T2", "-Pn"], ["-sT", "-sV", "-sC", "-T2", "-Pn"]),
+        (["-sS", "-A"], ["-sT", "-A"]),
+        (["-sT", "-sS", "-sV"], ["-sT", "-sV"]),
+        (["-sS", "-sU", "-sV"], ["-sT", "-sU", "-sV"]),
+        # nothing to work around
+        (["-sS", "-T4"], ["-sS", "-T4"]),
+        (["-sT", "-sV"], ["-sT", "-sV"]),
+        (["-sU", "-sV"], ["-sU", "-sV"]),
+    ])
+    def test_syn_scan_becomes_connect_scan_for_service_detection(self, fake, monkeypatch, args, expected):
+        # nmap 7.991 loses version detection in SYN mode (verified against hellbox:
+        # Tomcat and Elasticsearch came back unidentified until -sT was used)
+        monkeypatch.setattr("app.tools.nmap.os.geteuid", lambda: 0)
+        proc = fake(returncode=0, output=NMAP_XML, output_flag="-oX")
+
+        run_nmap("10.0.0.5", [22], args)
+
+        assert proc.cmd[1:1 + len(expected)] == expected
+
+    def test_privileged_flag_follows_the_arguments_actually_used(self, fake, monkeypatch):
+        monkeypatch.setattr("app.tools.nmap.os.geteuid", lambda: 1000)
+        proc = fake(returncode=0, output=NMAP_XML, output_flag="-oX")
+
+        run_nmap("10.0.0.5", [22], ["-sS", "-sV"])
+        assert "--privileged" not in proc.cmd and "-sT" in proc.cmd
+
+        run_nmap("10.0.0.5", [22], ["-sS", "-sV", "-O"])
+        assert proc.cmd[1:5] == ["--privileged", "-sT", "-sV", "-O"]
 
     def test_no_privileged_flag_for_connect_scan_or_root(self, fake, monkeypatch):
         monkeypatch.setattr("app.tools.nmap.os.geteuid", lambda: 1000)

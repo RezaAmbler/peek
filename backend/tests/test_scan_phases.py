@@ -136,6 +136,19 @@ class TestNucleiPhase:
         tool_exec = only_exec(db, "nuclei")
         assert tool_exec.exit_code == EXIT_TIMEOUT and "timed out" in tool_exec.error_message
 
+    def test_timeout_with_partial_output_keeps_the_findings(self, db, scan_env, config, nuclei_phase):
+        nuclei_phase(ToolResult(False, json.dumps(NUCLEI_EVENT) + "\n",
+                                "Nuclei timed out after 300 seconds (partial results kept: 1 finding(s))",
+                                command_line="nuclei ...", exit_code=EXIT_TIMEOUT, timed_out=True))
+
+        scan_tasks.run_nuclei_phase(db, scan_env.scan, [scan_env.target], config)
+
+        tool_exec = only_exec(db, "nuclei")
+        assert tool_exec.exit_code == EXIT_TIMEOUT and "partial results kept" in tool_exec.error_message
+        vuln = db.query(Vulnerability).one()
+        assert vuln.tool_execution_id == tool_exec.id and vuln.template_id == "CVE-2021-41773"
+        assert scan_env.scan.total_vulnerabilities == 1
+
     def test_success_links_execution_port_and_vulnerability(self, db, scan_env, config, nuclei_phase):
         calls = nuclei_phase(ToolResult(True, json.dumps(NUCLEI_EVENT) + "\n", None,
                                         command_line="nuclei -target http://10.0.0.5:80", exit_code=0))
@@ -391,3 +404,81 @@ class TestProgress:
     def test_full_pipeline_order_is_monotonic(self):
         values = [phase_progress(phase, fraction) for phase in PHASE_PROGRESS for fraction in (0, 0.5, 1)]
         assert values == sorted(values)
+
+
+# --- cancellation and interrupted scans --------------------------------------
+
+def _open_tool_exec(db, target, tool="nmap"):
+    tool_exec = start_tool_exec(db, target, tool)
+    db.commit()
+    return tool_exec
+
+
+def test_cancel_check_reports_cancelled_and_deleted_scans(monkeypatch):
+    statuses = iter(["running", "cancelled"])
+    monkeypatch.setattr(scan_tasks, "read_scan_status", lambda scan_id: next(statuses))
+    check = scan_tasks.make_cancel_check("scan-1", min_interval=0)
+    assert check() is False
+    assert check() is True
+    assert check() is True  # sticky: no further reads once cancelled
+
+    monkeypatch.setattr(scan_tasks, "read_scan_status", lambda scan_id: None)
+    assert scan_tasks.make_cancel_check("gone", min_interval=0)() is True
+
+
+def test_cancel_check_throttles_status_reads(monkeypatch):
+    reads = []
+    monkeypatch.setattr(scan_tasks, "read_scan_status", lambda scan_id: reads.append(scan_id) or "running")
+    check = scan_tasks.make_cancel_check("scan-1", min_interval=3600)
+    for _ in range(5):
+        assert check() is False
+    assert len(reads) == 1
+    check(force=True)
+    assert len(reads) == 2
+
+
+def test_finish_cancelled_scan_closes_tool_runs_and_keeps_status(db, scan_env):
+    scan, target = scan_env.scan, scan_env.target
+    scan.status = "cancelled"
+    tool_exec = _open_tool_exec(db, target)
+
+    scan_tasks.finish_cancelled_scan(db, scan.id)
+
+    db.refresh(scan)
+    db.refresh(tool_exec)
+    assert scan.status == "cancelled" and scan.finished_at is not None
+    assert tool_exec.finished_at is not None and tool_exec.exit_code != 0
+    assert tool_exec.error_message == "Scan cancelled"
+
+
+def test_fail_interrupted_scans_fails_running_scans_only(db, scan_env):
+    scan, target = scan_env.scan, scan_env.target
+    tool_exec = _open_tool_exec(db, target)
+    queued = Scan(id=str(uuid.uuid4()), user_id="user-1", created_by_id="user-1",
+                  config_id="config-1", name="q", status="queued", total_vulnerabilities=0)
+    done = Scan(id=str(uuid.uuid4()), user_id="user-1", created_by_id="user-1",
+                config_id="config-1", name="d", status="completed", total_vulnerabilities=0)
+    db.add_all([queued, done])
+    db.commit()
+
+    count = scan_tasks.fail_interrupted_scans(db, "worker restarted")
+
+    assert count == 1
+    for row in (scan, tool_exec, queued, done):
+        db.refresh(row)
+    assert scan.status == "failed" and scan.current_phase == "failed" and scan.finished_at is not None
+    assert tool_exec.finished_at is not None and tool_exec.error_message == "worker restarted"
+    assert queued.status == "queued" and done.status == "completed"
+
+
+def test_fail_interrupted_scans_closes_out_cancelled_scans(db, scan_env):
+    scan, target = scan_env.scan, scan_env.target
+    scan.status = "cancelled"
+    tool_exec = _open_tool_exec(db, target)
+
+    assert scan_tasks.fail_interrupted_scans(db, "worker restarted") == 0
+
+    db.refresh(scan)
+    db.refresh(tool_exec)
+    assert scan.status == "cancelled" and scan.finished_at is not None
+    assert tool_exec.finished_at is not None and tool_exec.error_message == "Scan cancelled"

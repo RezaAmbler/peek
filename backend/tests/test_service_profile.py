@@ -289,3 +289,41 @@ class TestBuildNucleiTargetWithTLS:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestTagValidation:
+    """validate_tags must count templates, not nuclei's listing header."""
+
+    HEADER = "\nListing available  nuclei templates for /home/peek/nuclei-templates\n"
+
+    def _listing(self, monkeypatch, stdout, returncode=0):
+        from types import SimpleNamespace
+        from app.services import service_profile
+
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            return SimpleNamespace(returncode=returncode, stdout=stdout, stderr="")
+
+        service_profile.clear_tag_validation_cache()
+        monkeypatch.setattr(service_profile.subprocess, "run", fake_run)
+        return service_profile, calls
+
+    def test_header_only_listing_means_no_templates(self, monkeypatch):
+        # Real output of `nuclei -tl -duc -tags wap-wsp` (v3.11.1): exit 0, header only
+        service_profile, _ = self._listing(monkeypatch, self.HEADER)
+        assert service_profile.validate_tags(["wap-wsp"]) == (False, 0)
+        service_profile.clear_tag_validation_cache()
+
+    def test_template_paths_are_counted(self, monkeypatch):
+        stdout = self.HEADER + "http/cves/2015/CVE-2015-1427.yaml\nhttp/cves/2014/CVE-2014-3120.yaml\n"
+        service_profile, calls = self._listing(monkeypatch, stdout)
+        assert service_profile.validate_tags(["elasticsearch"]) == (True, 2)
+        assert "-duc" in calls[0]
+        service_profile.clear_tag_validation_cache()
+
+    def test_failed_listing_does_not_skip_the_port(self, monkeypatch):
+        service_profile, _ = self._listing(monkeypatch, "", returncode=1)
+        assert service_profile.validate_tags(["http"]) == (True, -1)
+        service_profile.clear_tag_validation_cache()

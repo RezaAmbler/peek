@@ -324,8 +324,11 @@ def validate_tags_have_templates(tags_tuple: Tuple[str, ...]) -> Tuple[bool, int
                 f"{(result.stderr or '').strip()[-300:]}"
             )
             return True, -1
-        # Count non-empty lines in output
-        templates = [l for l in result.stdout.strip().split('\n') if l.strip()]
+        # Count template paths only: nuclei also prints a "Listing available
+        # nuclei templates for ..." header on stdout, which used to make every
+        # tag look like it had one template (and the real run then failed with
+        # "no templates provided for scan").
+        templates = [l for l in result.stdout.split('\n') if l.strip().endswith(('.yaml', '.yml'))]
         template_count = len(templates)
         return template_count > 0, template_count
     except subprocess.TimeoutExpired:

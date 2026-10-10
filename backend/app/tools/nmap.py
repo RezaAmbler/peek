@@ -43,6 +43,35 @@ def _privilege_args(nmap_args: List[str]) -> List[str]:
     return []
 
 
+_SERVICE_DETECTION_FLAGS = ('-sV', '-sC', '-A')
+
+
+def _connect_scan_for_service_detection(nmap_args: List[str]) -> List[str]:
+    """Swap ``-sS`` for ``-sT`` when the run also does version/script detection.
+
+    nmap 7.991 (the pinned build) binds every service-probe connection of a SYN
+    scan to the same local address *and port*. The first probe connects; the
+    next one to the same service fails with "Cannot assign requested address"
+    and nmap gives up on that service, so anything that does not announce
+    itself on connect (Tomcat, Elasticsearch, TLS-wrapped IMAP/POP3, ...) is
+    left as "unknown" or a port-table guess. nmap 7.95 did not do this.
+
+    This phase only looks at ports the discovery scan already found open, so a
+    connect scan loses nothing. ``-sS`` on its own, UDP (``-sU``) and OS
+    detection (``-O``) are left alone.
+    """
+    if '-sS' not in nmap_args or not any(arg in _SERVICE_DETECTION_FLAGS for arg in nmap_args):
+        return nmap_args
+    swapped: List[str] = []
+    for arg in nmap_args:
+        if arg == '-sS':
+            arg = '-sT'
+        if arg == '-sT' and '-sT' in swapped:
+            continue
+        swapped.append(arg)
+    return swapped
+
+
 def _execute_nmap(cmd: List[str], output_path: Path, timeout: int, label: str) -> ToolResult:
     """Run nmap writing XML to ``output_path`` and classify the outcome."""
     run = run_command(cmd, timeout=timeout)
@@ -102,6 +131,7 @@ def run_nmap(
                 continue
             without_ports.append(arg)
         filtered_args = validate_nmap_args(without_ports) if without_ports else []
+        filtered_args = _connect_scan_for_service_detection(filtered_args)
     except ValidationError as e:
         return ToolResult(False, "", f"Input validation failed: {e}")
 

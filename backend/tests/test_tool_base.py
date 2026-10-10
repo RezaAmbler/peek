@@ -1,5 +1,8 @@
 """Tests for the shared subprocess plumbing in app.tools.base."""
+import os
 import subprocess
+import sys
+import time
 
 import pytest
 
@@ -8,6 +11,7 @@ from app.tools.base import (
     EXIT_NOT_FOUND,
     EXIT_NOT_RUN,
     EXIT_TIMEOUT,
+    ScanCancelled,
     ToolResult,
     failure_reason,
     read_output,
@@ -19,7 +23,7 @@ from tool_fakes import FakeSubprocess
 
 def test_run_command_captures_exit_code_and_output(monkeypatch):
     fake = FakeSubprocess(returncode=3, stdout="out", stderr="err")
-    monkeypatch.setattr(base.subprocess, "run", fake)
+    monkeypatch.setattr(base, "_run_process", fake)
 
     run = run_command(["tool", "--flag", "a b"], timeout=5)
 
@@ -33,7 +37,7 @@ def test_run_command_captures_exit_code_and_output(monkeypatch):
 
 def test_run_command_timeout_is_reported_not_raised(monkeypatch):
     fake = FakeSubprocess(raises=subprocess.TimeoutExpired(cmd="tool", timeout=5, output=b"partial"))
-    monkeypatch.setattr(base.subprocess, "run", fake)
+    monkeypatch.setattr(base, "_run_process", fake)
 
     run = run_command(["tool"], timeout=5)
 
@@ -44,7 +48,7 @@ def test_run_command_timeout_is_reported_not_raised(monkeypatch):
 
 
 def test_run_command_missing_binary(monkeypatch):
-    monkeypatch.setattr(base.subprocess, "run", FakeSubprocess(raises=FileNotFoundError("tool")))
+    monkeypatch.setattr(base, "_run_process", FakeSubprocess(raises=FileNotFoundError("tool")))
 
     run = run_command(["tool"], timeout=5)
 
@@ -53,7 +57,7 @@ def test_run_command_missing_binary(monkeypatch):
 
 
 def test_run_command_os_error(monkeypatch):
-    monkeypatch.setattr(base.subprocess, "run", FakeSubprocess(raises=PermissionError("denied")))
+    monkeypatch.setattr(base, "_run_process", FakeSubprocess(raises=PermissionError("denied")))
 
     run = run_command(["tool"], timeout=5)
 
@@ -62,10 +66,10 @@ def test_run_command_os_error(monkeypatch):
 
 
 def test_failure_reason_none_on_clean_exit_and_quotes_stderr_on_error(monkeypatch):
-    monkeypatch.setattr(base.subprocess, "run", FakeSubprocess(returncode=0))
+    monkeypatch.setattr(base, "_run_process", FakeSubprocess(returncode=0))
     assert failure_reason("Tool", run_command(["tool"], timeout=1)) is None
 
-    monkeypatch.setattr(base.subprocess, "run", FakeSubprocess(returncode=2, stderr="flag provided but not defined: -x"))
+    monkeypatch.setattr(base, "_run_process", FakeSubprocess(returncode=2, stderr="flag provided but not defined: -x"))
     reason = failure_reason("Tool", run_command(["tool"], timeout=1))
     assert reason == "Tool exited with code 2: flag provided but not defined: -x"
 
@@ -109,7 +113,7 @@ def test_scanner_processes_do_not_inherit_application_secrets(monkeypatch):
     monkeypatch.setenv("MY_API_TOKEN", "t")
     monkeypatch.setenv("PEEK_HARMLESS", "1")
     fake = FakeSubprocess(returncode=0)
-    monkeypatch.setattr(base.subprocess, "run", fake)
+    monkeypatch.setattr(base, "_run_process", fake)
 
     run_command(["tool"], timeout=1)
 
@@ -118,3 +122,103 @@ def test_scanner_processes_do_not_inherit_application_secrets(monkeypatch):
                    "DATABASE_URL", "MY_API_TOKEN"):
         assert secret not in env
     assert env["PEEK_HARMLESS"] == "1" and "PATH" in env
+
+
+# --- real processes: process-group ownership and cancellation ---------------
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    # a killed-but-unreaped orphan still answers signal 0
+    try:
+        with open(f"/proc/{pid}/stat") as handle:
+            return handle.read().rsplit(")", 1)[1].split()[0] != "Z"
+    except OSError:
+        return False
+
+
+def _wait_gone(pid: int, seconds: float = 5.0) -> bool:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if not _alive(pid):
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def test_run_command_runs_a_real_process():
+    run = run_command([sys.executable, "-c", "import sys; print('out'); sys.stderr.write('err'); sys.exit(3)"],
+                      timeout=30)
+
+    assert (run.returncode, run.stdout.strip(), run.stderr) == (3, "out", "err")
+    assert run.exit_code == 3 and not run.timed_out
+
+
+def test_timeout_kills_the_whole_process_tree(tmp_path):
+    pidfile = tmp_path / "child.pid"
+    # a "scanner" that starts a long-lived helper (think: headless browser) and hangs
+    script = (
+        "import subprocess, sys, time\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'])\n"
+        f"open({str(pidfile)!r}, 'w').write(str(child.pid))\n"
+        "print('partial', flush=True)\n"
+        "time.sleep(300)\n"
+    )
+
+    run = run_command([sys.executable, "-c", script], timeout=1.5)
+
+    assert run.timed_out and run.exit_code == EXIT_TIMEOUT
+    assert "partial" in run.stdout
+    assert _wait_gone(int(pidfile.read_text()))
+
+
+def test_children_left_behind_after_a_clean_exit_are_killed(tmp_path):
+    pidfile = tmp_path / "child.pid"
+    script = (
+        "import subprocess, sys\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'],\n"
+        "                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+        f"open({str(pidfile)!r}, 'w').write(str(child.pid))\n"
+    )
+
+    run = run_command([sys.executable, "-c", script], timeout=30)
+
+    assert run.returncode == 0
+    assert _wait_gone(int(pidfile.read_text()))
+
+
+def test_cancelled_scan_stops_the_running_command(monkeypatch):
+    monkeypatch.setattr(base, "CANCEL_POLL_SECONDS", 0.1)
+    base.set_cancel_check(lambda: True)
+    try:
+        started = time.monotonic()
+        with pytest.raises(ScanCancelled):
+            run_command([sys.executable, "-c", "import time; time.sleep(300)"], timeout=60)
+        assert time.monotonic() - started < 10
+    finally:
+        base.set_cancel_check(None)
+
+
+def test_cancel_check_errors_do_not_stop_the_command():
+    def broken():
+        raise RuntimeError("db down")
+
+    base.set_cancel_check(broken)
+    try:
+        assert base.cancel_requested() is False
+    finally:
+        base.set_cancel_check(None)
+    assert base.cancel_requested() is False
+
+
+def test_each_run_gets_a_private_tmpdir_that_is_removed():
+    run = run_command([sys.executable, "-c",
+                       "import os, tempfile; d = tempfile.mkdtemp(prefix='tool-'); "
+                       "open(os.path.join(d, 'x'), 'w').close(); print(os.environ['TMPDIR']); print(d)"],
+                      timeout=30)
+
+    tmpdir, leftover = run.stdout.split()
+    assert leftover.startswith(tmpdir + os.sep)
+    assert not os.path.exists(tmpdir)
