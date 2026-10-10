@@ -4,6 +4,7 @@ from datetime import datetime
 import uuid
 import enum
 from ..database import Base
+from ..core.timeutil import utcnow
 
 class ToolName(str, enum.Enum):
     MASSCAN = "masscan"
@@ -28,7 +29,7 @@ class ToolExecution(Base):
     tool_name = Column(String, nullable=False, index=True)  # masscan, nmap, ssh-audit, nuclei
 
     # Timing
-    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    started_at = Column(DateTime, nullable=False, default=utcnow)
     finished_at = Column(DateTime, nullable=True)
     duration_ms = Column(Integer, nullable=True)
 

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from uuid import UUID
 from datetime import datetime
 from typing import Optional, List
@@ -14,7 +14,7 @@ class ScheduledScanBase(BaseModel):
     cron_expression: str
     timezone: str = "UTC"
     config_id: str
-    targets: List[TargetInput] = Field(..., min_items=1)
+    targets: List[TargetInput] = Field(..., min_length=1)
     auto_compare: bool = True
     baseline_scan_id: Optional[str] = None
     compare_with_previous: bool = True
@@ -25,7 +25,8 @@ class ScheduledScanBase(BaseModel):
     alert_on_new_vulns: bool = True
     is_active: bool = True
 
-    @validator('cron_expression')
+    @field_validator('cron_expression')
+    @classmethod
     def validate_cron(cls, v):
         try:
             croniter(v)
@@ -33,7 +34,8 @@ class ScheduledScanBase(BaseModel):
             raise ValueError(f'Invalid cron expression: {str(e)}')
         return v
 
-    @validator('email_recipients')
+    @field_validator('email_recipients')
+    @classmethod
     def validate_emails(cls, v):
         if v:
             import re
@@ -75,8 +77,7 @@ class ScheduledScanResponse(ScheduledScanBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ScheduledScanListResponse(BaseModel):
     scheduled_scans: List[ScheduledScanResponse]

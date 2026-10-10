@@ -2,6 +2,7 @@ from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, JSON, Text
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from ..database import Base
+from ..core.timeutil import utcnow
 
 class ScanComparison(Base):
     __tablename__ = "scan_comparisons"
@@ -13,7 +14,7 @@ class ScanComparison(Base):
     current_scan_id = Column(String(36), ForeignKey("scans.id"), nullable=False, index=True)
 
     # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
     created_by_id = Column(String(36), ForeignKey("users.id"), nullable=False)
 
     # Summary statistics

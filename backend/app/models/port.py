@@ -3,6 +3,7 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
 from ..database import Base
+from ..core.timeutil import utcnow
 
 class Port(Base):
     __tablename__ = "ports"
@@ -26,7 +27,7 @@ class Port(Base):
     discovered_by = Column(String, nullable=False)  # masscan, nmap
 
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
 
     # Relationships
     target = relationship("ScanTarget", back_populates="ports")

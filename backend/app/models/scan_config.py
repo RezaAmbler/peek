@@ -3,6 +3,7 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
 from ..database import Base
+from ..core.timeutil import utcnow
 
 class ScanConfig(Base):
     __tablename__ = "scan_configs"
@@ -93,8 +94,8 @@ class ScanConfig(Base):
     email_on_changes_only = Column(Boolean, default=False, nullable=False)
 
     # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
     is_default = Column(Boolean, default=False, nullable=False)
     is_preset = Column(Boolean, default=False, nullable=False)  # System presets cannot be edited/deleted
 

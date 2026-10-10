@@ -10,6 +10,7 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
 from ..database import Base
+from ..core.timeutil import utcnow
 
 
 class DiscoveredEndpoint(Base):
@@ -48,7 +49,7 @@ class DiscoveredEndpoint(Base):
     content_hash = Column(String(32), nullable=True, index=True)  # For comparing content across runs
 
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
 
     # Relationships
     scan = relationship("Scan", back_populates="discovered_endpoints")

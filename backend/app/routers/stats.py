@@ -7,6 +7,7 @@ from ..routers.auth import get_current_user
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime, timedelta
+from ..core.timeutil import utcnow
 
 router = APIRouter()
 
@@ -225,7 +226,7 @@ async def get_dashboard_stats(
         ]
 
     # Scans by day (last 7 days)
-    seven_days_ago = datetime.utcnow() - timedelta(days=7)
+    seven_days_ago = utcnow() - timedelta(days=7)
     daily_counts_result = await db.execute(
         select(
             func.date(Scan.created_at).label('scan_date'),

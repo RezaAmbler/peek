@@ -2,6 +2,7 @@ from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, JSON, Inte
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from ..database import Base
+from ..core.timeutil import utcnow
 
 class ScheduledScan(Base):
     __tablename__ = "scheduled_scans"
@@ -43,8 +44,8 @@ class ScheduledScan(Base):
     total_runs = Column(Integer, default=0, nullable=False)
 
     # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     # Relationships
     user = relationship("User", foreign_keys=[user_id], backref="scheduled_scans")

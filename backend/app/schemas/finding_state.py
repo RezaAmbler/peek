@@ -1,6 +1,6 @@
 """Pydantic schemas for the triage (FindingState) API."""
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from datetime import datetime
 from typing import Optional
 
@@ -24,8 +24,7 @@ class FindingStateResponse(BaseModel):
     first_seen_scan_id: Optional[str] = None
     last_seen_scan_id: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class FindingStateUpdate(BaseModel):

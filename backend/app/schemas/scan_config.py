@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 from datetime import datetime
 from typing import Optional, List, Tuple, Dict
 
@@ -220,8 +220,7 @@ class ScanConfigResponse(ScanConfigBase):
     last_scheduled_run: Optional[datetime] = None
     run_count: int = 0  # Number of scans run with this config
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ScanConfigListResponse(BaseModel):
     configs: List[ScanConfigResponse]

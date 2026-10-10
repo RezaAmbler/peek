@@ -9,6 +9,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 from .config import settings
+from .timeutil import utcnow
 
 
 def save_debug_output(
@@ -45,7 +46,7 @@ def save_debug_output(
         debug_dir.mkdir(parents=True, exist_ok=True)
 
         # Generate timestamp
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        timestamp = utcnow().strftime("%Y%m%d_%H%M%S")
 
         # Sanitize target for filename (replace dots and colons)
         safe_target = target.replace(".", "_").replace(":", "_").replace("/", "_")

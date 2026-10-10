@@ -20,6 +20,7 @@ from ..schemas.scan import (
     ScanListResponse,
 )
 from ..routers.auth import get_current_user
+from ..core.timeutil import utcnow
 
 router = APIRouter()
 
@@ -226,7 +227,7 @@ async def create_scan(
     config_snapshot, config_hash = snapshot_config(config)
 
     # Create scan
-    created_at = datetime.utcnow()
+    created_at = utcnow()
     scan = Scan(
         user_id=current_user.id,
         created_by_id=current_user.id,
@@ -468,7 +469,7 @@ async def restart_scan(
     run_number = await get_next_run_number(db, original_scan.config_id)
 
     # Create new scan name
-    created_at = datetime.utcnow()
+    created_at = utcnow()
     if original_scan.name and not original_scan.name.startswith("Run #"):
         # Custom name - add retry suffix
         new_name = original_scan.name

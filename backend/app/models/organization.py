@@ -2,6 +2,7 @@ from sqlalchemy import Column, String, Boolean, DateTime
 from datetime import datetime
 import uuid
 from ..database import Base
+from ..core.timeutil import utcnow
 
 class Organization(Base):
     """
@@ -18,5 +19,5 @@ class Organization(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String, unique=True, nullable=False, index=True)
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)

@@ -4,6 +4,7 @@ from datetime import datetime
 import uuid
 import enum
 from ..database import Base
+from ..core.timeutil import utcnow
 
 class ScanStatus(str, enum.Enum):
     PENDING = "pending"
@@ -62,7 +63,7 @@ class Scan(Base):
     celery_task_id = Column(String, nullable=True)
 
     # Timing
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
 

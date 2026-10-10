@@ -9,11 +9,12 @@ unchanged (counted new) — this guards the existing de-noising tests.
 """
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from app.core.timeutil import utcnow
 from app.database import Base
 import app.models  # noqa: F401
 from app.models import Scan, ScanTarget, Vulnerability, FindingState
@@ -102,7 +103,7 @@ def test_future_suppressed_until_is_suppressed(db):
     fp = _add_vuln(db, c_t, "CVE-2024-9999", 8080, "http://10.0.0.5:8080/admin")
     db.add(FindingState(
         id=str(uuid.uuid4()), config_id=CONFIG_ID, fingerprint=fp, status="open",
-        suppressed_until=datetime.utcnow() + timedelta(days=7),
+        suppressed_until=utcnow() + timedelta(days=7),
     ))
     db.commit()
 
@@ -117,7 +118,7 @@ def test_expired_suppressed_until_is_counted(db):
     fp = _add_vuln(db, c_t, "CVE-2024-9999", 8080, "http://10.0.0.5:8080/admin")
     db.add(FindingState(
         id=str(uuid.uuid4()), config_id=CONFIG_ID, fingerprint=fp, status="open",
-        suppressed_until=datetime.utcnow() - timedelta(days=1),
+        suppressed_until=utcnow() - timedelta(days=1),
     ))
     db.commit()
 

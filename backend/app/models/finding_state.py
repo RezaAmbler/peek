@@ -24,6 +24,7 @@ from sqlalchemy import Column, String, DateTime, ForeignKey, UniqueConstraint, I
 from datetime import datetime
 import uuid
 from ..database import Base
+from ..core.timeutil import utcnow
 
 
 # Allowed triage lifecycle states. Kept here (single source of truth) so the
@@ -64,8 +65,8 @@ class FindingState(Base):
     suppressed_until = Column(DateTime, nullable=True)
 
     # --- Observed lifecycle (maintained by the upsert on every scan) --------
-    first_seen_at = Column(DateTime, default=datetime.utcnow, nullable=True)
-    last_seen_at = Column(DateTime, default=datetime.utcnow, nullable=True)
+    first_seen_at = Column(DateTime, default=utcnow, nullable=True)
+    last_seen_at = Column(DateTime, default=utcnow, nullable=True)
     first_seen_scan_id = Column(String(36), nullable=True)
     last_seen_scan_id = Column(String(36), nullable=True)
 

@@ -20,6 +20,7 @@ This parser extracts:
 import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime
+from ..core.timeutil import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -301,7 +302,7 @@ def _extract_cert_expiry(cert_info: Dict):
             for fmt in ['%Y-%m-%d %H:%M', '%b %d %H:%M:%S %Y %Z', '%Y-%m-%d']:
                 try:
                     expiry_date = datetime.strptime(not_after.strip(), fmt)
-                    days_until = (expiry_date - datetime.utcnow()).days
+                    days_until = (expiry_date - utcnow()).days
                     cert_info['daysUntilExpiry'] = days_until
                     cert_info['expired'] = days_until < 0
                     break

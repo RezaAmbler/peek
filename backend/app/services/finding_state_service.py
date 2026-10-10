@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from ..models import FindingState, Scan, ScanTarget, Vulnerability
 from .fingerprint import finding_fingerprint
+from ..core.timeutil import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,7 @@ def upsert_finding_states(db: Session, scan_id: str) -> int:
     if not vulns:
         return 0
 
-    now = datetime.utcnow()
+    now = utcnow()
     processed = 0
     # De-dupe within this scan: many rows can share one (config_id, fingerprint)
     # (same finding on multiple URLs). Track keys handled in-memory so we upsert

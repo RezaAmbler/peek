@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 from ..core.config import settings
 from ..models import FindingState, ScanTarget, Vulnerability
 from ..models.finding_state import SUPPRESSED_STATUSES
+from ..core.timeutil import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ def _is_suppressed(state: Optional[FindingState]) -> bool:
         return False
     if state.status in SUPPRESSED_STATUSES:
         return True
-    if state.suppressed_until and state.suppressed_until > datetime.utcnow():
+    if state.suppressed_until and state.suppressed_until > utcnow():
         return True
     return False
 

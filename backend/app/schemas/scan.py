@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from uuid import UUID
 from datetime import datetime
 from typing import Optional, List
@@ -32,8 +32,7 @@ class TargetResponse(BaseModel):
     duration_seconds: Optional[float]
     sequence: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ScanResponse(BaseModel):
     id: UUID
@@ -57,8 +56,7 @@ class ScanResponse(BaseModel):
     total_open_ports: int
     total_vulnerabilities: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
     @property
     def display_name(self) -> str:

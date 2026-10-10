@@ -15,6 +15,7 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
 from ..database import Base
+from ..core.timeutil import utcnow
 
 
 class TestsslResult(Base):
@@ -111,7 +112,7 @@ class TestsslResult(Base):
     artifact_path = Column(String, nullable=True)
 
     # Timing
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
 
     # Relationships
     scan = relationship("Scan", backref="testssl_results")

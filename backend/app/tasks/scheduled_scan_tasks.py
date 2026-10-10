@@ -11,6 +11,7 @@ from ..tasks.scan_tasks import run_scan
 from ..services.comparison_service import ComparisonService
 import uuid
 from sqlalchemy import desc
+from ..core.timeutil import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ def check_scheduled_scans():
             ScheduledScan.is_active == True
         ).all()
 
-        now = datetime.utcnow()
+        now = utcnow()
 
         for scheduled_scan in scheduled_scans:
             # Calculate next run time if not set
@@ -73,7 +74,7 @@ def execute_scheduled_scan(scheduled_scan_id: str):
             created_by_id=scheduled_scan.created_by_id,
             organization_id=scheduled_scan.organization_id,
             config_id=scheduled_scan.config_id,
-            name=f"{scheduled_scan.name} - {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}",
+            name=f"{scheduled_scan.name} - {utcnow().strftime('%Y-%m-%d %H:%M')}",
             description=f"Scheduled scan: {scheduled_scan.description or 'Auto-generated'}",
             status="pending",
             total_targets=len(scheduled_scan.targets)
@@ -95,7 +96,7 @@ def execute_scheduled_scan(scheduled_scan_id: str):
         db.commit()
 
         # Update scheduled scan metadata
-        scheduled_scan.last_run_at = datetime.utcnow()
+        scheduled_scan.last_run_at = utcnow()
         scheduled_scan.last_run_scan_id = str(scan.id)
         scheduled_scan.total_runs += 1
         db.commit()
@@ -200,7 +201,7 @@ def post_scan_tasks(self, scan_id: str, scheduled_scan_id: str):
 def calculate_next_run(cron_expression: str, timezone_str: str, base_time: datetime = None) -> datetime:
     """Calculate the next run time based on cron expression"""
     if base_time is None:
-        base_time = datetime.utcnow()
+        base_time = utcnow()
 
     # Convert to target timezone
     try:
@@ -332,7 +333,7 @@ def check_stuck_scans():
     QUEUED_STUCK_THRESHOLD_MINUTES = 30
 
     with get_sync_db() as db:
-        now = datetime.utcnow()
+        now = utcnow()
 
         # Find scans stuck in 'running' state
         running_threshold = now - timedelta(hours=RUNNING_STUCK_THRESHOLD_HOURS)
