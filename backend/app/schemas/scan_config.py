@@ -1,6 +1,9 @@
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 from datetime import datetime
 from typing import Optional, List, Tuple, Dict
+import re
+
+from ..core.validators import validate_nmap_args, validate_nuclei_template_paths
 
 # Timeout configuration per scan mode: (center, min, max) in seconds
 # - Center: default value for the mode
@@ -129,9 +132,13 @@ class ScanConfigBase(BaseModel):
     @field_validator('nmap_args')
     @classmethod
     def validate_nmap_args(cls, v: List[str]) -> List[str]:
-        if not v or not isinstance(v, list):
-            raise ValueError('nmap_args must be a non-empty list')
-        return v
+        # Allow-list: the list ends up in nmap's argv (see core/validators.py)
+        return validate_nmap_args(v)
+
+    @field_validator('nuclei_templates')
+    @classmethod
+    def validate_nuclei_templates(cls, v: Optional[str]) -> Optional[str]:
+        return validate_nuclei_template_paths(v)
 
     @field_validator('scan_mode')
     @classmethod
@@ -208,6 +215,37 @@ class ScanConfigUpdate(BaseModel):
     email_on_changes_only: Optional[bool] = None
     schedule: Optional[str] = Field(None, description="Cron expression for scheduled runs")
     schedule_enabled: Optional[bool] = Field(None, description="Whether scheduled runs are enabled")
+
+    # PATCH must enforce the same rules as create for values that reach a
+    # scanner's command line.
+    @field_validator('nmap_args')
+    @classmethod
+    def validate_nmap_args(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        return validate_nmap_args(v) if v is not None else None
+
+    @field_validator('nuclei_templates')
+    @classmethod
+    def validate_nuclei_templates(cls, v: Optional[str]) -> Optional[str]:
+        return validate_nuclei_template_paths(v)
+
+    @field_validator('nuclei_severity', 'nuclei_endpoint_severity', check_fields=False)
+    @classmethod
+    def validate_severity(cls, v):
+        if v is None:
+            return v
+        valid = {'info', 'low', 'medium', 'high', 'critical'}
+        values = v if isinstance(v, list) else v.split(',')
+        if not {str(s).strip().lower() for s in values}.issubset(valid):
+            raise ValueError(f'Invalid severity values. Must be comma-separated: {", ".join(sorted(valid))}')
+        return v
+
+    @field_validator('masscan_interface')
+    @classmethod
+    def validate_interface(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not re.fullmatch(r'[A-Za-z0-9_.:-]{1,32}', v):
+            raise ValueError('Invalid network interface name')
+        return v
+
 
 class ScanConfigResponse(ScanConfigBase):
     id: str

@@ -36,6 +36,7 @@ from ..parsers.zap_parser import create_vulnerabilities_from_zap
 from ..parsers.httpx_parser import create_httpx_result_from_output
 import os
 import uuid
+from urllib.parse import urlsplit
 import logging
 import tempfile
 from ..core.timeutil import utcnow
@@ -1121,6 +1122,23 @@ def run_nuclei_phase(db, scan: Scan, targets: List[ScanTarget], config):
     )
 
 
+def _endpoint_scan_host(url) -> Optional[str]:
+    """Host of a discovered endpoint if it is safe to hand to nuclei, else None."""
+    if not isinstance(url, str) or not url or len(url) > 2048:
+        return None
+    # No whitespace/control characters: the URL is written to a line-based list file
+    if any(ch.isspace() or ord(ch) < 0x20 or ord(ch) == 0x7f for ch in url):
+        return None
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname
+    except ValueError:
+        return None
+    if parsed.scheme not in ('http', 'https') or not host:
+        return None
+    return host
+
+
 def run_nuclei_endpoints_phase(db, scan: Scan, targets: List[ScanTarget], config):
     """
     Run Nuclei against discovered endpoints (URLs from Katana).
@@ -1149,22 +1167,26 @@ def run_nuclei_endpoints_phase(db, scan: Scan, targets: List[ScanTarget], config
     # Get excluded templates
     excluded_templates = get_excluded_templates()
 
-    # Group endpoints by host (target)
+    # Group endpoints by host (target). URLs come from crawler output, i.e.
+    # from the scanned site: only http(s) URLs whose host is exactly a scan
+    # target are scanned, so a crafted link cannot add off-target hosts.
+    targets_by_ip = {t.ip_address: t for t in targets}
     endpoints_by_target = {}
+    rejected = 0
     for endpoint in endpoints:
-        # Find the scan target for this endpoint's host
-        target = None
-        for t in targets:
-            if t.ip_address in endpoint.url or endpoint.host == t.ip_address:
-                target = t
-                break
+        target = targets_by_ip.get(_endpoint_scan_host(endpoint.url))
+        if target is None:
+            rejected += 1
+            continue
 
-        if target:
-            if target.id not in endpoints_by_target:
-                endpoints_by_target[target.id] = {'target': target, 'urls': []}
-            # Cap at 500 endpoints per host for safety
-            if len(endpoints_by_target[target.id]['urls']) < 500:
-                endpoints_by_target[target.id]['urls'].append(endpoint.url)
+        if target.id not in endpoints_by_target:
+            endpoints_by_target[target.id] = {'target': target, 'urls': []}
+        # Cap at 500 endpoints per host for safety
+        if len(endpoints_by_target[target.id]['urls']) < 500:
+            endpoints_by_target[target.id]['urls'].append(endpoint.url)
+
+    if rejected:
+        logger.warning(f"Nuclei endpoints: skipped {rejected} endpoint(s) that are not plain http(s) URLs on a scan target")
 
     total_targets = len(endpoints_by_target)
     if total_targets == 0:

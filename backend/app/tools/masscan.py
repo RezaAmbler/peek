@@ -40,7 +40,7 @@ def run_masscan(
         output_path = workdir / 'masscan.json'
 
         # No sudo: the worker runs as a non-root user and the image grants
-        # masscan cap_net_raw/cap_net_admin via file capabilities.
+        # masscan cap_net_raw via file capabilities.
         cmd = [
             settings.MASSCAN_PATH or 'masscan',
             ip,

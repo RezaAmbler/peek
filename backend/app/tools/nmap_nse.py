@@ -14,8 +14,9 @@ from ..core.validators import validate_target, validate_port, ValidationError
 from .base import ToolResult, failure_reason, read_output, run_command, temp_workdir
 
 
-# NSE script names / categories / globs, with an optional directory prefix
-_SCRIPT_NAME_RE = re.compile(r'^[A-Za-z0-9_.*/-]+$')
+# NSE script names / categories / globs only. No "/" or "." so a value can
+# never name a file path (nmap would load and run it as Lua).
+_SCRIPT_NAME_RE = re.compile(r'^[A-Za-z0-9_*-]+$')
 
 
 def _validate_scripts(scripts) -> None:

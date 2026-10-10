@@ -168,7 +168,8 @@ RUN groupadd --gid 10001 peek \
     && useradd --uid 10001 --gid peek --create-home --home-dir /home/peek --shell /usr/sbin/nologin peek
 # nuclei keeps templates in $HOME/nuclei-templates and its config in
 # $HOME/.config/nuclei; fixed here so it is the same whichever user runs it.
-ENV HOME=/home/peek
+ENV HOME=/home/peek \
+    PYTHONUNBUFFERED=1
 
 COPY --from=nmap-build /out/usr/local/ /usr/local/
 COPY --from=tools /out/bin/ /usr/local/bin/

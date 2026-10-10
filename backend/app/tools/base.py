@@ -10,6 +10,7 @@ code, a timeout or a missing binary is a failure even when the output file is
 empty (an empty file is *not* proof that nothing was found).
 """
 import logging
+import os
 import shlex
 import shutil
 import subprocess
@@ -124,6 +125,26 @@ def snippet(text: Optional[str], limit: int = ERROR_SNIPPET_CHARS) -> str:
     return "..." + text[-limit:]
 
 
+# Environment variables that scanner processes (and the headless browser some of
+# them start against hostile pages) have no business seeing.
+_SENSITIVE_ENV_EXACT = frozenset({
+    'SECRET_KEY', 'INITIAL_ADMIN_PASSWORD', 'DATABASE_URL', 'REDIS_URL',
+    'CELERY_BROKER_URL', 'CELERY_RESULT_BACKEND', 'WEBHOOK_URL', 'SLACK_WEBHOOK_URL',
+})
+_SENSITIVE_ENV_MARKERS = ('PASSWORD', 'SECRET', 'TOKEN', 'API_KEY', 'APIKEY', 'CREDENTIAL', 'PRIVATE_KEY')
+
+
+def scanner_environment() -> dict:
+    """Copy of the process environment without application secrets."""
+    env = {}
+    for key, value in os.environ.items():
+        upper = key.upper()
+        if upper in _SENSITIVE_ENV_EXACT or any(marker in upper for marker in _SENSITIVE_ENV_MARKERS):
+            continue
+        env[key] = value
+    return env
+
+
 def run_command(cmd: List[str], timeout: float) -> CommandResult:
     """Run ``cmd`` (argv list, never a shell string) and capture everything.
 
@@ -139,6 +160,7 @@ def run_command(cmd: List[str], timeout: float) -> CommandResult:
             text=True,
             errors="replace",
             timeout=timeout,
+            env=scanner_environment(),
         )
         result.returncode = completed.returncode
         result.stdout = completed.stdout or ""

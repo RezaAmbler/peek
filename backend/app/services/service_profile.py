@@ -14,6 +14,7 @@ import yaml
 import logging
 
 from ..core.config import settings
+from ..tools.base import scanner_environment
 
 if TYPE_CHECKING:
     from ..models.httpx_result import HttpxResult
@@ -311,7 +312,8 @@ def validate_tags_have_templates(tags_tuple: Tuple[str, ...]) -> Tuple[bool, int
             [settings.NUCLEI_PATH or 'nuclei', '-tl', '-duc', '-tags', tags_str],
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=30,
+            env=scanner_environment(),
         )
         if result.returncode != 0:
             # A failed listing says nothing about the tags. Assume valid so the

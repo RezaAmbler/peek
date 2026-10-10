@@ -392,3 +392,134 @@ def expand_cidr(target: str) -> Tuple[List[str], Optional[str]]:
     # Standard case - return usable hosts (excludes network and broadcast)
     hosts = [str(ip) for ip in network.hosts()]
     return hosts, str(network)
+
+
+# ---------------------------------------------------------------------------
+# Tool-argument validation (values that come from user-editable scan configs)
+# ---------------------------------------------------------------------------
+
+# nmap options a scan config may contain. This is an allow-list: anything that
+# can read or write files (-oN/-oX/-iL/--datadir/--resume/--stylesheet), load
+# code (--script*, --script-args-file) or change targets is deliberately absent,
+# because any authenticated user can edit their own config and the value goes
+# straight into nmap's argv.
+NMAP_ALLOWED_FLAGS = frozenset({
+    # scan techniques
+    '-sS', '-sT', '-sU', '-sA', '-sW', '-sM', '-sN', '-sF', '-sX',
+    # service / script / OS detection
+    '-sV', '-sC', '-O', '-A', '--version-light', '--version-all',
+    '--osscan-limit', '--osscan-guess',
+    # host discovery and DNS
+    '-Pn', '-n', '-R', '-6',
+    # timing templates
+    '-T0', '-T1', '-T2', '-T3', '-T4', '-T5',
+    # output detail / filtering (console only, no files)
+    '-v', '-vv', '-d', '--open', '--reason', '--defeat-rst-ratelimit',
+})
+
+_NMAP_NUMBER = re.compile(r'^\d{1,7}$')
+_NMAP_TIME = re.compile(r'^\d{1,7}(ms|s|m|h)?$')
+
+# Options that take one value, with the pattern that value must match
+NMAP_ALLOWED_VALUE_OPTIONS = {
+    '--version-intensity': re.compile(r'^[0-9]$'),
+    '--max-retries': _NMAP_NUMBER,
+    '--min-rate': _NMAP_NUMBER,
+    '--max-rate': _NMAP_NUMBER,
+    '--min-parallelism': _NMAP_NUMBER,
+    '--max-parallelism': _NMAP_NUMBER,
+    '--min-hostgroup': _NMAP_NUMBER,
+    '--max-hostgroup': _NMAP_NUMBER,
+    '--host-timeout': _NMAP_TIME,
+    '--script-timeout': _NMAP_TIME,
+    '--scan-delay': _NMAP_TIME,
+    '--max-scan-delay': _NMAP_TIME,
+    '--min-rtt-timeout': _NMAP_TIME,
+    '--max-rtt-timeout': _NMAP_TIME,
+    '--initial-rtt-timeout': _NMAP_TIME,
+}
+
+MAX_NMAP_ARGS = 32
+
+
+def validate_nmap_args(args) -> List[str]:
+    """
+    Validate user-configurable nmap arguments against an allow-list.
+
+    Accepts the flags in NMAP_ALLOWED_FLAGS and the options in
+    NMAP_ALLOWED_VALUE_OPTIONS (as ``--opt value`` or ``--opt=value``).
+    Port selection (``-p...``) is not accepted here: PEEK sets the port list
+    itself from the discovery results.
+
+    Raises:
+        ValidationError: for anything else, e.g. ``-oN /path``, ``-iL file``,
+        ``--script=/tmp/x.nse``, ``--datadir=...``.
+    """
+    if not isinstance(args, (list, tuple)) or not args:
+        raise ValidationError("nmap_args must be a non-empty list")
+    if len(args) > MAX_NMAP_ARGS:
+        raise ValidationError(f"nmap_args has too many entries (max {MAX_NMAP_ARGS})")
+
+    validated: List[str] = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if not isinstance(arg, str):
+            raise ValidationError(f"nmap argument must be a string, got {type(arg).__name__}")
+        arg = arg.strip()
+
+        if arg in NMAP_ALLOWED_FLAGS:
+            validated.append(arg)
+            index += 1
+            continue
+
+        option, has_inline_value, value = arg.partition('=')
+        pattern = NMAP_ALLOWED_VALUE_OPTIONS.get(option)
+        if pattern is None:
+            raise ValidationError(
+                f"nmap argument not allowed: {arg!r}. Allowed: scan type (-sS/-sT/-sU/...), "
+                "-sV, -sC, -O, -A, -Pn, -n, -T0..-T5, --open, --reason and numeric timing "
+                "options such as --max-retries or --host-timeout."
+            )
+        if not has_inline_value:
+            index += 1
+            if index >= len(args) or not isinstance(args[index], str):
+                raise ValidationError(f"nmap option {option} needs a value")
+            value = args[index].strip()
+        if not pattern.match(value):
+            raise ValidationError(f"invalid value for nmap option {option}: {value!r}")
+        validated.extend([option, value])
+        index += 1
+
+    return validated
+
+
+_TEMPLATE_PATH_RE = re.compile(r'^[A-Za-z0-9_][A-Za-z0-9_./-]*$')
+
+
+def validate_nuclei_template_paths(value: Optional[str]) -> Optional[str]:
+    """
+    Validate the custom nuclei template selection of a scan config.
+
+    Only paths *relative to the installed nuclei-templates directory* are
+    accepted (comma-separated, e.g. ``http/cves/2024,ssl``). Absolute paths,
+    ``..``, URLs and option-like values are rejected: nuclei would otherwise
+    load templates (which can run code and make arbitrary requests) from any
+    local file or remote URL a user names.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValidationError("nuclei_templates must be a string")
+    value = value.strip()
+    if not value:
+        return None
+    parts = [part.strip() for part in value.split(',')]
+    for part in parts:
+        if (not part or len(part) > 200 or not _TEMPLATE_PATH_RE.match(part)
+                or '..' in part.split('/') or '//' in part or '://' in part):
+            raise ValidationError(
+                f"invalid nuclei template path: {part!r}. Use paths relative to the "
+                "nuclei-templates directory, e.g. 'http/cves/2024'."
+            )
+    return ','.join(parts)

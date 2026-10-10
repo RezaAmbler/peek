@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     NUCLEI_PATH: str = "nuclei"
     HTTPX_PATH: str = "httpx"
     KATANA_PATH: str = "katana"
+    # Where nuclei templates are installed; empty = $HOME/nuclei-templates (nuclei's default)
+    NUCLEI_TEMPLATES_DIR: str = ""
 
     # Debug output (saves raw tool output to files when DEBUG=True)
     DEBUG_OUTPUT_DIR: str = "/app/data/debug"  # Inside container, maps to ./data/debug on host
@@ -87,7 +89,11 @@ class Settings(BaseSettings):
     @field_validator('BCRYPT_ROUNDS')
     @classmethod
     def validate_bcrypt_rounds(cls, v: int) -> int:
-        """bcrypt accepts 4-31; below 10 is too weak for production, above 16 stalls logins."""
+        """bcrypt accepts 4-31. Use 10 or more in production (values above ~16 stall logins).
+
+        Lowering the value never weakens existing hashes: accounts are only
+        re-hashed on login when their stored cost is below this setting.
+        """
         if not 4 <= v <= 31:
             raise ValueError("BCRYPT_ROUNDS must be between 4 and 31")
         return v

@@ -125,7 +125,9 @@ class TestPasswordHashing:
         bcrypt verification instead of failing fast on the shape check.
         """
         from app.routers.auth import DUMMY_PASSWORD_HASH
-        assert security._hash_cost(DUMMY_PASSWORD_HASH) == 12
+        # Same cost as real hashes, so unknown users take as long as known ones
+        assert security._hash_cost(DUMMY_PASSWORD_HASH) == settings.BCRYPT_ROUNDS
+        assert DUMMY_PASSWORD_HASH.startswith("$2b$")
         calls = []
         real_checkpw = bcrypt.checkpw
 
@@ -224,15 +226,20 @@ class TestRehash:
         monkeypatch.setattr(settings, "BCRYPT_ROUNDS", 5)
         assert get_password_hash("pw").startswith("$2b$05$")
 
-    def test_needs_rehash_when_cost_differs_or_variant_is_legacy(self, monkeypatch):
+    def test_needs_rehash_when_cost_is_too_low_or_variant_is_legacy(self, monkeypatch):
         monkeypatch.setattr(settings, "BCRYPT_ROUNDS", 5)
-        assert not password_needs_rehash(get_password_hash("pw"))
-        assert password_needs_rehash(LEGACY_HASHES["admin"])  # cost 12
+        weak = get_password_hash("pw")
+        assert not password_needs_rehash(weak)
         monkeypatch.setattr(settings, "BCRYPT_ROUNDS", 12)
-        assert not password_needs_rehash(LEGACY_HASHES["admin"])
+        assert password_needs_rehash(weak)  # cost 5 < 12
+        assert not password_needs_rehash(LEGACY_HASHES["admin"])  # cost 12
         assert password_needs_rehash("$2a$" + LEGACY_HASHES["admin"][4:])
 
-    @pytest.mark.parametrize("stored", ["", "garbage", None, "$2b$12$short"])
+    def test_lowering_the_cost_never_downgrades_existing_hashes(self, monkeypatch):
+        monkeypatch.setattr(settings, "BCRYPT_ROUNDS", 4)
+        assert not password_needs_rehash(LEGACY_HASHES["admin"])  # cost 12 > 4: keep
+
+    @pytest.mark.parametrize("stored", ["", "garbage", None, "$2b$12$short", LEGACY_HASHES["admin"] + "\n"])
     def test_malformed_hash_never_needs_rehash(self, stored):
         assert password_needs_rehash(stored) is False
 

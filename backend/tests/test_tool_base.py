@@ -98,3 +98,23 @@ def test_temp_workdir_is_removed_even_when_not_empty_or_on_error():
             (workdir / "leftover").write_text("x")
             raise RuntimeError("boom")
     assert not workdir.exists()
+
+
+def test_scanner_processes_do_not_inherit_application_secrets(monkeypatch):
+    monkeypatch.setenv("SECRET_KEY", "s" * 40)
+    monkeypatch.setenv("INITIAL_ADMIN_PASSWORD", "Sup3r-Secret")
+    monkeypatch.setenv("SMTP_PASSWORD", "mail-secret")
+    monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.example/x")
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///x")
+    monkeypatch.setenv("MY_API_TOKEN", "t")
+    monkeypatch.setenv("PEEK_HARMLESS", "1")
+    fake = FakeSubprocess(returncode=0)
+    monkeypatch.setattr(base.subprocess, "run", fake)
+
+    run_command(["tool"], timeout=1)
+
+    env = fake.kwargs[0]["env"]
+    for secret in ("SECRET_KEY", "INITIAL_ADMIN_PASSWORD", "SMTP_PASSWORD", "SLACK_WEBHOOK_URL",
+                   "DATABASE_URL", "MY_API_TOKEN"):
+        assert secret not in env
+    assert env["PEEK_HARMLESS"] == "1" and "PATH" in env

@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 BCRYPT_MAX_BYTES = 72
 
 # Modular-crypt bcrypt hash: $2<a|b|x|y>$<2-digit cost>$<22-char salt><31-char digest>
-_BCRYPT_HASH_RE = re.compile(r"^\$2[abxy]\$(\d{2})\$[./A-Za-z0-9]{53}$")
+_BCRYPT_HASH_RE = re.compile(r"\$2[abxy]\$(\d{2})\$[./A-Za-z0-9]{53}")
 
 
 def _encode(password: str) -> bytes:
@@ -45,7 +45,8 @@ def _hash_cost(hashed_password: str) -> Optional[int]:
     """Cost factor of a well-formed bcrypt hash, else None."""
     if not isinstance(hashed_password, str):
         return None
-    match = _BCRYPT_HASH_RE.match(hashed_password)
+    # fullmatch: "$" would also accept a trailing newline
+    match = _BCRYPT_HASH_RE.fullmatch(hashed_password)
     return int(match.group(1)) if match else None
 
 
@@ -87,13 +88,20 @@ def get_password_hash(password: str) -> str:
 def password_needs_rehash(hashed_password: str) -> bool:
     """True if a (valid) stored hash should be re-hashed after a successful login.
 
-    That is the case when its cost differs from settings.BCRYPT_ROUNDS or it
-    uses a legacy bcrypt variant ($2a$/$2x$/$2y$) instead of $2b$.
+    That is the case when its cost is below settings.BCRYPT_ROUNDS or it uses
+    a legacy bcrypt variant ($2a$/$2x$/$2y$) instead of $2b$. A hash that is
+    already stronger than the configured cost is left alone: lowering the
+    setting must never weaken stored hashes.
     """
     cost = _hash_cost(hashed_password)
     if cost is None:
         return False
-    return cost != settings.BCRYPT_ROUNDS or not hashed_password.startswith("$2b$")
+    return cost < settings.BCRYPT_ROUNDS or not hashed_password.startswith("$2b$")
+
+
+def is_usable_password_hash(hashed_password) -> bool:
+    """True if the stored value has the shape of a bcrypt hash."""
+    return _hash_cost(hashed_password) is not None
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

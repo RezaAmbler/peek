@@ -43,6 +43,17 @@ def fake(monkeypatch):
     return install
 
 
+@pytest.fixture
+def templates_dir(tmp_path, monkeypatch):
+    """A stand-in for the installed nuclei-templates directory."""
+    from app.core.config import settings
+    root = tmp_path / "keep_nuclei-templates"
+    (root / "http" / "cves").mkdir(parents=True)
+    (root / "ssl").mkdir()
+    monkeypatch.setattr(settings, "NUCLEI_TEMPLATES_DIR", str(root))
+    return root
+
+
 @pytest.fixture(autouse=True)
 def isolated_tmp(tmp_path, monkeypatch):
     """Point tempfile at a per-test directory so leaked temp files are detectable."""
@@ -97,22 +108,46 @@ class TestNuclei:
         assert success and error is None
         assert json.loads(raw.strip())["template-id"] == "tech-detect"
 
-    def test_command_uses_flags_verified_against_v3_11_1(self, fake):
+    def test_command_uses_flags_verified_against_v3_11_1(self, fake, templates_dir):
         proc = fake(returncode=0, output_flag="-jsonl-export")
 
         run_nuclei(target="http://10.0.0.5:80", severity="critical,high", tags=["http", "cve"],
-                   rate_limit=77, exclude_templates=["a/", "b.yaml"], templates="/custom")
+                   rate_limit=77, exclude_templates=["a/", "b.yaml"], templates="http/cves")
         cmd = proc.cmd
 
         assert flag_value(cmd, "-target") == "http://10.0.0.5:80"
         assert flag_value(cmd, "-severity") == "critical,high"
         assert flag_value(cmd, "-tags") == "http,cve"
         assert flag_value(cmd, "-rate-limit") == "77"
-        assert flag_value(cmd, "-templates") == "/custom"
+        assert flag_value(cmd, "-templates") == str(templates_dir / "http" / "cves")
         assert [cmd[i + 1] for i, a in enumerate(cmd) if a == "-exclude-templates"] == ["a/", "b.yaml"]
         for flag in ("-silent", "-no-color", "-no-interactsh", "-omit-raw", "-disable-update-check"):
             assert flag in cmd
         assert proc.kwargs[0]["timeout"] == 300
+
+    @pytest.mark.parametrize("templates", [
+        "/etc/passwd",                      # absolute path
+        "../../app/data/evil.yaml",         # traversal
+        "http/../../outside",               # traversal inside
+        "https://evil.example/t.yaml",      # remote template
+        "-debug",                           # option injection
+        "http/cves,/tmp/x.yaml",            # one bad entry in a list
+        "missing/dir",                      # not part of the installed set
+        "link-outside",                     # symlink pointing out of the directory
+    ])
+    def test_custom_templates_outside_the_template_set_are_rejected(self, fake, templates_dir, templates):
+        (templates_dir / "link-outside").symlink_to("/etc")
+        proc = fake(returncode=0, output_flag="-jsonl-export")
+
+        result = run_nuclei(target="http://10.0.0.5:80", templates=templates)
+
+        assert not result.success and "Invalid nuclei_templates" in result.error
+        assert proc.calls == []
+
+    def test_multiple_custom_templates(self, fake, templates_dir):
+        proc = fake(returncode=0, output_flag="-jsonl-export")
+        run_nuclei(target="http://10.0.0.5:80", templates="http/cves, ssl")
+        assert flag_value(proc.cmd, "-templates") == f"{templates_dir / 'http' / 'cves'},{templates_dir / 'ssl'}"
 
     def test_timeout(self, fake):
         fake(raises=subprocess.TimeoutExpired(cmd="nuclei", timeout=5), output_flag="-jsonl-export")
@@ -295,6 +330,49 @@ class TestNmap:
         run_nmap("10.0.0.5", [22], ["-sS"])
         assert "--privileged" not in proc.cmd
 
+    @pytest.mark.parametrize("args", [
+        ["-sV", "-oN", "/app/data/peek.db"],        # arbitrary file write
+        ["-sV", "-oA", "/tmp/x"],
+        ["-sV", "-iL", "/etc/passwd"],              # local file read
+        ["--script=/app/data/x.nse"],               # attacker-supplied Lua
+        ["--script", "http-title"],
+        ["--script-args-file=/tmp/a"],
+        ["--datadir=/tmp/x"],
+        ["--resume", "/tmp/x"],
+        ["--stylesheet=http://evil/x.xsl"],
+        ["-sSV"],                                   # combined short flags are not parsed
+        ["-sV", "10.9.9.9"],                        # extra target
+        ["--max-retries"],                          # missing value
+        ["--max-retries", "two"],
+        ["--host-timeout=1;id"],
+        ["-sV", 5],
+    ])
+    def test_dangerous_or_unknown_nmap_args_are_rejected_without_running(self, fake, args):
+        proc = fake(returncode=0, output=NMAP_XML, output_flag="-oX")
+
+        result = run_nmap("10.0.0.5", [22], args)
+
+        assert not result.success and "validation failed" in result.error
+        assert proc.calls == []
+
+    def test_allowed_nmap_args_pass_through(self, fake):
+        proc = fake(returncode=0, output=NMAP_XML, output_flag="-oX")
+
+        result = run_nmap("10.0.0.5", [22], ["-sT", "-sV", "-sC", "-T2", "-Pn", "--max-retries", "3",
+                                             "--host-timeout=90s", "-p", "1-1000", "-p80"])
+
+        assert result.success
+        cmd = proc.cmd
+        assert cmd[1:10] == ["-sT", "-sV", "-sC", "-T2", "-Pn", "--max-retries", "3", "--host-timeout", "90s"]
+        assert cmd.count("-p") == 1 and flag_value(cmd, "-p") == "22"
+        assert "1-1000" not in cmd and "-p80" not in cmd
+
+    def test_privileged_for_aggressive_scan(self, fake, monkeypatch):
+        monkeypatch.setattr("app.tools.nmap.os.geteuid", lambda: 1000)
+        proc = fake(returncode=0, output=NMAP_XML, output_flag="-oX")
+        run_nmap("10.0.0.5", [22], ["-A"])
+        assert "--privileged" in proc.cmd
+
     def test_no_ports_is_success_without_running(self, fake):
         proc = fake()
         assert tuple(run_nmap("10.0.0.5", [], ["-sT"])) == (True, "", None)
@@ -354,7 +432,8 @@ class TestNmapNse:
         run_nmap_nse("10.0.0.5", 123, ["ntp-info"], protocol="udp")
         assert "-sU" in proc.cmd and "--privileged" in proc.cmd
 
-    @pytest.mark.parametrize("scripts", [["ok", "bad script"], ["x;id"], ["--script-args=x"]])
+    @pytest.mark.parametrize("scripts", [["ok", "bad script"], ["x;id"], ["--script-args=x"],
+                                         ["../../app/data/evil.nse"], ["/tmp/x/"], ["evil.nse"]])
     def test_rejects_bad_script_names(self, fake, scripts):
         proc = fake()
         result = run_nmap_nse("10.0.0.5", 80, scripts)

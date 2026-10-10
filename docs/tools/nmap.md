@@ -121,3 +121,25 @@ The discovery phase scans these ports by default:
 - Any non-zero exit, timeout or empty XML is a failed `ToolExecution` with the stderr
   excerpt in `error_message`; the target is marked `failed` when discovery fails, never
   "0 open ports".
+
+## Allowed `nmap_args`
+
+`nmap_args` comes from a user-editable scan config and is passed to nmap's command line,
+so it is checked against an allow-list (`validate_nmap_args` in
+`backend/app/core/validators.py`) both by the API (create and update) and again by the
+runner:
+
+- Flags: `-sS -sT -sU -sA -sW -sM -sN -sF -sX`, `-sV -sC -O -A`, `--version-light`,
+  `--version-all`, `--osscan-limit`, `--osscan-guess`, `-Pn -n -R -6`, `-T0`…`-T5`,
+  `-v -vv -d`, `--open`, `--reason`, `--defeat-rst-ratelimit`
+- Options with a numeric/time value: `--version-intensity`, `--max-retries`,
+  `--min-rate`, `--max-rate`, `--min/max-parallelism`, `--min/max-hostgroup`,
+  `--host-timeout`, `--script-timeout`, `--scan-delay`, `--max-scan-delay`,
+  `--min/max/initial-rtt-timeout`
+
+Everything else is rejected, in particular options that read or write files or load
+code: `-oN/-oX/-oG/-oA`, `-iL`, `--script*`, `--datadir`, `--resume`, `--stylesheet`,
+`--excludefile`. Use `-sC` and the NSE profiles in `backend/config/nse_profiles.yaml`
+for scripts. `-p…` is ignored because PEEK sets the port list itself. A stored config
+with a disallowed argument makes the nmap run fail with a validation error on its
+`ToolExecution`; edit the config to fix it.

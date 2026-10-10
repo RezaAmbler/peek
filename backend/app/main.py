@@ -195,16 +195,19 @@ async def create_default_admin():
                 print(
                     "✅ Admin user created (username: admin). INITIAL_ADMIN_PASSWORD was not set, "
                     f"so a random password was generated: {password}\n"
-                    "   Log in and change it now (Users -> Reset password); it will not be shown again."
+                    "   Log in and change it now (Users -> Reset password); it will not be shown again.\n"
+                    "   Treat this log as sensitive until the password has been changed.",
+                    flush=True,  # stdout is block-buffered under Docker; this must not sit in a buffer
                 )
             else:
-                print("✅ Admin user created (username: admin, password from INITIAL_ADMIN_PASSWORD)")
+                print("✅ Admin user created (username: admin, password from INITIAL_ADMIN_PASSWORD)", flush=True)
         elif verify_password("admin", admin.hashed_password):
             # Deployments created before 2.2.2 were seeded with admin/admin.
             # The account is left untouched, but say so on every start.
             print(
                 "⚠️  SECURITY: the 'admin' account still uses the old default password 'admin'. "
-                "Change it now (Users -> Reset password)."
+                "Change it now (Users -> Reset password).",
+                flush=True,
             )
 
         # Ensure admin has a default config

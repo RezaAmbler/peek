@@ -184,3 +184,12 @@ The `extract_port_from_matched_at()` function handles various URL formats:
 - [Katana](katana.md) - Provides endpoints for Phase 5.5
 - [NucleiProfile Mapping](../backend.md#nucleiprofile-mapping)
 - [Scan Lifecycle](../scan-lifecycle.md) - Phases 5 and 5.5
+
+### Custom templates (`nuclei_templates`)
+
+The value is a comma-separated list of paths **relative to the installed
+`nuclei-templates` directory** (for example `http/cves/2024,ssl`). Absolute paths,
+`..`, URLs and anything that resolves (after following symlinks) outside that
+directory are rejected by the API and by the runner, because a template can execute
+code and send arbitrary requests. Set `NUCLEI_TEMPLATES_DIR` if the templates are not
+in `$HOME/nuclei-templates`.

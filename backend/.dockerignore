@@ -10,3 +10,7 @@ venv/
 .pytest_cache/
 .coverage
 htmlcov/
+# Never bake local secrets into an image
+.env
+.env.*
+!.env.example

@@ -1,23 +1,25 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 from datetime import timedelta
 import logging
+import secrets
 from ..database import get_db
 from ..models.user import User
 from ..schemas.auth import Token, UserResponse
 from ..core.security import (
     verify_password, create_access_token, decode_access_token,
-    get_password_hash, password_needs_rehash,
+    get_password_hash, password_needs_rehash, is_usable_password_hash,
 )
 from ..core.config import settings
 from ..core.rate_limit import check_login_rate_limit
 
 # Dummy hash for timing attack prevention
-# This is a pre-computed bcrypt hash that we verify against when user doesn't exist
-# to ensure constant-time response regardless of whether username is valid
-DUMMY_PASSWORD_HASH = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/X4.O/4xJa.r9D8mGi"
+# Verified against when the user doesn't exist (or has an unusable stored hash)
+# so those requests cost one full bcrypt verification like any other. Generated
+# at import with the configured cost, from a random value nobody knows.
+DUMMY_PASSWORD_HASH = get_password_hash(secrets.token_urlsafe(32))
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -75,11 +77,13 @@ async def login(
 
     # SECURITY: Always verify password to prevent timing attacks
     # If user doesn't exist, verify against dummy hash to ensure constant-time response
-    hash_to_verify = user.hashed_password if user else DUMMY_PASSWORD_HASH
+    # A corrupt stored hash takes the same path as an unknown user.
+    has_usable_hash = bool(user) and is_usable_password_hash(user.hashed_password)
+    hash_to_verify = user.hashed_password if has_usable_hash else DUMMY_PASSWORD_HASH
     password_valid = verify_password(form_data.password, hash_to_verify)
 
     # Check if authentication failed (user doesn't exist OR password invalid)
-    if not user or not password_valid:
+    if not user or not has_usable_hash or not password_valid:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password"
@@ -95,7 +99,15 @@ async def login(
     # (or it uses a legacy variant). Best-effort: it must never fail a login.
     if password_needs_rehash(user.hashed_password):
         try:
-            user.hashed_password = get_password_hash(form_data.password)
+            # Compare-and-set on the hash we just verified: if the password was
+            # changed meanwhile (e.g. an admin reset), this updates nothing
+            # instead of writing the old password back.
+            verified_hash = user.hashed_password
+            await db.execute(
+                update(User)
+                .where(User.id == user.id, User.hashed_password == verified_hash)
+                .values(hashed_password=get_password_hash(form_data.password))
+            )
             await db.commit()
             await db.refresh(user)
         except Exception as exc:

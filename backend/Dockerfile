@@ -1,5 +1,9 @@
 FROM python:3.13-slim
 
+# Log lines (including the one-time generated admin password) must reach
+# `docker compose logs` immediately instead of sitting in a stdout buffer.
+ENV PYTHONUNBUFFERED=1
+
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y \

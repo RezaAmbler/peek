@@ -185,3 +185,74 @@ class TestExpandCidr:
         hosts, cidr = expand_cidr(12345)
         assert cidr is None
         assert hosts == ["12345"]
+
+
+# ---------------------------------------------------------------------------
+# Scan-config values that reach a scanner's command line
+# ---------------------------------------------------------------------------
+
+from app.core.validators import validate_nmap_args, validate_nuclei_template_paths  # noqa: E402
+from app.schemas.scan_config import ScanConfigCreate, ScanConfigUpdate  # noqa: E402
+
+
+class TestNmapArgsAllowList:
+    def test_schema_default_is_allowed(self):
+        default = ScanConfigCreate.model_fields["nmap_args"].default
+        assert validate_nmap_args(default) == default
+
+    @pytest.mark.parametrize("args,expected", [
+        (["-sT", "-sV", "-sC", "-T2", "-Pn"], ["-sT", "-sV", "-sC", "-T2", "-Pn"]),
+        ([" -sV ", "--open"], ["-sV", "--open"]),
+        (["--max-retries", "3"], ["--max-retries", "3"]),
+        (["--max-retries=3", "--host-timeout=10m"], ["--max-retries", "3", "--host-timeout", "10m"]),
+        (["-O", "--osscan-limit", "--version-intensity", "5"], ["-O", "--osscan-limit", "--version-intensity", "5"]),
+    ])
+    def test_allowed(self, args, expected):
+        assert validate_nmap_args(args) == expected
+
+    @pytest.mark.parametrize("args", [
+        [], None, "-sV", ["-oN", "/tmp/x"], ["-oX", "-"], ["-oG=/tmp/x"], ["-iL", "/etc/passwd"],
+        ["--script=vuln"], ["--script", "/tmp/x.nse"], ["--script-args", "a=b"], ["--datadir", "/tmp"],
+        ["--resume", "x"], ["--stylesheet", "x"], ["-p", "1-65535"], ["-p-"], ["--excludefile", "/x"],
+        ["-sV", "scanme.example"], ["-e", "eth0"], ["--proxies", "http://x"], ["-S", "1.2.3.4"],
+        ["--version-intensity", "10"], ["--max-rate", "-1"], ["--host-timeout", "10m; id"],
+        ["--max-retries"], ["-sV"] * 33, [None], ["-sV\n-oN /tmp/x"],
+    ])
+    def test_rejected(self, args):
+        with pytest.raises(ValidationError):
+            validate_nmap_args(args)
+
+    def test_create_and_update_schemas_both_enforce_it(self):
+        from pydantic import ValidationError as PydanticValidationError
+        with pytest.raises(PydanticValidationError):
+            ScanConfigUpdate(nmap_args=["-sV", "-oN", "/app/data/peek.db"])
+        with pytest.raises(PydanticValidationError):
+            ScanConfigCreate(name="c", targets=["10.0.0.5"], nmap_args=["--script=/tmp/x.nse"])
+        assert ScanConfigUpdate(nmap_args=["-sT", "-sV"]).nmap_args == ["-sT", "-sV"]
+        assert ScanConfigUpdate().nmap_args is None
+
+
+class TestNucleiTemplatePaths:
+    @pytest.mark.parametrize("value,expected", [
+        (None, None), ("", None), ("  ", None),
+        ("http/cves/2024", "http/cves/2024"),
+        ("http/cves, ssl ,dns/x.yaml", "http/cves,ssl,dns/x.yaml"),
+    ])
+    def test_allowed(self, value, expected):
+        assert validate_nuclei_template_paths(value) == expected
+
+    @pytest.mark.parametrize("value", [
+        "/etc/passwd", "../x", "http/../../x", "https://evil.example/t.yaml", "-debug",
+        "http//cves", "a,,b", "a b", "a;b", "~/x", ".hidden", 5,
+    ])
+    def test_rejected(self, value):
+        with pytest.raises(ValidationError):
+            validate_nuclei_template_paths(value)
+
+    def test_schemas_enforce_it(self):
+        from pydantic import ValidationError as PydanticValidationError
+        with pytest.raises(PydanticValidationError):
+            ScanConfigUpdate(nuclei_templates="/etc/passwd")
+        with pytest.raises(PydanticValidationError):
+            ScanConfigUpdate(nuclei_templates="https://evil.example/t.yaml")
+        assert ScanConfigUpdate(nuclei_templates="http/cves").nuclei_templates == "http/cves"

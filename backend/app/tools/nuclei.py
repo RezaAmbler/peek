@@ -3,10 +3,39 @@ import logging
 from pathlib import Path
 from typing import List, Optional
 from ..core.config import settings
-from ..core.validators import SHELL_METACHARACTERS
+from ..core.validators import SHELL_METACHARACTERS, ValidationError, validate_nuclei_template_paths
 from .base import ToolResult, failure_reason, read_output, run_command, temp_workdir
 
 logger = logging.getLogger(__name__)
+
+def templates_directory() -> Path:
+    """Directory nuclei loads its templates from ($HOME/nuclei-templates unless overridden)."""
+    configured = settings.NUCLEI_TEMPLATES_DIR
+    return Path(configured).expanduser() if configured else Path.home() / 'nuclei-templates'
+
+
+def resolve_template_paths(templates: str) -> List[str]:
+    """Resolve a config's template selection to absolute paths inside the templates directory.
+
+    The value comes from a user-editable scan config. Templates can execute code
+    and send arbitrary requests, so only files/directories that really live
+    under the installed template set are passed to nuclei - never an arbitrary
+    local path (symlinks are resolved first) or a URL.
+    """
+    cleaned = validate_nuclei_template_paths(templates)
+    if not cleaned:
+        return []
+    base = templates_directory().resolve()
+    resolved = []
+    for relative in cleaned.split(','):
+        candidate = (base / relative).resolve()
+        if candidate != base and base not in candidate.parents:
+            raise ValidationError(f"template path escapes the templates directory: {relative!r}")
+        if not candidate.exists():
+            raise ValidationError(f"template path not found in {base}: {relative!r}")
+        resolved.append(str(candidate))
+    return resolved
+
 
 def _build_nuclei_command(
     output_path: Path,
@@ -111,7 +140,11 @@ def run_nuclei(
 
         # Add custom templates if specified (templates override tags)
         if templates:
-            cmd.extend(['-templates', templates])
+            try:
+                resolved = resolve_template_paths(templates)
+            except ValidationError as e:
+                return ToolResult(False, "", f"Invalid nuclei_templates: {e}")
+            cmd.extend(['-templates', ','.join(resolved)])
 
         return _execute_nuclei(cmd, output_path, timeout, "Nuclei")
 

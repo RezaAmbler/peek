@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import List, Optional, Dict
 from ..core.config import settings
-from ..core.validators import validate_target, validate_port_list, ValidationError
+from ..core.validators import validate_target, validate_port_list, validate_nmap_args, ValidationError
 from .base import ToolResult, failure_reason, read_output, run_command, temp_workdir
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ NMAP_TOP_100_PORTS = [
 ]
 
 # Scan types that need raw sockets
-_RAW_SOCKET_FLAGS = ('-sS', '-sU', '-sA', '-sW', '-sM', '-sN', '-sF', '-sX', '-sO', '-O')
+_RAW_SOCKET_FLAGS = ('-sS', '-sU', '-sA', '-sW', '-sM', '-sN', '-sF', '-sX', '-sO', '-O', '-A')
 
 
 def _privilege_args(nmap_args: List[str]) -> List[str]:
@@ -85,6 +85,23 @@ def run_nmap(
     try:
         ip = validate_target(ip)
         ports = validate_port_list(ports)
+        # PEEK sets the port list itself: drop "-p..." (and a detached value)
+        # before checking the rest against the allow-list. nmap_args comes from
+        # a user-editable config, so this is enforced here as well as in the
+        # API schema (configs stored before the schema check existed).
+        without_ports = []
+        skip_next = False
+        for arg in nmap_args or []:
+            if skip_next:
+                skip_next = False
+                continue
+            if isinstance(arg, str) and arg.strip() == '-p':
+                skip_next = True
+                continue
+            if isinstance(arg, str) and re.fullmatch(r'-p[0-9TUS:,\-]*', arg.strip()):
+                continue
+            without_ports.append(arg)
+        filtered_args = validate_nmap_args(without_ports) if without_ports else []
     except ValidationError as e:
         return ToolResult(False, "", f"Input validation failed: {e}")
 
@@ -93,9 +110,6 @@ def run_nmap(
 
         # Build port list: "22,80,443,8080"
         port_string = ','.join(str(p) for p in sorted(set(ports)))
-
-        # Filter nmap_args to remove any existing -p flags
-        filtered_args = [arg for arg in nmap_args if not arg.startswith('-p')]
 
         cmd = [
             settings.NMAP_PATH or 'nmap',
