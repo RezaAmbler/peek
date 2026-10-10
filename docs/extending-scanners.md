@@ -9,10 +9,10 @@ After reading this you'll understand:
 
 ## High-Level Steps to Add a New Tool
 
-1. **Wrapper** (`backend/app/tools/`): Create a runner that builds/executes the tool command, enforces timeouts, captures stdout/stderr/output file.
+1. **Wrapper** (`backend/app/tools/`): Create a runner that builds the tool command and executes it through `run_command()` in `backend/app/tools/base.py`, which enforces the timeout and captures stdout/stderr, the real exit code and the exact command line.
 2. **Parser** (`backend/app/parsers/`): Parse raw output into structured data. Return dicts or create model instances.
 3. **Models**: Reuse `ToolExecution` for run metadata. If producing findings, consider `Vulnerability` or a new model; link to `ScanTarget` and `Port` when applicable.
-4. **Tasks** (`backend/app/tasks/scan_tasks.py` or a new task): Create the `ToolExecution`, run the wrapper, store raw output/error/exit_code, then call the parser to persist structured results.
+4. **Tasks** (`backend/app/tasks/scan_tasks.py` or a new task): Create the `ToolExecution` with `start_tool_exec()`, run the wrapper, store its result with `record_tool_result()` (raw output, error, real exit code, exact command line), then call the parser to persist structured results. In the `except` block call `fail_tool_exec()`, which rolls the session back and finalizes the row.
 5. **Service/profile logic** (optional): If the tool is service-aware, add mapping logic (similar to `service_profile.py`) or reuse existing profiles.
 6. **UI**: Expose results by adding API endpoints/fields (in routers) and rendering in the Frontend (e.g., new section in `ScanDetail`).
 
@@ -20,7 +20,7 @@ After reading this you'll understand:
 
 | Component | Location | Notes |
 |-----------|----------|-------|
-| Wrapper | `backend/app/tools/<tool>.py` | Build command args, use timeouts, return `(success, raw_output, error)` |
+| Wrapper | `backend/app/tools/<tool>.py` | Build command args, use timeouts, return a `ToolResult` (unpacks as `(success, raw_output, error)`, carries `command_line` / `exit_code` / `timed_out`) |
 | Parser | `backend/app/parsers/<tool>_parser.py` | Convert raw output to model instances |
 | Task | `backend/app/tasks/scan_tasks.py` or new file | Add phase or dedicated Celery task |
 | Config | `backend/config/<tool>_profiles.yaml` | Optional YAML for service-aware mapping |
@@ -100,6 +100,10 @@ Pattern from Nuclei phase:
 ## Tips
 
 - Keep wrappers idempotent and return clear errors
+- **A failed tool run is never a clean scan.** Non-zero exit, timeout and missing binary must be `success=False` with an error message, even if the output file is empty. Only a clean exit with empty output means "nothing found". Point the tool at an output path inside `temp_workdir()` that does not exist yet.
+- Exit codes stored on `ToolExecution`: the tool's own code, `124` for a timeout, `127` for a missing binary, `1` for an internal error. A failed run always has `error_message` set.
+- Report progress only through `set_phase_progress()` and add new phases to `PHASE_PROGRESS`
+- Add runner tests with a mocked subprocess (`backend/tests/tool_fakes.py`) and parser tests with sample output
 - Truncate stored `raw_output` if huge; store `parsed_output` for debugging
 - Add logging around decisions (skips due to exclusions/validation)
 - Reuse existing patterns: one `ToolExecution` per run, link to ports/targets, parse to structured models

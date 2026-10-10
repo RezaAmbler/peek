@@ -21,7 +21,9 @@ Ask the user (or infer from the request):
 1. **Runner** — create `backend/app/tools/<tool>.py`.
    - Mirror an existing runner with similar output format (`backend/app/tools/nuclei.py` for JSON, `nmap.py` for XML, `sslscan.py` for text).
    - Build the command as a **subprocess argv list** (never `shell=True`); validate/allow-list any target-derived args.
-   - Return raw output **and** the exact command line. Add a timeout and handle missing-binary / non-zero exit without killing the scan.
+   - Run the binary through `run_command()` from `backend/app/tools/base.py` and return a `ToolResult` (or a `*Output` dataclass with `command_line` / `exit_code` / `timed_out`), so the phase gets the exact command line and the real exit code.
+   - **A failed run must never look like a clean scan.** Non-zero exit, timeout and missing binary are `success=False` with an error message (`failure_reason()`), even when the output file is empty. Write tool output to a path inside `temp_workdir()` that does not exist yet (not a pre-created `NamedTemporaryFile`).
+   - No `sudo`: the worker runs as an unprivileged user.
    - Honor `ScanConfig` (`scan_mode`, severity, timeouts) instead of hardcoding.
 
 2. **Parser** — create `backend/app/parsers/<tool>_parser.py`.
@@ -36,13 +38,14 @@ Ask the user (or infer from the request):
 5. **Phase wiring** — in `backend/app/tasks/scan_tasks.py`:
    - Insert the phase in the right order with a non-overlapping progress range (see the phase table in CLAUDE.md).
    - Gate it behind `if config.enable_<tool>:`.
-   - Create a `ToolExecution` row with `command_line` and `raw_output`.
+   - Add the phase's range to `PHASE_PROGRESS` and report progress only through `set_phase_progress()` (monotonic).
+   - Create the `ToolExecution` with `start_tool_exec()`, store the runner result with `record_tool_result()`, and in the `except` block call `fail_tool_exec(db, tool_exec, e)` (rolls the session back and finalizes the row).
    - Link findings to `ScanTarget`, the `ToolExecution`, and `Port` where applicable.
    - Check whether `scheduled_scan_tasks.py` needs the same change.
 
 6. **Config profile (optional)** — if the tool is profile-driven, add to `config/<tool>_profiles.yaml` and load with `yaml.safe_load`.
 
-7. **Tests & docs** — add a test under `backend/tests/` (parse a sample output fixture), and update CLAUDE.md's phase table + external-tool list and `backend/Dockerfile.celery` if a new binary must be installed.
+7. **Tests & docs** — add runner tests with a mocked subprocess (`tests/tool_fakes.py`, see `tests/test_tool_runners.py`: non-zero exit, timeout, missing binary, empty output) and parser tests (`tests/test_tool_parsers.py`), and update CLAUDE.md's phase table + external-tool list and `backend/Dockerfile.celery` if a new binary must be installed.
 
 ## Finish
 

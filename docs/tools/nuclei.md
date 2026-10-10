@@ -38,9 +38,37 @@ def run_nuclei(
 
 **Command Pattern**:
 ```bash
-nuclei -target <target> -severity critical,high,medium -jsonl-export output.jsonl \
-       -silent -no-color -no-interactsh -omit-raw -rate-limit 150
+nuclei -severity critical,high,medium -jsonl-export output.jsonl \
+       -silent -no-color -no-interactsh -omit-raw -rate-limit 150 \
+       -disable-update-check [-tags a,b] [-exclude-templates x] -target <target>
 ```
+
+### Verified against nuclei v3.11.1
+
+Checked against the upstream source at tag `v3.11.1` (`cmd/nuclei/main.go`,
+`pkg/output/output.go`, `pkg/model/model.go`, `pkg/reporting/exporters/jsonl/jsonl.go`,
+`internal/runner/runner.go`, `pkg/installer/template.go`):
+
+- Every flag PEEK passes exists with the same meaning: `-target`, `-list`, `-severity`,
+  `-jsonl-export`, `-silent`, `-no-color`, `-no-interactsh`, `-omit-raw`, `-rate-limit`,
+  `-tags`, `-templates`, `-exclude-templates`, `-tl`, `-disable-update-check`.
+- JSON fields read by the parser are unchanged: `template-id`, `info.name`,
+  `info.severity`, `info.description`, `info.reference`, `info.tags`, `type`, `host`,
+  `matched-at`, `extracted-results`, `curl-command`.
+- The JSONL export file is written when nuclei shuts down cleanly (also when there are
+  no results), and any fatal error exits with code 1. PEEK therefore decides success
+  from the **exit code**: non-zero, timeout or missing binary is a failed
+  `ToolExecution` with the stderr excerpt; only exit 0 with an empty export means
+  "no vulnerabilities".
+
+### Templates are pinned
+
+The worker image installs `nuclei-templates` at a fixed tag and commit
+(`NUCLEI_TEMPLATES_TAG` / `NUCLEI_TEMPLATES_COMMIT` in `backend/Dockerfile.celery`)
+instead of running `nuclei -update-templates` at build time, and every nuclei call
+passes `-disable-update-check`. Without that flag nuclei 3.x checks for, and installs,
+newer templates on each run, so two scans from the same image could use different
+template sets. To update templates, bump the tag and commit and rebuild the image.
 
 ### run_nuclei_list()
 

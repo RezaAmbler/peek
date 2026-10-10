@@ -39,7 +39,7 @@ def run_nmap_discovery(
 
 **Command Pattern**:
 ```bash
-sudo nmap -Pn -sT -T4 --open --max-retries 2 --host-timeout 600s -p <ports> -oX output.xml <target>
+nmap -Pn -sT -T4 --open --max-retries 2 --host-timeout 600s -p <ports> -oX output.xml <target>
 ```
 
 ### run_nmap()
@@ -109,3 +109,15 @@ The discovery phase scans these ports by default:
 
 - [Nmap NSE](nmap-nse.md) - Nmap Scripting Engine for advanced checks
 - [Scan Lifecycle](../scan-lifecycle.md) - Phases 1 and 2 details
+
+## Privileges and failure handling
+
+- nmap is never run through `sudo`. The worker runs as the unprivileged `peek` user;
+  the image grants `/usr/local/bin/nmap` the `cap_net_raw` file capability.
+- Connect scans (`-sT`, used by discovery and NSE) need no privileges. For raw-socket
+  scan types in `nmap_args` (`-sS`, `-sU`, `-O`, ...) the runner adds `--privileged` so
+  nmap uses the capability. If the capability is missing (e.g. `cap_drop: [ALL]`),
+  nmap exits non-zero and the run is recorded as failed.
+- Any non-zero exit, timeout or empty XML is a failed `ToolExecution` with the stderr
+  excerpt in `error_message`; the target is marked `failed` when discovery fails, never
+  "0 open ports".

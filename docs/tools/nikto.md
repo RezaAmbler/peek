@@ -69,24 +69,35 @@ Nikto checks for:
 
 ## Output Format
 
-Nikto outputs JSON:
+Nikto 2.6.x writes a JSON **list of host records** (checked against
+`program/plugins/nikto_report_json.plugin` at tag `2.6.1`):
 
 ```json
-{
-    "host": "192.168.1.1",
-    "ip": "192.168.1.1",
-    "port": "80",
-    "vulnerabilities": [
-        {
-            "id": "999103",
-            "OSVDB": "3092",
-            "method": "GET",
-            "url": "/admin/",
-            "msg": "Directory indexing found"
-        }
-    ]
-}
+[
+    {
+        "host": "192.168.1.1",
+        "ip": "192.168.1.1",
+        "port": "80",
+        "server_banner": "Apache/2.4.41",
+        "vulnerabilities": [
+            {
+                "id": "999103",
+                "references": "",
+                "method": "GET",
+                "url": "/admin/",
+                "msg": "Directory indexing found"
+            }
+        ]
+    }
+]
 ```
+
+The parser also still accepts the older single-object and bare-list layouts.
+
+Nikto writes the report when it finishes and exits non-zero on errors (for example a
+missing Perl module such as `XML::Writer`, which 2.6.x requires at startup). The runner
+treats a non-zero exit, an empty report, invalid JSON or a report with zero host
+records as a failed run, not as "no findings".
 
 Parsed into:
 

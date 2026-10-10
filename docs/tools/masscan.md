@@ -10,7 +10,7 @@ masscan is a fast port scanner. **Note: This tool is legacy and has been replace
 
 | Issue | Description |
 |-------|-------------|
-| Raw socket requirement | Requires root/sudo and special permissions |
+| Raw socket requirement | Needs `cap_net_raw` (file capability in the worker image; no root/sudo) |
 | Docker compatibility | Needs host networking or special capabilities |
 | Interface detection | Often fails to detect correct interface |
 | Accuracy | Faster but less accurate than Nmap |
@@ -37,7 +37,7 @@ def run_masscan(
 ## Command Pattern
 
 ```bash
-sudo masscan <ip> -p0-65535 --rate=1000 \
+masscan <ip> -p0-65535 --rate=1000 \
      --output-format json --output-filename output.json \
      [--interface <iface>]
 ```

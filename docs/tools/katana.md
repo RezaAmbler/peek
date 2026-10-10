@@ -40,10 +40,23 @@ def run_katana(
 ## Command Pattern
 
 ```bash
-katana -u <target> -jsonl -silent -nc -d 2 -c 10 \
-       -rate-limit 150 -timeout 120 -field-scope rdn \
-       -automatic-form-fill -o output.jsonl
+katana -u <target> -jsonl -silent -nc -duc -d 2 -c 10 \
+       -rate-limit 150 -timeout 10 -crawl-duration 120s -field-scope rdn \
+       -omit-raw -omit-body -o output.jsonl -automatic-form-fill
 ```
+
+### Verified against katana v1.8.0
+
+Flags and JSON fields were checked against the upstream source at tag `v1.8.0`
+(`cmd/katana/main.go`, `pkg/navigation/request.go`, `pkg/navigation/response.go`).
+
+| Was | Now | Why |
+|-----|-----|-----|
+| `-timeout <overall>` | `-timeout 10 -crawl-duration <overall>s` | `-timeout` is the per-request timeout ("time to wait for request in seconds"). The overall budget is `-crawl-duration`. |
+| _(none)_ | `-omit-raw -omit-body` | The JSONL otherwise embeds raw requests/responses and bodies. |
+| `response.content_type` | `response.headers["content-type"]` | There is no `content_type` field; header names are lower-cased. |
+| `depth`, `source` | not available | `depth` is not serialised (`json:"-"`); `request.source` is the page the link was found on. PEEK stores depth 0. |
+| `-headless` | `-headless -system-chrome -no-sandbox` | Uses the image's Chromium (the phase currently always runs with `headless=False`). |
 
 ## Configuration Options
 
@@ -57,7 +70,8 @@ katana -u <target> -jsonl -silent -nc -d 2 -c 10 \
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `depth` | Crawl depth limit | 2 |
-| `timeout` | Overall timeout (seconds) | 120 |
+| `timeout` | Overall crawl budget in seconds (`-crawl-duration`) | 120 |
+| `request_timeout` | Per-request timeout in seconds (`-timeout`) | 10 |
 | `concurrency` | Concurrent requests | 10 |
 | `rate_limit` | Requests per second | 150 |
 | `max_endpoints` | Maximum endpoints to collect | 500 |
@@ -129,9 +143,11 @@ Discovered endpoints feed into Phase 5.5 (Nuclei Endpoint Mode):
 
 ## Timeout Handling
 
-- Returns partial results on timeout
-- Continues if some endpoints found before timeout
-- Reports timeout error with endpoint count
+- katana stops by itself when `-crawl-duration` is reached and exits 0 (a normal, complete result)
+- The subprocess limit is the crawl budget plus 30 s; if that is hit, or katana exits
+  non-zero, the run is recorded as failed (`success=False`, exit code 124 for a timeout)
+- Endpoints already written are still stored as partial results, and the error message
+  carries their count
 
 ## Security Notes
 

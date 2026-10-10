@@ -68,13 +68,31 @@ httpx -u <target> -json -silent -nc -timeout 30 -retries 2 \
 | Title | `-title` | Page title extraction |
 | Server | `-server` | Server header |
 | Hash | `-hash md5` | Response body hash |
-| Redirects | `-fr -maxr 10` | Follow up to 10 redirects |
+| Redirects | `-fr -maxr 10 -include-chain` | Follow up to 10 redirects; `-include-chain` puts the chain in the JSON |
 | Tech detect | `-td` | Technology fingerprinting |
-| TLS probe | `-tls-probe` | TLS version/cipher info |
+| TLS data | `-tls-grab` | TLS version/cipher info (the `tls` JSON object) |
 | JARM | `-jarm` | JARM TLS fingerprint |
-| CDN | `-cdn` | CDN detection |
-| Screenshots | `-ss -srd <dir>` | Webpage screenshots |
-| Vhost | `-vhost` | Virtual host discovery |
+| CDN | `-cdn` | CDN / WAF detection |
+| Screenshots | `-ss -system-chrome -ho=--no-sandbox -esb -ehb -srd <dir> -st <n>s` | Webpage screenshots |
+| Vhost | `-vhost` | Virtual host detection |
+| No update check | `-duc` | The binary is pinned by the image |
+
+### Verified against httpx v1.12.0
+
+Flags and JSON field names were checked against the upstream source at tag `v1.12.0`
+(`runner/options.go`, `runner/types.go`, `runner/runner.go`, `runner/headless.go`).
+Differences from what PEEK used before:
+
+| Was | Now | Why |
+|-----|-----|-----|
+| `-ssw <n>` | `-st <n>s` | `-ssw` does not exist in 1.12.0 (unknown flag = exit 2). `-st`/`--screenshot-timeout` takes a duration. |
+| `-tls-probe` | `-tls-grab` | `-tls-probe` also sends probes to every hostname in the certificate (hosts outside the scan target). `-tls-grab` returns the same `tls` object without that. |
+| _(none)_ | `-include-chain` | The `chain` field is only emitted with this flag. |
+| glob `*.png` in `-srd` dir | recursive search | Screenshots are written to `<srd>/screenshot/<host>/<hash>.png`. |
+| JSON `jarm` | JSON `jarm_hash` | Field name in 1.12.0 (the old name is still accepted). |
+| JSON `cdn` as a name | `cdn_name` + `cdn_type` | `cdn` is a boolean; `cdn_type` is `cdn`, `waf` or `cloud`. A `waf` type is stored in `HttpxResult.waf`. |
+| JSON `vhost` as a list | boolean | httpx only reports *that* the server routes by `Host` header, not the names. `virtual_hosts` therefore stays empty for httpx; the detection flag is in `parsed_output` (`vhost_detected`). |
+| JSON `chain` as URL list | list of objects | Each item has `request-url`, `status_code`, `location`; PEEK stores the `request-url` values. |
 
 ## Output Format
 
@@ -86,8 +104,12 @@ httpx -u <target> -json -silent -nc -timeout 30 -retries 2 \
     "webserver": "Apache/2.4.41",
     "tech": ["Apache", "Ubuntu"],
     "content_length": 10918,
-    "tls": {"version": "TLSv1.3", "cipher": "..."},
-    "jarm": "29d29d15d29d29d00042d42d000000..."
+    "tls": {"tls_version": "tls13", "cipher": "..."},
+    "hash": {"body_md5": "...", "header_md5": "..."},
+    "jarm_hash": "29d29d15d29d29d00042d42d000000...",
+    "cdn": true, "cdn_name": "cloudflare", "cdn_type": "waf",
+    "vhost": true,
+    "failed": false
 }
 ```
 
@@ -101,11 +123,29 @@ Parsed into `HttpxResult` model fields:
 
 ## Screenshots
 
-When `httpx_screenshots` is enabled:
-1. Creates temp directory for screenshots
-2. httpx captures PNG screenshots
-3. Screenshot path returned in `HttpxOutput`
-4. Caller handles screenshot storage/cleanup
+Screenshots are opt-in (`httpx_screenshots`, default off). When enabled:
+1. The runner creates a private temp directory and passes it as `-srd`
+2. httpx drives the Chromium installed in the worker image (`-system-chrome`; it never
+   downloads a browser at scan time) and writes `<srd>/screenshot/<host>/<hash>.png`
+3. The screenshot path is returned in `HttpxOutput.screenshot_path`
+4. The phase copies it to screenshot storage and calls `output.cleanup()`; when no
+   screenshot was captured the runner removes the directory itself
+
+Chromium runs with `--no-sandbox` because its sandbox cannot start inside the container
+(the worker is an unprivileged user without user-namespace support). The container is
+the isolation boundary: only enable screenshots for targets you are authorised to scan.
+
+The image can be built without Chromium (`--build-arg INSTALL_CHROMIUM=false`, about
+350 MB smaller). Screenshot runs then fail with "the chrome browser is not installed"
+on their `ToolExecution` instead of silently producing nothing.
+
+## Failure handling
+
+- Non-zero exit, timeout or missing binary: `HttpxOutput.success=False` with the stderr
+  excerpt in `error`; the real exit code and exact command line are stored on the
+  `ToolExecution` (124 = timeout, 127 = not installed).
+- Clean exit with no output: the port did not answer HTTP (`error="No HTTP response"`,
+  exit code 0) and an `HttpxResult` with `connection_failed=True` is stored.
 
 ## Database Model
 
