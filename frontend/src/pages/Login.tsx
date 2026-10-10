@@ -22,7 +22,7 @@ export function Login() {
       setAuth(response.user, response.access_token);
       toast.success('Login successful!');
       navigate({ to: '/dashboard' });
-    } catch (error) {
+    } catch {
       toast.error('Invalid username or password');
     } finally {
       setLoading(false);

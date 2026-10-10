@@ -71,7 +71,7 @@ export function UserForm({ mode, user, onSubmit, onCancel, loading = false }: Us
 
     try {
       await onSubmit(formData);
-    } catch (error) {
+    } catch {
       // Error handling is done in the parent component
     }
   };

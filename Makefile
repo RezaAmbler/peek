@@ -4,10 +4,10 @@
 .PHONY: help install test test-backend test-frontend test-watch build lint format format-check audit clean all
 
 VENV := .venv
-# Backend pins require Python >=3.10 (Docker runs 3.11); system python3 on macOS
+# Backend pins require Python >=3.11 (Docker runs 3.13); system python3 on macOS
 # is 3.9 (EOL), so prefer a modern interpreter explicitly. Override with
 # `make install PYTHON=python3.11` if needed.
-PYTHON ?= $(shell command -v python3.12 || command -v python3.11 || command -v python3.10 || echo python3)
+PYTHON ?= $(shell command -v python3.13 || command -v python3.12 || command -v python3.11 || echo python3)
 PY := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 NPM := cd frontend && npm
