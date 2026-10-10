@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator
 from typing import List
 import secrets
@@ -6,6 +6,9 @@ import os
 
 # Minimum acceptable SECRET_KEY length for security
 MIN_SECRET_KEY_LENGTH = 32
+
+# JWTs are HMAC-signed with SECRET_KEY; "none" or asymmetric algorithms would be a misconfiguration
+ALLOWED_JWT_ALGORITHMS = frozenset({"HS256", "HS384", "HS512"})
 
 class Settings(BaseSettings):
     # App
@@ -21,6 +24,15 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
 
+    # bcrypt cost factor for new password hashes. Existing hashes with a
+    # different cost keep verifying and are upgraded on the next successful login.
+    BCRYPT_ROUNDS: int = 12
+
+    # Password for the admin account that is created on first start, when no
+    # "admin" user exists yet. Never used again once the account exists.
+    # If unset, a random password is generated and printed once to the log.
+    INITIAL_ADMIN_PASSWORD: str = ""
+
     # CORS
     ALLOWED_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173"]
 
@@ -34,6 +46,7 @@ class Settings(BaseSettings):
     SSH_AUDIT_PATH: str = "ssh-audit"
     NUCLEI_PATH: str = "nuclei"
     HTTPX_PATH: str = "httpx"
+    KATANA_PATH: str = "katana"
 
     # Debug output (saves raw tool output to files when DEBUG=True)
     DEBUG_OUTPUT_DIR: str = "/app/data/debug"  # Inside container, maps to ./data/debug on host
@@ -65,10 +78,29 @@ class Settings(BaseSettings):
     WEBHOOK_URL: str = ""        # generic JSON POST endpoint
     SLACK_WEBHOOK_URL: str = ""  # Slack incoming webhook (text/blocks payload)
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
-        extra = "ignore"  # Ignore frontend env vars like VITE_API_URL
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=True,
+        extra="ignore",  # Ignore frontend env vars like VITE_API_URL
+    )
+
+    @field_validator('BCRYPT_ROUNDS')
+    @classmethod
+    def validate_bcrypt_rounds(cls, v: int) -> int:
+        """bcrypt accepts 4-31; below 10 is too weak for production, above 16 stalls logins."""
+        if not 4 <= v <= 31:
+            raise ValueError("BCRYPT_ROUNDS must be between 4 and 31")
+        return v
+
+    @field_validator('ALGORITHM')
+    @classmethod
+    def validate_algorithm(cls, v: str) -> str:
+        """Only HMAC JWT algorithms: tokens are signed with the shared SECRET_KEY."""
+        if v not in ALLOWED_JWT_ALGORITHMS:
+            raise ValueError(
+                f"ALGORITHM must be one of {sorted(ALLOWED_JWT_ALGORITHMS)} (got {v!r})"
+            )
+        return v
 
     @field_validator('SECRET_KEY')
     @classmethod

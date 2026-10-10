@@ -5,12 +5,39 @@ Runs targeted NSE scripts against specific ports based on service profiles.
 This is separate from the main nmap service detection to allow focused,
 per-service security analysis.
 """
-import subprocess
-import tempfile
+import os
+import re
 import xml.etree.ElementTree as ET
-from pathlib import Path
-from typing import Tuple, List, Optional, Dict
+from typing import List, Dict
 from ..core.config import settings
+from ..core.validators import validate_target, validate_port, ValidationError
+from .base import ToolResult, failure_reason, read_output, run_command, temp_workdir
+
+
+# NSE script names / categories / globs, with an optional directory prefix
+_SCRIPT_NAME_RE = re.compile(r'^[A-Za-z0-9_.*/-]+$')
+
+
+def _validate_scripts(scripts) -> None:
+    for script in scripts:
+        if not isinstance(script, str) or not _SCRIPT_NAME_RE.match(script):
+            raise ValidationError(f"invalid NSE script name: {script!r}")
+
+
+def _execute_nse(cmd: List[str], output_path, timeout: int, label: str) -> ToolResult:
+    """Run nmap writing XML to ``output_path``; non-zero exit is never a success."""
+    run = run_command(cmd, timeout=timeout)
+    raw_xml = read_output(output_path)
+
+    error = failure_reason(label, run, timeout)
+    if error:
+        return ToolResult.from_command(False, raw_xml if raw_xml.strip() else "", error, run)
+
+    if not raw_xml.strip():
+        return ToolResult.from_command(
+            False, "", f"{label} produced empty output: {run.diagnostics()}", run)
+
+    return ToolResult.from_command(True, raw_xml, None, run)
 
 
 def run_nmap_nse(
@@ -19,7 +46,7 @@ def run_nmap_nse(
     scripts: List[str],
     protocol: str = "tcp",
     timeout: int = 300
-) -> Tuple[bool, str, Optional[str]]:
+) -> ToolResult:
     """
     Execute nmap with specific NSE scripts against a single port.
 
@@ -31,65 +58,45 @@ def run_nmap_nse(
         timeout: Max execution time in seconds
 
     Returns:
-        (success: bool, raw_xml: str, error: Optional[str])
+        ToolResult, unpackable as (success: bool, raw_xml: str, error: Optional[str])
     """
     if not scripts:
-        return True, "", None
+        return ToolResult(True, "", None)
 
-    # Create temp file for XML output
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False) as f:
-        output_path = Path(f.name)
-
+    # Validate inputs to prevent command/argument injection
     try:
+        ip = validate_target(ip)
+        port = validate_port(port)
+        _validate_scripts(scripts)
+    except ValidationError as e:
+        return ToolResult(False, "", f"Input validation failed: {e}")
+
+    with temp_workdir('nmap_nse_') as workdir:
+        output_path = workdir / 'nse.xml'
+
         # Build script string: "script1,script2,script3"
         script_string = ','.join(scripts)
 
-        # Build command
+        if protocol == "udp":
+            scan_type = '-sU'  # needs raw sockets
+            privilege = ['--privileged'] if os.geteuid() != 0 else []
+        else:
+            scan_type = '-sT'  # TCP connect scan for Docker compatibility
+            privilege = []
+
         cmd = [
             settings.NMAP_PATH or 'nmap',
+            *privilege,
+            scan_type,
             '-Pn',                    # Skip host discovery
             '-sV',                    # Service version detection (helps scripts)
             f'-p{port}',              # Single port
             f'--script={script_string}',  # NSE scripts
             '-oX', str(output_path),  # XML output
+            ip,
         ]
 
-        # Add UDP flag if needed
-        if protocol == "udp":
-            cmd.insert(1, '-sU')
-        else:
-            cmd.insert(1, '-sT')  # TCP connect scan for Docker compatibility
-
-        cmd.append(ip)
-
-        # Execute
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout
-        )
-
-        # Check if output file exists
-        if not output_path.exists():
-            return False, "", f"Nmap NSE did not create output file. stderr: {result.stderr}"
-
-        # Read raw XML output
-        raw_xml = output_path.read_text()
-
-        if not raw_xml.strip():
-            return False, "", "Nmap NSE produced empty output"
-
-        return True, raw_xml, None
-
-    except subprocess.TimeoutExpired:
-        return False, "", f"Nmap NSE timed out after {timeout} seconds"
-    except Exception as e:
-        return False, "", f"Nmap NSE execution failed: {str(e)}"
-    finally:
-        # Cleanup temp file
-        if output_path.exists():
-            output_path.unlink()
+        return _execute_nse(cmd, output_path, timeout, "Nmap NSE")
 
 
 def parse_nse_output(raw_xml: str) -> List[Dict]:
@@ -123,7 +130,7 @@ def parse_nse_output(raw_xml: str) -> List[Dict]:
 
         for host in root.findall('host'):
             ports_section = host.find('ports')
-            if not ports_section:
+            if ports_section is None:
                 continue
 
             for port_elem in ports_section.findall('port'):
@@ -232,7 +239,7 @@ def run_nmap_nse_batch(
     ip: str,
     ports_scripts: List[Dict],
     timeout: int = 600
-) -> Tuple[bool, str, Optional[str]]:
+) -> ToolResult:
     """
     Run NSE scripts on multiple ports in a single nmap invocation.
 
@@ -245,73 +252,52 @@ def run_nmap_nse_batch(
     but all ports share the same script set.
     """
     if not ports_scripts:
-        return True, "", None
+        return ToolResult(True, "", None)
 
     # Collect all unique scripts and ports
     all_scripts = set()
     tcp_ports = set()
     udp_ports = set()
 
-    for ps in ports_scripts:
-        all_scripts.update(ps.get('scripts', []))
-        if ps.get('protocol', 'tcp') == 'udp':
-            udp_ports.add(ps['port'])
-        else:
-            tcp_ports.add(ps['port'])
+    try:
+        ip = validate_target(ip)
+        for ps in ports_scripts:
+            all_scripts.update(ps.get('scripts', []))
+            port = validate_port(ps['port'])
+            if ps.get('protocol', 'tcp') == 'udp':
+                udp_ports.add(port)
+            else:
+                tcp_ports.add(port)
+        _validate_scripts(all_scripts)
+    except (ValidationError, KeyError) as e:
+        return ToolResult(False, "", f"Input validation failed: {e}")
 
     if not all_scripts:
-        return True, "", None
+        return ToolResult(True, "", None)
 
-    # Create temp file for XML output
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False) as f:
-        output_path = Path(f.name)
+    with temp_workdir('nmap_nse_') as workdir:
+        output_path = workdir / 'nse.xml'
 
-    try:
-        # Build command
-        cmd = [
-            settings.NMAP_PATH or 'nmap',
+        cmd = [settings.NMAP_PATH or 'nmap']
+        if udp_ports and os.geteuid() != 0:
+            cmd.append('--privileged')  # -sU needs raw sockets (file capability)
+        cmd.extend([
             '-Pn',
             '-sV',
-            f'--script={",".join(all_scripts)}',
+            f'--script={",".join(sorted(all_scripts))}',
             '-oX', str(output_path),
-        ]
+        ])
 
         # Handle mixed TCP/UDP scanning
+        tcp_spec = ','.join(str(p) for p in sorted(tcp_ports))
+        udp_spec = ','.join(str(p) for p in sorted(udp_ports))
         if tcp_ports and udp_ports:
-            cmd.extend(['-sT', '-sU'])
-            port_spec = f'T:{",".join(str(p) for p in tcp_ports)},U:{",".join(str(p) for p in udp_ports)}'
-            cmd.extend(['-p', port_spec])
+            cmd.extend(['-sT', '-sU', '-p', f'T:{tcp_spec},U:{udp_spec}'])
         elif udp_ports:
-            cmd.append('-sU')
-            cmd.extend(['-p', ','.join(str(p) for p in udp_ports)])
+            cmd.extend(['-sU', '-p', udp_spec])
         else:
-            cmd.append('-sT')
-            cmd.extend(['-p', ','.join(str(p) for p in tcp_ports)])
+            cmd.extend(['-sT', '-p', tcp_spec])
 
         cmd.append(ip)
 
-        # Execute
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout
-        )
-
-        if not output_path.exists():
-            return False, "", f"Nmap NSE batch did not create output file. stderr: {result.stderr}"
-
-        raw_xml = output_path.read_text()
-
-        if not raw_xml.strip():
-            return False, "", "Nmap NSE batch produced empty output"
-
-        return True, raw_xml, None
-
-    except subprocess.TimeoutExpired:
-        return False, "", f"Nmap NSE batch timed out after {timeout} seconds"
-    except Exception as e:
-        return False, "", f"Nmap NSE batch execution failed: {str(e)}"
-    finally:
-        if output_path.exists():
-            output_path.unlink()
+        return _execute_nse(cmd, output_path, timeout, "Nmap NSE batch")

@@ -7,13 +7,12 @@ Analyzes:
 - Certificate details
 - Known vulnerabilities (Heartbleed, etc.)
 """
-import subprocess
-import tempfile
 import xml.etree.ElementTree as ET
-from pathlib import Path
-from typing import Tuple, List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 from ..core.config import settings
+from ..core.validators import validate_target, validate_port, ValidationError
+from .base import ToolResult, failure_reason, read_output, run_command, temp_workdir
 
 
 # Default sslscan path
@@ -25,7 +24,7 @@ def run_sslscan(
     port: int,
     timeout: int = 60,
     connect_timeout: int = 10
-) -> Tuple[bool, str, Optional[str]]:
+) -> ToolResult:
     """
     Execute sslscan against a single SSL/TLS endpoint.
 
@@ -36,13 +35,19 @@ def run_sslscan(
         connect_timeout: Connection timeout in seconds
 
     Returns:
-        (success: bool, raw_xml: str, error: Optional[str])
+        ToolResult, unpackable as (success: bool, raw_xml: str, error: Optional[str])
     """
-    # Create temp file for XML output
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False) as f:
-        output_path = Path(f.name)
-
+    # Validate inputs to prevent command/argument injection
     try:
+        ip = validate_target(ip)
+        port = validate_port(port)
+        connect_timeout = int(connect_timeout)
+    except (ValidationError, TypeError, ValueError) as e:
+        return ToolResult(False, "", f"Input validation failed: {e}")
+
+    with temp_workdir('sslscan_') as workdir:
+        output_path = workdir / 'sslscan.xml'
+
         cmd = [
             SSLSCAN_PATH,
             f'--xml={output_path}',
@@ -51,39 +56,22 @@ def run_sslscan(
             f'{ip}:{port}'
         ]
 
-        # Execute
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout
-        )
+        run = run_command(cmd, timeout=timeout)
+        raw_xml = read_output(output_path)
 
-        # Check if output file exists
-        if not output_path.exists():
-            return False, "", f"sslscan did not create output file. stderr: {result.stderr}"
-
-        # Read raw XML output
-        raw_xml = output_path.read_text()
+        error = failure_reason("sslscan", run, timeout)
+        if error:
+            return ToolResult.from_command(False, raw_xml if raw_xml.strip() else "", error, run)
 
         if not raw_xml.strip():
-            return False, "", "sslscan produced empty output"
+            return ToolResult.from_command(
+                False, "", f"sslscan produced empty output: {run.diagnostics()}", run)
 
         # Check for connection errors in output
-        if 'Failed to connect' in result.stdout or 'Failed to connect' in result.stderr:
-            return False, raw_xml, "Connection failed"
+        if 'Failed to connect' in run.stdout or 'Failed to connect' in run.stderr:
+            return ToolResult.from_command(False, raw_xml, "Connection failed", run)
 
-        return True, raw_xml, None
-
-    except subprocess.TimeoutExpired:
-        return False, "", f"sslscan timed out after {timeout} seconds"
-    except FileNotFoundError:
-        return False, "", "sslscan not found in PATH"
-    except Exception as e:
-        return False, "", f"sslscan execution failed: {str(e)}"
-    finally:
-        if output_path.exists():
-            output_path.unlink()
+        return ToolResult.from_command(True, raw_xml, None, run)
 
 
 def parse_sslscan_output(raw_xml: str) -> Dict[str, Any]:

@@ -1,11 +1,12 @@
 import logging
-import subprocess
-import tempfile
+import os
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Tuple, List, Optional, Dict
+from typing import List, Optional, Dict
 from ..core.config import settings
 from ..core.validators import validate_target, validate_port_list, ValidationError
+from .base import ToolResult, failure_reason, read_output, run_command, temp_workdir
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +24,48 @@ NMAP_TOP_100_PORTS = [
     8888, 9100, 9999, 10000, 32768, 49152, 49153, 49154, 49155, 49156
 ]
 
+# Scan types that need raw sockets
+_RAW_SOCKET_FLAGS = ('-sS', '-sU', '-sA', '-sW', '-sM', '-sN', '-sF', '-sX', '-sO', '-O')
+
+
+def _privilege_args(nmap_args: List[str]) -> List[str]:
+    """Extra args so raw-socket scans work for the non-root worker user.
+
+    The worker image grants nmap ``cap_net_raw`` through file capabilities
+    instead of running it as root via sudo. nmap only uses those capabilities
+    when told it is privileged, hence ``--privileged``. If the capability is
+    missing nmap exits non-zero and the run is recorded as failed.
+    """
+    if os.geteuid() == 0:
+        return []
+    if any(arg in _RAW_SOCKET_FLAGS for arg in nmap_args):
+        return ['--privileged']
+    return []
+
+
+def _execute_nmap(cmd: List[str], output_path: Path, timeout: int, label: str) -> ToolResult:
+    """Run nmap writing XML to ``output_path`` and classify the outcome."""
+    run = run_command(cmd, timeout=timeout)
+    raw_xml = read_output(output_path)
+
+    error = failure_reason(label, run, timeout)
+    if error:
+        # Keep whatever XML was written for debugging, but never report success
+        return ToolResult.from_command(False, raw_xml if raw_xml.strip() else "", error, run)
+
+    if not raw_xml.strip():
+        return ToolResult.from_command(
+            False, "", f"{label} produced empty output: {run.diagnostics()}", run)
+
+    return ToolResult.from_command(True, raw_xml, None, run)
+
+
 def run_nmap(
     ip: str,
     ports: List[int],
     nmap_args: List[str],
     timeout: int = 600
-) -> Tuple[bool, str, Optional[str]]:
+) -> ToolResult:
     """
     Execute nmap for service detection on specific ports.
 
@@ -39,77 +76,38 @@ def run_nmap(
         timeout: Max execution time in seconds
 
     Returns:
-        (success: bool, raw_xml: str, error: Optional[str])
+        ToolResult, unpackable as (success: bool, raw_xml: str, error: Optional[str])
     """
     if not ports:
-        return True, "", None  # No ports to scan = success
+        return ToolResult(True, "", None)  # No ports to scan = success
 
     # Validate inputs to prevent command injection
     try:
         ip = validate_target(ip)
         ports = validate_port_list(ports)
     except ValidationError as e:
-        return False, "", f"Input validation failed: {e}"
+        return ToolResult(False, "", f"Input validation failed: {e}")
 
-    # Create temp file for XML output
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False) as f:
-        output_path = Path(f.name)
+    with temp_workdir('nmap_') as workdir:
+        output_path = workdir / 'scan.xml'
 
-    try:
         # Build port list: "22,80,443,8080"
         port_string = ','.join(str(p) for p in sorted(set(ports)))
 
         # Filter nmap_args to remove any existing -p flags
         filtered_args = [arg for arg in nmap_args if not arg.startswith('-p')]
 
-        # Check if -sS is present (requires sudo)
-        needs_sudo = '-sS' in filtered_args
-
-        # Build command
-        cmd = []
-        if needs_sudo:
-            cmd.append('sudo')
-
-        cmd.extend([
+        cmd = [
             settings.NMAP_PATH or 'nmap',
+            *_privilege_args(filtered_args),
             *filtered_args,
             '-p', port_string,
             '-oX', str(output_path),
             ip
-        ])
+        ]
 
-        # Execute
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout
-        )
+        return _execute_nmap(cmd, output_path, timeout, "Nmap")
 
-        # Check if output file exists
-        if not output_path.exists():
-            return False, "", f"Nmap did not create output file. stderr: {result.stderr}"
-
-        # Read raw XML output
-        raw_xml = output_path.read_text()
-
-        if not raw_xml.strip():
-            return False, "", "Nmap produced empty output"
-
-        # Nmap returns non-zero on some errors but zero on success
-        if result.returncode != 0 and "error" in result.stderr.lower():
-            return False, raw_xml, f"Nmap error: {result.stderr}"
-
-        return True, raw_xml, None
-
-    except subprocess.TimeoutExpired:
-        return False, "", f"Nmap timed out after {timeout} seconds"
-    except Exception as e:
-        return False, "", f"Nmap execution failed: {str(e)}"
-    finally:
-        # Cleanup temp file
-        if output_path.exists():
-            output_path.unlink()
 
 def run_nmap_discovery(
     ip: str,
@@ -118,7 +116,7 @@ def run_nmap_discovery(
     top_ports: Optional[int] = None,
     additional_ports: Optional[str] = None,
     full_scan: bool = False
-) -> Tuple[bool, str, Optional[str]]:
+) -> ToolResult:
     """
     Execute nmap for port discovery.
 
@@ -134,27 +132,26 @@ def run_nmap_discovery(
         full_scan: If True, scan all 65,535 ports (slow, needs longer timeout)
 
     Returns:
-        (success: bool, raw_xml: str, error: Optional[str])
+        ToolResult, unpackable as (success: bool, raw_xml: str, error: Optional[str])
     """
     # Validate inputs to prevent command injection
     try:
         ip = validate_target(ip)
+        if not re.fullmatch(r'T[0-5]', timing_template or ''):
+            raise ValidationError(f"invalid timing template: {timing_template!r}")
     except ValidationError as e:
-        return False, "", f"Input validation failed: {e}"
+        return ToolResult(False, "", f"Input validation failed: {e}")
 
-    # Create temp file for XML output
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False) as f:
-        output_path = Path(f.name)
+    with temp_workdir('nmap_') as workdir:
+        output_path = workdir / 'discovery.xml'
 
-    try:
         # Build command for port discovery
         # -Pn: Skip host discovery (assume host is up)
-        # -sT: TCP connect scan (works in Docker containers without raw sockets)
+        # -sT: TCP connect scan (needs no raw sockets, so no sudo/capabilities)
         # --open: Only show open ports (reduces output noise)
         # --max-retries 2: Limit retries for filtered ports (default 10 is too slow)
         # --host-timeout: Cap total time per host to prevent filtered hosts from blocking
         cmd = [
-            'sudo',
             settings.NMAP_PATH or 'nmap',
             '-Pn',
             '-sT',
@@ -193,34 +190,9 @@ def run_nmap_discovery(
 
         cmd.extend(['-oX', str(output_path), ip])
 
-        # Execute
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout
-        )
-
-        # Check if output file exists
-        if not output_path.exists():
-            return False, "", f"Nmap did not create output file. stderr: {result.stderr}"
-
-        # Read raw XML output
-        raw_xml = output_path.read_text()
-
-        if not raw_xml.strip():
-            return False, "", "Nmap produced empty output"
-
-        return True, raw_xml, None
-
-    except subprocess.TimeoutExpired:
-        return False, "", f"Nmap discovery timed out after {timeout} seconds"
-    except Exception as e:
-        return False, "", f"Nmap discovery failed: {str(e)}"
-    finally:
-        # Cleanup temp file
-        if output_path.exists():
-            output_path.unlink()
+        # The subprocess limit sits a little above --host-timeout so nmap can
+        # give up on the host by itself and still write complete XML.
+        return _execute_nmap(cmd, output_path, timeout + 30, "Nmap discovery")
 
 
 def parse_nmap_discovery(raw_xml: str) -> List[Dict]:
@@ -239,7 +211,7 @@ def parse_nmap_discovery(raw_xml: str) -> List[Dict]:
 
         for host in root.findall('host'):
             ports_section = host.find('ports')
-            if not ports_section:
+            if ports_section is None:
                 continue
 
             for port_elem in ports_section.findall('port'):
@@ -287,7 +259,7 @@ def parse_nmap_xml(raw_xml: str) -> List[Dict]:
         for host in root.findall('host'):
             # Find <ports> section
             ports_section = host.find('ports')
-            if not ports_section:
+            if ports_section is None:
                 continue
 
             # Find all <port> elements

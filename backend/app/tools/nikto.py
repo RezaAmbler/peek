@@ -1,12 +1,10 @@
 """Nikto web server scanner integration."""
-import subprocess
 import json
 import logging
-import tempfile
-from pathlib import Path
-from typing import Tuple, Optional, List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from ..core.validators import validate_target, validate_port, ValidationError
+from .base import ToolResult, failure_reason, read_output, run_command, temp_workdir
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +14,7 @@ def run_nikto(
     port: int = 80,
     timeout: int = 120,
     ssl: bool = False
-) -> Tuple[bool, Optional[str], Optional[str]]:
+) -> ToolResult:
     """
     Run Nikto against a web server.
 
@@ -27,26 +25,27 @@ def run_nikto(
         ssl: Use SSL/TLS
 
     Returns:
-        Tuple of (success, json_output, error_message)
+        ToolResult, unpackable as (success, json_output, error_message).
+        A non-zero exit or an empty report is a failure, never a clean scan:
+        Nikto writes the host record to the JSON report even when it has no
+        findings, so "no output" means it did not test the server.
     """
     # Validate inputs to prevent command injection
     try:
         target = validate_target(target)
         port = validate_port(port)
     except ValidationError as e:
-        return False, None, f"Input validation failed: {e}"
+        return ToolResult(False, None, f"Input validation failed: {e}")
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-        output_path = f.name
+    with temp_workdir('nikto_') as workdir:
+        output_path = workdir / 'report.json'
 
-    try:
-        # Build command
         cmd = [
             'nikto',
             '-h', target,
             '-p', str(port),
             '-Format', 'json',
-            '-output', output_path,
+            '-output', str(output_path),
             '-nointeractive',
             '-maxtime', f'{timeout}s',
         ]
@@ -54,40 +53,76 @@ def run_nikto(
         if ssl:
             cmd.append('-ssl')
 
-        cmd_str = ' '.join(cmd)
-        logger.info(f"Running Nikto: {cmd_str}")
+        logger.info(f"Running Nikto: {' '.join(cmd)}")
 
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout + 30  # Buffer beyond nikto's internal timeout
-        )
+        # Buffer beyond nikto's internal -maxtime so it can write its report
+        run = run_command(cmd, timeout=timeout + 30)
+        raw_json = read_output(output_path)
+        has_output = bool(raw_json.strip())
 
-        # Read output file
-        output_file = Path(output_path)
-        if output_file.exists():
-            raw_json = output_file.read_text()
-            if raw_json.strip():
-                logger.info(f"Nikto completed for {target}:{port}")
-                return True, raw_json, None
+        error = failure_reason("Nikto", run, timeout + 30)
+        if error:
+            logger.warning(f"Nikto failed for {target}:{port}: {error}")
+            return ToolResult.from_command(False, raw_json if has_output else None, error, run)
+
+        if not has_output:
+            error = f"Nikto produced no report (no web server found?): {run.diagnostics()}"
+            logger.warning(f"{error} [{target}:{port}]")
+            return ToolResult.from_command(False, None, error, run)
+
+        hosts = count_nikto_hosts(raw_json)
+        if hosts is None:
+            return ToolResult.from_command(False, raw_json, "Nikto report is not valid JSON", run)
+        if hosts == 0:
+            # "[]": Nikto ran but tested no host, which is not a clean result
+            error = f"Nikto tested 0 hosts (no web server found?): {run.diagnostics()}"
+            return ToolResult.from_command(False, raw_json, error, run)
+
+        logger.info(f"Nikto completed for {target}:{port}")
+        return ToolResult.from_command(True, raw_json, None, run)
+
+
+def _collect_nikto_items(data) -> List[Dict[str, Any]]:
+    """Flatten the supported Nikto JSON layouts into a list of finding dicts."""
+    if isinstance(data, list):
+        items: List[Dict[str, Any]] = []
+        for entry in data:
+            if isinstance(entry, dict) and isinstance(entry.get('vulnerabilities'), list):
+                # Host record (Nikto 2.6.x): findings are nested
+                items.extend(entry['vulnerabilities'])
+            elif isinstance(entry, dict) and _is_host_record(entry):
+                continue  # Host record without findings
             else:
-                logger.warning(f"Nikto produced empty output for {target}:{port}")
-                return True, None, "Empty output"
-        else:
-            stderr_preview = result.stderr[:500] if result.stderr else "no stderr"
-            logger.warning(f"Nikto did not produce output file for {target}:{port}: {stderr_preview}")
-            return False, None, f"No output file. stderr: {stderr_preview}"
+                items.append(entry)  # Legacy: bare list of findings
+        return items
 
-    except subprocess.TimeoutExpired:
-        logger.warning(f"Nikto timed out after {timeout}s for {target}:{port}")
-        return False, None, f"Timeout after {timeout} seconds"
-    except Exception as e:
-        logger.error(f"Nikto error for {target}:{port}: {e}")
-        return False, None, str(e)
-    finally:
-        # Cleanup
-        Path(output_path).unlink(missing_ok=True)
+    if isinstance(data, dict):
+        for key in ('vulnerabilities', 'items'):
+            if isinstance(data.get(key), list) and data[key]:
+                return data[key]
+        # Check if it's nested under a host key
+        for key in ('host', 'results', 'scan'):
+            nested = data.get(key)
+            if isinstance(nested, dict):
+                found = nested.get('vulnerabilities') or nested.get('items')
+                if isinstance(found, list) and found:
+                    return found
+    return []
+
+
+def _is_host_record(entry: Dict[str, Any]) -> bool:
+    return 'ip' in entry and 'msg' not in entry and 'id' not in entry
+
+
+def count_nikto_hosts(raw_json: str) -> Optional[int]:
+    """Number of host records in a Nikto report, or None if it is not valid JSON."""
+    try:
+        data = json.loads(raw_json)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if isinstance(data, list):
+        return len(data)
+    return 1 if isinstance(data, dict) and data else 0
 
 
 def parse_nikto_output(raw_json: str) -> List[Dict[str, Any]]:
@@ -107,26 +142,11 @@ def parse_nikto_output(raw_json: str) -> List[Dict[str, Any]]:
     try:
         data = json.loads(raw_json)
 
-        # Nikto JSON structure: can be a dict with host info or a list
-        # Common structure: {"host": "...", "ip": "...", "port": "...", "vulnerabilities": [...]}
+        # Nikto 2.6.x writes a list of host records:
+        #   [{"host": "...", "ip": "...", "port": "...", "vulnerabilities": [...]}]
+        # Older releases wrote a single host record, or a bare list of findings.
 
-        vulns = []
-        if isinstance(data, dict):
-            # Check for vulnerabilities array
-            vulns = data.get('vulnerabilities', [])
-            if not vulns:
-                # Alternative: items array
-                vulns = data.get('items', [])
-            if not vulns:
-                # Check if it's nested under a host key
-                for key in ['host', 'results', 'scan']:
-                    if key in data and isinstance(data[key], dict):
-                        vulns = data[key].get('vulnerabilities', []) or data[key].get('items', [])
-                        if vulns:
-                            break
-        elif isinstance(data, list):
-            # Direct list of findings
-            vulns = data
+        vulns = _collect_nikto_items(data)
 
         for vuln in vulns:
             if not isinstance(vuln, dict):

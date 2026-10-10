@@ -11,7 +11,7 @@ import uuid
 import logging
 
 from ..models import DiscoveredEndpoint, ToolExecution, ScanTarget, Port, Scan
-from ..tools.katana import KatanaOutput, KatanaEndpoint
+from ..tools.katana import KatanaOutput, KatanaEndpoint, _parse_katana_output
 from ..services.url_normalizer import normalize_url, compute_endpoint_hash
 
 logger = logging.getLogger(__name__)
@@ -165,38 +165,11 @@ def create_endpoints_from_raw_jsonl(
     Returns:
         List of created DiscoveredEndpoint records
     """
-    import json
-
     if not raw_output or not raw_output.strip():
         return []
 
-    # Parse JSONL into KatanaEndpoints
-    endpoints = []
-    for line in raw_output.strip().split('\n'):
-        if not line.strip():
-            continue
-        try:
-            data = json.loads(line)
-            # Extract URL - handle different Katana output formats
-            url = data.get('request', {}).get('endpoint') or data.get('endpoint') or data.get('url')
-            if not url:
-                continue
-
-            method = data.get('request', {}).get('method') or data.get('method') or 'GET'
-            response = data.get('response', {})
-
-            endpoint = KatanaEndpoint(
-                url=url,
-                method=method.upper() if method else 'GET',
-                status_code=response.get('status_code') or data.get('status_code'),
-                content_type=response.get('content_type') or data.get('content_type'),
-                content_length=response.get('content_length') or data.get('content_length'),
-                depth=data.get('depth', 0),
-                source=data.get('source', 'crawl'),
-            )
-            endpoints.append(endpoint)
-        except json.JSONDecodeError:
-            continue
+    # Parse JSONL with the runner's parser so both entry points read the same fields
+    endpoints = _parse_katana_output(raw_output, max_endpoints=10**9)
 
     # Create KatanaOutput and use main function
     katana_output = KatanaOutput(

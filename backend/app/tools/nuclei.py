@@ -1,13 +1,67 @@
-import subprocess
 import json
-import tempfile
 import logging
 from pathlib import Path
-from typing import Tuple, List, Optional
+from typing import List, Optional
 from ..core.config import settings
-from ..core.validators import validate_target, ValidationError
+from ..core.validators import SHELL_METACHARACTERS
+from .base import ToolResult, failure_reason, read_output, run_command, temp_workdir
 
 logger = logging.getLogger(__name__)
+
+def _build_nuclei_command(
+    output_path: Path,
+    severity: str,
+    rate_limit: int,
+    tags: Optional[List[str]],
+    exclude_templates: Optional[List[str]],
+) -> List[str]:
+    """Flags shared by target-mode and list-mode (verified against nuclei v3.11.1)."""
+    cmd = [
+        settings.NUCLEI_PATH or 'nuclei',
+        '-severity', severity,
+        '-jsonl-export', str(output_path),  # Export results to JSONL file
+        '-silent',  # Suppress banner
+        '-no-color',
+        '-no-interactsh',  # Disable interactsh for faster scans
+        '-omit-raw',  # Strip raw request/response to reduce output size
+        '-rate-limit', str(rate_limit),
+        # The image ships a pinned template set; without this nuclei would
+        # check for and install newer templates on every run.
+        '-disable-update-check',
+    ]
+
+    if tags:
+        cmd.extend(['-tags', ','.join(tags)])
+
+    if exclude_templates:
+        for exclusion in exclude_templates:
+            cmd.extend(['-exclude-templates', exclusion])
+
+    return cmd
+
+
+def _execute_nuclei(cmd: List[str], output_path: Path, timeout: int, label: str) -> ToolResult:
+    """Run nuclei and decide success from the exit code, not from the output file.
+
+    nuclei exits 0 when the scan ran (with or without findings) and non-zero on
+    any fatal error (unknown flag, no templates loaded, bad input). The JSONL
+    export is only written when nuclei shuts down cleanly, so an empty or
+    missing file proves nothing by itself.
+    """
+    run = run_command(cmd, timeout=timeout)
+    raw_jsonl = read_output(output_path)
+
+    error = failure_reason(label, run, timeout)
+    if error:
+        logger.warning(f"{label} failed: {error}")
+        return ToolResult.from_command(False, raw_jsonl if raw_jsonl.strip() else "", error, run)
+
+    if not raw_jsonl.strip():
+        # Clean exit and no results = no vulnerabilities found
+        raw_jsonl = ""
+
+    return ToolResult.from_command(True, raw_jsonl, None, run)
+
 
 def run_nuclei(
     target_url: str = None,
@@ -18,7 +72,7 @@ def run_nuclei(
     timeout: int = 300,
     rate_limit: int = 150,
     exclude_templates: Optional[List[str]] = None
-) -> Tuple[bool, str, Optional[str]]:
+) -> ToolResult:
     """
     Execute Nuclei vulnerability scanner.
 
@@ -33,83 +87,34 @@ def run_nuclei(
         exclude_templates: List of template patterns to exclude
 
     Returns:
-        (success: bool, raw_jsonl: str, error: Optional[str])
+        ToolResult, unpackable as (success: bool, raw_jsonl: str, error: Optional[str]).
+        A non-zero exit, timeout or missing binary is success=False - never an
+        empty "clean" result.
     """
     # Support both 'target' and legacy 'target_url' parameter
     actual_target = target or target_url
     if not actual_target:
-        return False, "", "No target specified"
+        return ToolResult(False, "", "No target specified")
 
     # Validate target to prevent command injection
     # For nuclei, target can be URL (http://...) or host:port (192.168.1.1:22)
     # We check for shell metacharacters in the raw target
-    dangerous_chars = set(';&|`$(){}[]<>\\"\'\n\r\t').intersection(actual_target)
-    if dangerous_chars:
-        return False, "", f"Invalid target: contains shell metacharacters {dangerous_chars}"
+    dangerous_chars = SHELL_METACHARACTERS.intersection(actual_target)
+    if dangerous_chars or actual_target.startswith('-'):
+        return ToolResult(False, "", f"Invalid target: contains shell metacharacters {dangerous_chars or '-'}")
 
-    # Create temp file for output
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
-        output_path = Path(f.name)
+    with temp_workdir('nuclei_') as workdir:
+        output_path = workdir / 'results.jsonl'  # does not exist until nuclei writes it
 
-    try:
-        # Build command
-        cmd = [
-            settings.NUCLEI_PATH or 'nuclei',
-            '-target', actual_target,
-            '-severity', severity,
-            '-jsonl-export', str(output_path),  # Export results to JSONL file
-            '-silent',  # Suppress banner
-            '-no-color',
-            '-no-interactsh',  # Disable interactsh for faster scans
-            '-omit-raw',  # Strip raw request/response to reduce output size
-            '-rate-limit', str(rate_limit),
-        ]
-
-        # Add tags for service-specific scanning
-        if tags:
-            cmd.extend(['-tags', ','.join(tags)])
+        cmd = _build_nuclei_command(output_path, severity, rate_limit, tags, exclude_templates)
+        cmd.extend(['-target', actual_target])
 
         # Add custom templates if specified (templates override tags)
         if templates:
             cmd.extend(['-templates', templates])
 
-        # Add exclusions if provided
-        if exclude_templates:
-            for exclusion in exclude_templates:
-                cmd.extend(['-exclude-templates', exclusion])
+        return _execute_nuclei(cmd, output_path, timeout, "Nuclei")
 
-        # Execute
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout
-        )
-
-        # Check if output file exists
-        if not output_path.exists():
-            return False, "", f"Nuclei did not create output file. stderr: {result.stderr}"
-
-        # Read raw JSONL output
-        raw_jsonl = output_path.read_text()
-
-        if not raw_jsonl.strip():
-            # Empty output = no vulnerabilities found (this is success)
-            raw_jsonl = ""
-
-        # Nuclei returns 0 even if vulns found
-        return True, raw_jsonl, None
-
-    except subprocess.TimeoutExpired:
-        return False, "", f"Nuclei timed out after {timeout} seconds"
-    except FileNotFoundError:
-        return False, "", "nuclei not found. Install from: https://github.com/projectdiscovery/nuclei"
-    except Exception as e:
-        return False, "", f"Nuclei execution failed: {str(e)}"
-    finally:
-        # Cleanup temp file
-        if output_path.exists():
-            output_path.unlink()
 
 def run_nuclei_list(
     urls_file: str,
@@ -118,7 +123,7 @@ def run_nuclei_list(
     timeout: int = 600,
     rate_limit: int = 50,
     exclude_templates: Optional[List[str]] = None
-) -> Tuple[bool, str, Optional[str]]:
+) -> ToolResult:
     """
     Execute Nuclei against a list of URLs (endpoint mode).
 
@@ -134,78 +139,28 @@ def run_nuclei_list(
         exclude_templates: List of template patterns to exclude
 
     Returns:
-        (success: bool, raw_jsonl: str, error: Optional[str])
+        ToolResult, unpackable as (success: bool, raw_jsonl: str, error: Optional[str])
     """
     if not urls_file:
-        return False, "", "No URLs file specified"
+        return ToolResult(False, "", "No URLs file specified")
 
     # Verify file exists
     if not Path(urls_file).exists():
-        return False, "", f"URLs file not found: {urls_file}"
+        return ToolResult(False, "", f"URLs file not found: {urls_file}")
 
     # Default to HTTP-relevant tags if not specified
     if tags is None:
         tags = ['http', 'cve', 'exposure', 'misconfig', 'tech']
 
-    # Create temp file for output
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
-        output_path = Path(f.name)
+    with temp_workdir('nuclei_') as workdir:
+        output_path = workdir / 'results.jsonl'
 
-    try:
-        # Build command
-        cmd = [
-            settings.NUCLEI_PATH or 'nuclei',
-            '-list', urls_file,
-            '-severity', severity,
-            '-jsonl-export', str(output_path),
-            '-silent',
-            '-no-color',
-            '-no-interactsh',
-            '-omit-raw',
-            '-rate-limit', str(rate_limit),
-        ]
+        cmd = _build_nuclei_command(output_path, severity, rate_limit, tags, exclude_templates)
+        cmd.extend(['-list', urls_file])
 
-        # Add tags for HTTP-relevant scanning
-        if tags:
-            cmd.extend(['-tags', ','.join(tags)])
+        logger.info(f"Running nuclei list-mode ({Path(urls_file).stat().st_size} bytes input)")
 
-        # Add exclusions if provided
-        if exclude_templates:
-            for exclusion in exclude_templates:
-                cmd.extend(['-exclude-templates', exclusion])
-
-        logger.info(f"Running nuclei list-mode: {' '.join(cmd[:8])}... ({Path(urls_file).stat().st_size} bytes input)")
-
-        # Execute
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout
-        )
-
-        # Check if output file exists
-        if not output_path.exists():
-            return False, "", f"Nuclei did not create output file. stderr: {result.stderr}"
-
-        # Read raw JSONL output
-        raw_jsonl = output_path.read_text()
-
-        if not raw_jsonl.strip():
-            raw_jsonl = ""  # No vulnerabilities found
-
-        return True, raw_jsonl, None
-
-    except subprocess.TimeoutExpired:
-        return False, "", f"Nuclei list-mode timed out after {timeout} seconds"
-    except FileNotFoundError:
-        return False, "", "nuclei not found. Install from: https://github.com/projectdiscovery/nuclei"
-    except Exception as e:
-        return False, "", f"Nuclei list-mode execution failed: {str(e)}"
-    finally:
-        # Cleanup temp file
-        if output_path.exists():
-            output_path.unlink()
+        return _execute_nuclei(cmd, output_path, timeout, "Nuclei list-mode")
 
 
 def extract_port_from_matched_at(matched_at: str) -> Optional[int]:

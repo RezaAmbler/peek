@@ -1,9 +1,8 @@
-import subprocess
 import json
 import re
-from typing import Tuple, Optional
 from ..core.config import settings
 from ..core.validators import validate_target, validate_port, ValidationError
+from .base import ToolResult, failure_reason, run_command, snippet
 
 
 def _extract_ssh_audit_error(raw_output: str) -> str:
@@ -46,7 +45,7 @@ def run_ssh_audit(
     ip: str,
     port: int = 22,
     timeout: int = 60
-) -> Tuple[bool, str, Optional[str]]:
+) -> ToolResult:
     """
     Execute ssh-audit for SSH security assessment.
 
@@ -63,50 +62,42 @@ def run_ssh_audit(
         ip = validate_target(ip)
         port = validate_port(port)
     except ValidationError as e:
-        return False, "", f"Input validation failed: {e}"
+        return ToolResult(False, "", f"Input validation failed: {e}")
 
+    cmd = [
+        settings.SSH_AUDIT_PATH or 'ssh-audit',
+        '-j',  # JSON output
+        '-p', str(port),
+        ip
+    ]
+
+    run = run_command(cmd, timeout=timeout)
+
+    if not run.ran:
+        # Timeout, missing binary or OS error: the tool never finished
+        return ToolResult.from_command(False, "", failure_reason("ssh-audit", run, timeout), run)
+
+    # ssh-audit's exit code reflects the audit verdict (1 = connection error,
+    # 2 = warnings, 3 = failures), so a non-zero code alone is not a tool
+    # failure: the JSON on stdout decides.
+    raw_json = run.stdout
+
+    if not raw_json.strip():
+        # Empty output or connection failed
+        error_msg = snippet(run.stderr) or f"No output from ssh-audit (exit code {run.returncode})"
+        return ToolResult.from_command(False, "", error_msg, run)
+
+    # Try to parse to verify it's valid JSON
     try:
-        # Build command
-        cmd = [
-            settings.SSH_AUDIT_PATH or 'ssh-audit',
-            '-j',  # JSON output
-            '-p', str(port),
-            ip
-        ]
+        json.loads(raw_json)
+    except json.JSONDecodeError:
+        # ssh-audit outputs colored error messages when connection fails
+        # Extract the actual error message instead of showing "Invalid JSON"
+        actual_error = _extract_ssh_audit_error(raw_json)
+        return ToolResult.from_command(False, raw_json, actual_error, run)
 
-        # Execute
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout
-        )
+    return ToolResult.from_command(True, raw_json, None, run)
 
-        # ssh-audit returns non-zero if issues found, but output is still valid
-        raw_json = result.stdout
-
-        if not raw_json.strip():
-            # Empty output or connection failed
-            error_msg = result.stderr or "No output from ssh-audit"
-            return False, "", error_msg
-
-        # Try to parse to verify it's valid JSON
-        try:
-            json.loads(raw_json)
-        except json.JSONDecodeError:
-            # ssh-audit outputs colored error messages when connection fails
-            # Extract the actual error message instead of showing "Invalid JSON"
-            actual_error = _extract_ssh_audit_error(raw_json)
-            return False, raw_json, actual_error
-
-        return True, raw_json, None
-
-    except subprocess.TimeoutExpired:
-        return False, "", f"ssh-audit timed out after {timeout} seconds"
-    except FileNotFoundError:
-        return False, "", "ssh-audit not found. Install with: pip install ssh-audit"
-    except Exception as e:
-        return False, "", f"ssh-audit execution failed: {str(e)}"
 
 def parse_ssh_audit_output(raw_json: str) -> dict:
     """

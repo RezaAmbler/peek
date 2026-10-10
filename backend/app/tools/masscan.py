@@ -1,16 +1,18 @@
-import subprocess
 import json
-import tempfile
-from pathlib import Path
-from typing import Tuple, List, Optional
+import re
+from typing import List, Optional
 from ..core.config import settings
+from ..core.validators import validate_target, ValidationError
+from .base import ToolResult, failure_reason, read_output, run_command, temp_workdir
+
+_INTERFACE_RE = re.compile(r'^[A-Za-z0-9_.:-]{1,32}$')
 
 def run_masscan(
     ip: str,
     rate: int = 1000,
     interface: Optional[str] = None,
     timeout: int = 240
-) -> Tuple[bool, str, Optional[str]]:
+) -> ToolResult:
     """
     Execute masscan for port discovery.
 
@@ -21,16 +23,25 @@ def run_masscan(
         timeout: Max execution time in seconds
 
     Returns:
-        (success: bool, raw_json: str, error: Optional[str])
+        ToolResult, unpackable as (success: bool, raw_json: str, error: Optional[str]).
+        Only a clean exit with an empty report means "no open ports"; a
+        non-zero exit (e.g. missing raw-socket capability) is a failure.
     """
-    # Create temp file for output
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-        output_path = Path(f.name)
-
+    # Validate inputs to prevent command/argument injection
     try:
-        # Build command
+        ip = validate_target(ip)
+        rate = int(rate)
+        if interface is not None and not _INTERFACE_RE.match(interface):
+            raise ValidationError(f"invalid interface name: {interface!r}")
+    except (ValidationError, TypeError, ValueError) as e:
+        return ToolResult(False, "", f"Input validation failed: {e}")
+
+    with temp_workdir('masscan_') as workdir:
+        output_path = workdir / 'masscan.json'
+
+        # No sudo: the worker runs as a non-root user and the image grants
+        # masscan cap_net_raw/cap_net_admin via file capabilities.
         cmd = [
-            'sudo',
             settings.MASSCAN_PATH or 'masscan',
             ip,
             '-p0-65535',  # Scan all ports
@@ -42,36 +53,19 @@ def run_masscan(
         if interface:
             cmd.extend(['--interface', interface])
 
-        # Execute
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout
-        )
+        run = run_command(cmd, timeout=timeout)
+        raw_json = read_output(output_path)
 
-        # Masscan sometimes returns non-zero even on success
-        # Check if output file exists and has content
-        if not output_path.exists():
-            return False, "", f"Masscan did not create output file. stderr: {result.stderr}"
-
-        # Read raw JSON output
-        raw_json = output_path.read_text()
+        error = failure_reason("Masscan", run, timeout)
+        if error:
+            return ToolResult.from_command(False, raw_json if raw_json.strip() else "", error, run)
 
         if not raw_json.strip():
-            # Empty output = no open ports (this is success)
+            # Clean exit and empty report = no open ports
             raw_json = "[]"
 
-        return True, raw_json, None
+        return ToolResult.from_command(True, raw_json, None, run)
 
-    except subprocess.TimeoutExpired:
-        return False, "", f"Masscan timed out after {timeout} seconds"
-    except Exception as e:
-        return False, "", f"Masscan execution failed: {str(e)}"
-    finally:
-        # Cleanup temp file
-        if output_path.exists():
-            output_path.unlink()
 
 def parse_masscan_output(raw_json: str) -> List[dict]:
     """

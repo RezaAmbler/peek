@@ -13,6 +13,8 @@ import subprocess
 import yaml
 import logging
 
+from ..core.config import settings
+
 if TYPE_CHECKING:
     from ..models.httpx_result import HttpxResult
 
@@ -305,11 +307,21 @@ def validate_tags_have_templates(tags_tuple: Tuple[str, ...]) -> Tuple[bool, int
 
     try:
         result = subprocess.run(
-            ['nuclei', '-tl', '-tags', tags_str],
+            # -duc: never let a listing call auto-update the pinned template set
+            [settings.NUCLEI_PATH or 'nuclei', '-tl', '-duc', '-tags', tags_str],
             capture_output=True,
             text=True,
             timeout=30
         )
+        if result.returncode != 0:
+            # A failed listing says nothing about the tags. Assume valid so the
+            # real nuclei run happens and reports the failure on its ToolExecution
+            # instead of the port being silently skipped as "no templates".
+            logger.warning(
+                f"nuclei -tl exited {result.returncode} validating tags {tags_str}: "
+                f"{(result.stderr or '').strip()[-300:]}"
+            )
+            return True, -1
         # Count non-empty lines in output
         templates = [l for l in result.stdout.strip().split('\n') if l.strip()]
         template_count = len(templates)

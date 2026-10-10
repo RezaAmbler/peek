@@ -11,15 +11,14 @@ testssl.sh provides comprehensive TLS posture analysis including:
 """
 
 import subprocess
-import tempfile
 import json
 import logging
-from pathlib import Path
-from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List
+from dataclasses import dataclass
+from typing import Optional, Dict, Any
 
 from ..core.config import settings
-from ..core.validators import SHELL_METACHARACTERS
+from ..core.validators import validate_target, validate_port, ValidationError
+from .base import EXIT_NOT_RUN, failure_reason, read_output, run_command, temp_workdir
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +35,29 @@ class TestsslOutput:
     error: Optional[str] = None
     host: Optional[str] = None
     port: Optional[int] = None
+    command_line: Optional[str] = None  # Exact command that ran
+    exit_code: Optional[int] = None  # Real exit code (124 = timeout, 127 = not installed)
+    timed_out: bool = False
+
+
+# testssl.sh reserves exit codes >= 242 for fatal errors (ERR_CHILD=242 ...
+# ERR_BASH=255). Lower non-zero codes count "ambiguous" findings of a scan that ran.
+TESTSSL_FATAL_EXIT_MIN = 242
+
+
+def _fatal_finding(parsed_data) -> Optional[str]:
+    """Return testssl's FATAL message, for both the flat and the pretty JSON layout."""
+    if not isinstance(parsed_data, list):
+        return None
+    for item in parsed_data:
+        if not isinstance(item, dict):
+            continue
+        if item.get('severity') == 'FATAL':
+            return item.get('finding') or 'Fatal error'
+        for nested in item.get('scanResult') or []:
+            if isinstance(nested, dict) and nested.get('severity') == 'FATAL':
+                return nested.get('finding') or 'Fatal error'
+    return None
 
 
 def run_testssl(
@@ -56,21 +78,22 @@ def run_testssl(
     Returns:
         TestsslOutput with parsed results and raw JSON
     """
-    # Validate host to prevent command injection
-    dangerous_chars = SHELL_METACHARACTERS.intersection(host)
-    if dangerous_chars:
+    # Validate inputs to prevent command/argument injection
+    try:
+        host = validate_target(host)
+        port = validate_port(port)
+    except ValidationError as e:
         return TestsslOutput(
             success=False,
-            error=f"Invalid host: contains shell metacharacters {dangerous_chars}",
+            error=f"Input validation failed: {e}",
             host=host,
-            port=port
+            port=port,
+            exit_code=EXIT_NOT_RUN,
         )
 
-    # Create temp file for JSON output
-    temp_dir = tempfile.mkdtemp(prefix='testssl_')
-    output_path = Path(temp_dir) / 'output.json'
+    with temp_workdir('testssl_') as workdir:
+        output_path = workdir / 'output.json'
 
-    try:
         # Build command
         # testssl.sh options:
         # --jsonfile: JSON output file
@@ -86,8 +109,8 @@ def run_testssl(
             '--warnings', 'batch',
             '--quiet',
             '--sneaky',
-            f'--connect-timeout=10',
-            f'--openssl-timeout=10',
+            '--connect-timeout=10',
+            '--openssl-timeout=10',
         ]
 
         if fast_mode:
@@ -96,35 +119,26 @@ def run_testssl(
         # Add target (host:port)
         cmd.append(f'{host}:{port}')
 
-        cmd_str = ' '.join(cmd)
-        logger.info(f"Running testssl: {cmd_str}")
+        logger.info(f"Running testssl: {' '.join(cmd)}")
 
-        # Execute
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout
-        )
+        run = run_command(cmd, timeout=timeout)
+        meta = dict(host=host, port=port, command_line=run.command_line,
+                    exit_code=run.exit_code, timed_out=run.timed_out)
 
-        # Check if output file exists
-        if not output_path.exists():
-            return TestsslOutput(
-                success=False,
-                error=f"testssl.sh did not create output file. stderr: {result.stderr[:500] if result.stderr else 'none'}",
-                host=host,
-                port=port
-            )
+        # Read whatever was written (partial output on timeout is kept for debugging)
+        raw_json = read_output(output_path)
 
-        # Read raw JSON output
-        raw_json = output_path.read_text()
+        if not run.ran:
+            error = failure_reason("testssl.sh", run, timeout)
+            logger.warning(f"testssl.sh failed for {host}:{port}: {error}")
+            return TestsslOutput(success=False, raw_json=raw_json or None, error=error, **meta)
 
         if not raw_json.strip():
             return TestsslOutput(
                 success=False,
-                error="testssl.sh produced empty output",
-                host=host,
-                port=port
+                error=(f"testssl.sh produced no output (exit code {run.returncode}): "
+                       f"{run.diagnostics()}"),
+                **meta
             )
 
         # Parse JSON
@@ -134,24 +148,29 @@ def run_testssl(
             return TestsslOutput(
                 success=False,
                 raw_json=raw_json,
-                error=f"Invalid JSON output: {e}",
-                host=host,
-                port=port
+                error=f"Invalid JSON output (exit code {run.returncode}): {e}",
+                **meta
             )
 
         # Check for scan errors in output
-        if isinstance(parsed_data, list) and len(parsed_data) > 0:
-            # testssl.sh outputs an array of scan results
-            scan_result = parsed_data[0] if isinstance(parsed_data[0], dict) else {}
-            if scan_result.get('scanResult', [{}])[0].get('severity') == 'FATAL':
-                return TestsslOutput(
-                    success=False,
-                    raw_json=raw_json,
-                    parsed_data=parsed_data,
-                    error=scan_result.get('scanResult', [{}])[0].get('finding', 'Fatal error'),
-                    host=host,
-                    port=port
-                )
+        fatal = _fatal_finding(parsed_data)
+        if fatal:
+            return TestsslOutput(
+                success=False,
+                raw_json=raw_json,
+                parsed_data=parsed_data,
+                error=fatal,
+                **meta
+            )
+
+        if run.returncode >= TESTSSL_FATAL_EXIT_MIN:
+            return TestsslOutput(
+                success=False,
+                raw_json=raw_json,
+                parsed_data=parsed_data,
+                error=f"testssl.sh exited with fatal code {run.returncode}: {run.diagnostics()}",
+                **meta
+            )
 
         logger.info(f"testssl.sh completed for {host}:{port}")
 
@@ -159,54 +178,8 @@ def run_testssl(
             success=True,
             raw_json=raw_json,
             parsed_data=parsed_data,
-            host=host,
-            port=port
+            **meta
         )
-
-    except subprocess.TimeoutExpired:
-        logger.warning(f"testssl.sh timed out after {timeout}s for {host}:{port}")
-        # Try to read partial output
-        partial_json = None
-        if output_path.exists():
-            try:
-                partial_json = output_path.read_text()
-            except Exception:
-                pass
-
-        return TestsslOutput(
-            success=False,
-            raw_json=partial_json,
-            error=f"Timeout after {timeout}s",
-            host=host,
-            port=port
-        )
-
-    except FileNotFoundError:
-        logger.error("testssl.sh not found. Install from: https://github.com/drwetter/testssl.sh")
-        return TestsslOutput(
-            success=False,
-            error="testssl.sh not found",
-            host=host,
-            port=port
-        )
-
-    except Exception as e:
-        logger.error(f"testssl.sh error for {host}:{port}: {e}")
-        return TestsslOutput(
-            success=False,
-            error=str(e),
-            host=host,
-            port=port
-        )
-
-    finally:
-        # Cleanup temp files
-        try:
-            if output_path.exists():
-                output_path.unlink()
-            Path(temp_dir).rmdir()
-        except Exception:
-            pass
 
 
 def check_testssl_available() -> bool:
