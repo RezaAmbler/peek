@@ -546,7 +546,23 @@ class TestSslscan:
         assert "empty output" in run_sslscan("10.0.0.5", 443).error
 
         fake(returncode=0, output="<document/>", stdout="Failed to connect", output_flag="--xml")
-        assert tuple(run_sslscan("10.0.0.5", 443)) == (False, "<document/>", "Connection failed")
+        assert tuple(run_sslscan("10.0.0.5", 443)) == (False, "<document/>", "Connection failed: Failed to connect")
+
+    def test_unreachable_port_is_a_failure_despite_exit_code_zero(self, fake):
+        # Real sslscan 2.1.5 output for a closed port (2026-10 live QA): exit 0,
+        # an <error> element and nothing else.
+        xml = ('<?xml version="1.0" encoding="UTF-8"?>\n<document title="SSLScan Results" version="2.1.5" '
+               'web="http://github.com/rbsec/sslscan">\n  <error><![CDATA[Could not open a connection to host '
+               '203.0.113.20 (203.0.113.20) on port 9 (connect: Connection refused).]]></error>\n</document>\n')
+        fake(returncode=0, output=xml, output_flag="--xml",
+             stderr="ERROR: Could not open a connection to host 203.0.113.20 (203.0.113.20) on port 9 "
+                    "(connect: Connection refused).")
+
+        result = run_sslscan("203.0.113.20", 9)
+
+        assert not result.success and result.output == xml
+        assert result.error == ("Connection failed: Could not open a connection to host 203.0.113.20 "
+                                "(203.0.113.20) on port 9 (connect: Connection refused).")
 
         fake(raises=FileNotFoundError("sslscan"))
         assert run_sslscan("10.0.0.5", 443).exit_code == EXIT_NOT_FOUND
@@ -834,7 +850,9 @@ def zap(monkeypatch):
     routes["core/view/version"] = FakeResponse({"version": "2.16"})
     routes["spider/action/scan"] = FakeResponse({"scan": "1"})
     routes["spider/view/status"] = FakeResponse({"status": "100"})
-    routes["core/view/alerts"] = FakeResponse({"alerts": [{"alert": "X-Frame-Options", "risk": "Medium"}]})
+    routes["core/view/alerts"] = FakeResponse({"alerts": [
+        {"id": "7", "alert": "X-Frame-Options", "risk": "Medium", "url": "http://10.0.0.5/index.html"}]})
+    routes["core/action/deleteAlert"] = FakeResponse({"Result": "OK"})
     return routes
 
 
@@ -845,6 +863,46 @@ class TestZap:
         assert success and error is None
         assert json.loads(alerts_json)["alerts"][0]["alert"] == "X-Frame-Options"
         assert result.exit_code == 0 and "http://10.0.0.5:80" in result.command_line
+
+    def test_alerts_of_other_ports_and_hosts_are_dropped(self, zap):
+        # ZAP's baseurl filter is a prefix match: http://10.0.0.5:80 also matches :8080
+        zap["core/view/alerts"] = FakeResponse({"alerts": [
+            {"id": "1", "alert": "mine", "url": "http://10.0.0.5/a"},
+            {"id": "2", "alert": "mine-explicit-port", "url": "http://10.0.0.5:80/b"},
+            {"id": "3", "alert": "other-port", "url": "http://10.0.0.5:8080/"},
+            {"id": "4", "alert": "other-scheme", "url": "https://10.0.0.5:80/"},
+            {"id": "5", "alert": "other-host", "url": "http://10.0.0.50/"},
+        ]})
+
+        result = zap_module.run_zap_baseline("http://10.0.0.5:80")
+
+        assert result.success
+        assert [a["alert"] for a in json.loads(result.output)["alerts"]] == ["mine", "mine-explicit-port"]
+
+    def test_alerts_of_an_earlier_scan_are_deleted_first(self, zap, monkeypatch):
+        calls = []
+        real_get = zap_module.requests.get
+
+        def recording_get(url, params=None, timeout=None):
+            calls.append((url.split("/JSON/")[1], dict(params or {})))
+            return real_get(url, params=params, timeout=timeout)
+
+        monkeypatch.setattr(zap_module.requests, "get", recording_get)
+        zap["core/view/alerts"] = FakeResponse({"alerts": [
+            {"id": "11", "alert": "stale", "url": "http://10.0.0.5:8080/old"},
+            {"id": "12", "alert": "other port", "url": "http://10.0.0.5:80/"},
+        ]})
+
+        zap_module.run_zap_baseline("http://10.0.0.5:8080")
+
+        names = [name for name, _ in calls]
+        deletes = [params for name, params in calls if name.startswith("core/action/deleteAlert")]
+        assert deletes == [{"id": "11"}]  # only this target's alerts
+        assert names.index("core/action/deleteAlert/") < names.index("spider/action/scan/")
+
+    def test_failing_cleanup_does_not_stop_the_scan(self, zap):
+        zap["core/action/deleteAlert"] = zap_module.requests.ConnectionError("refused")
+        assert zap_module.run_zap_baseline("http://10.0.0.5:80").success
 
     def test_spider_start_failure_is_not_a_clean_scan(self, zap):
         zap["spider/action/scan"] = zap_module.requests.ConnectionError("refused")

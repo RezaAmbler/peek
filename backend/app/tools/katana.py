@@ -193,12 +193,15 @@ def _parse_katana_line(data: dict) -> Optional[KatanaEndpoint]:
         status_code = response.get('status_code') or data.get('status_code')
         content_length = response.get('content_length') or data.get('content_length')
 
-        # katana has no content_type field: it is a (lower-cased) response header
+        # katana has no content_type field: it is a response header. Header
+        # names keep the server's spelling ("Content-Type" from katana 1.8.0
+        # against hellbox), so the lookup must not depend on their case.
         headers = response.get('headers') or {}
         if not isinstance(headers, dict):
             headers = {}
+        lowered = {str(name).lower().replace('_', '-'): value for name, value in headers.items()}
         content_type = (
-            headers.get('content-type') or headers.get('content_type')
+            lowered.get('content-type')
             or response.get('content_type') or data.get('content_type')
         )
 

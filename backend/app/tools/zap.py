@@ -4,6 +4,7 @@ import time
 import json
 import logging
 from typing import List, Dict, Any
+from urllib.parse import urlsplit
 
 from .base import EXIT_NOT_RUN, EXIT_TIMEOUT, ToolResult
 
@@ -28,6 +29,50 @@ def wait_for_zap(timeout: int = 60) -> bool:
         time.sleep(2)
     logger.warning(f"ZAP not ready after {timeout}s")
     return False
+
+
+def _origin(url: str):
+    """(scheme, host, port) of a URL, with the default port filled in."""
+    try:
+        parts = urlsplit(url)
+        port = parts.port or {"http": 80, "https": 443}.get(parts.scheme)
+        return (parts.scheme, (parts.hostname or "").lower(), port)
+    except ValueError:
+        return None
+
+
+def _alerts_for_target(alerts: List[Dict[str, Any]], target_url: str) -> List[Dict[str, Any]]:
+    """Alerts that belong to ``target_url``'s origin.
+
+    ZAP's ``baseurl`` filter is a string prefix: asking for ``http://host:80``
+    also returns the alerts of ``http://host:8080`` and ``http://host:8081``.
+    """
+    target = _origin(target_url)
+    return [alert for alert in alerts
+            if isinstance(alert, dict) and _origin(str(alert.get("url") or "")) == target]
+
+
+def _forget_previous_alerts(target_url: str) -> None:
+    """Delete the alerts ZAP already holds for this target.
+
+    The ZAP daemon outlives a scan and keeps every alert it ever raised. Without
+    this, a rescan reports the previous scan's alerts again - including those
+    for pages and issues that have been fixed since. Best effort: a failure
+    here must not stop the scan.
+    """
+    try:
+        resp = requests.get(f"{ZAP_API_BASE}/JSON/core/view/alerts/",
+                            params={"baseurl": target_url}, timeout=30)
+        resp.raise_for_status()
+        stale = _alerts_for_target(resp.json().get("alerts", []), target_url)
+        for alert in stale:
+            if alert.get("id") is not None:
+                requests.get(f"{ZAP_API_BASE}/JSON/core/action/deleteAlert/",
+                             params={"id": alert["id"]}, timeout=10)
+        if stale:
+            logger.info(f"ZAP: removed {len(stale)} alert(s) of an earlier scan of {target_url}")
+    except Exception as exc:
+        logger.warning(f"ZAP: could not clear earlier alerts for {target_url}: {exc}")
 
 
 def run_zap_baseline(
@@ -66,6 +111,8 @@ def run_zap_baseline(
             return result(False, None, "ZAP not available")
 
         logger.info(f"Starting ZAP baseline scan of {target_url}")
+
+        _forget_previous_alerts(target_url)
 
         # Start spider
         try:
@@ -135,6 +182,10 @@ def run_zap_baseline(
         alerts_data = alerts_resp.json()
         if not isinstance(alerts_data, dict) or "alerts" not in alerts_data:
             return result(False, alerts_json, f"Unexpected ZAP alerts response: {alerts_json[:300]}")
+
+        # Keep this target's alerts only (see _alerts_for_target)
+        alerts_data["alerts"] = _alerts_for_target(alerts_data.get("alerts", []), target_url)
+        alerts_json = json.dumps(alerts_data)
 
         alert_count = len(alerts_data.get("alerts", []))
         logger.info(f"ZAP found {alert_count} alerts for {target_url}")

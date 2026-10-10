@@ -206,6 +206,24 @@ class TestKatanaParser:
         assert endpoint.content_type == "text/html; charset=utf-8"
         assert endpoint.depth == 0 and endpoint.source == "a"
 
+    def test_real_v1_8_0_line_from_hellbox(self):
+        # Captured from katana 1.8.0 crawling the hellbox Drupal (2026-10 live QA).
+        # Header names arrive in the server's spelling, not lower-cased.
+        endpoint = _parse_katana_line({
+            "timestamp": "2026-10-10T20:06:15.055334211Z",
+            "request": {"method": "GET",
+                        "endpoint": "http://203.0.113.20:8081/sites/default/files/css/css_vrEkmDJeqSsX.css?0",
+                        "tag": "link", "attribute": "href", "source": "http://203.0.113.20:8081"},
+            "response": {"status_code": 200,
+                         "headers": {"Accept-Ranges": "bytes", "Content-Type": "text/css",
+                                     "Date": "Sat, 10 Oct 2026 20:06:15 GMT",
+                                     "Server": "Apache/2.4.25 (Debian)", "Vary": "Accept-Encoding"},
+                         "content_length": 6646},
+        })
+        assert endpoint.content_type == "text/css"
+        assert endpoint.status_code == 200 and endpoint.content_length == 6646
+        assert endpoint.source == "link"
+
     def test_request_only_and_flat_lines(self):
         assert _parse_katana_line({"request": {"endpoint": "http://x/a"}}).method == "GET"
         flat = _parse_katana_line({"url": "http://x/b", "method": "post", "status_code": "201"})

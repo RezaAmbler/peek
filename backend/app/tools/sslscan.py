@@ -7,6 +7,7 @@ Analyzes:
 - Certificate details
 - Known vulnerabilities (Heartbleed, etc.)
 """
+import re
 import xml.etree.ElementTree as ET
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -67,11 +68,26 @@ def run_sslscan(
             return ToolResult.from_command(
                 False, "", f"sslscan produced empty output: {run.diagnostics()}", run)
 
-        # Check for connection errors in output
-        if 'Failed to connect' in run.stdout or 'Failed to connect' in run.stderr:
-            return ToolResult.from_command(False, raw_xml, "Connection failed", run)
+        # sslscan exits 0 even when it never reached the port. 2.1.x reports it
+        # as an <error> element in the XML and "ERROR: Could not open a
+        # connection ..." on stderr; older builds printed "Failed to connect".
+        connection_error = _connection_error(raw_xml, run.stdout, run.stderr)
+        if connection_error:
+            return ToolResult.from_command(False, raw_xml, connection_error, run)
 
         return ToolResult.from_command(True, raw_xml, None, run)
+
+
+def _connection_error(raw_xml: str, stdout: str, stderr: str) -> Optional[str]:
+    """Reason sslscan could not test the port, or None if it did."""
+    match = re.search(r'<error>\s*(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?\s*</error>', raw_xml, re.S)
+    if match and '<ssltest' not in raw_xml:
+        return f"Connection failed: {match.group(1).strip()[:300]}"
+    for stream in (stderr, stdout):
+        for line in (stream or '').splitlines():
+            if 'Could not open a connection' in line or 'Failed to connect' in line:
+                return f"Connection failed: {line.replace('ERROR:', '').strip()[:300]}"
+    return None
 
 
 def parse_sslscan_output(raw_xml: str) -> Dict[str, Any]:
