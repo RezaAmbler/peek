@@ -24,7 +24,7 @@ AWS_REGION=""            # leave empty for auto-discovery
 AWS_KEY_NAME=""          # existing EC2 key pair name
 SSH_KEY_PATH=""          # local .pem matching AWS_KEY_NAME
 PEEK_USERNAME="admin"
-PEEK_PASSWORD="admin"
+PEEK_PASSWORD="<INITIAL_ADMIN_PASSWORD from backend/.env, or the generated password from the backend log>"
 
 RUN_BASELINE="yes"       # set to "no" to skip the main arm and contrast against the
                          # documented baseline in scripts/qa/hellbox-qa.prompt instead

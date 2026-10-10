@@ -32,7 +32,7 @@ Fill in the required values. Everything else is auto-discovered.
 # Required — no default
 PEEK_API_URL="http://<your-peek-server-ip>"
 PEEK_USERNAME="admin"
-PEEK_PASSWORD="admin"
+PEEK_PASSWORD="<INITIAL_ADMIN_PASSWORD from backend/.env, or the generated password from the backend log>"
 
 # Optional overrides — leave empty to auto-discover
 AWS_REGION=""              # auto: `aws configure get region`

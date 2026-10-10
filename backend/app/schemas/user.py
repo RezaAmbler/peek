@@ -1,7 +1,9 @@
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict
 from datetime import datetime
 from typing import Optional
 import re
+
+from ..core.security import BCRYPT_MAX_BYTES
 
 # Common weak passwords to reject (top 20 most common)
 COMMON_PASSWORDS = {
@@ -22,7 +24,16 @@ def validate_password_strength(password: str) -> str:
     - At least one lowercase letter
     - At least one digit
     - Not in common password list
+    - No NUL characters, at most 72 bytes in UTF-8 (bcrypt's input limit)
     """
+    if '\x00' in password:
+        raise ValueError('Password must not contain NUL characters')
+
+    if len(password.encode('utf-8')) > BCRYPT_MAX_BYTES:
+        # bcrypt only hashes the first 72 bytes; refuse rather than silently
+        # ignore the rest (non-ASCII characters take 2-4 bytes each)
+        raise ValueError(f'Password must be at most {BCRYPT_MAX_BYTES} bytes when UTF-8 encoded')
+
     errors = []
 
     if not re.search(r'[A-Z]', password):
@@ -52,8 +63,7 @@ class UserResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class UserCreate(BaseModel):
     email: EmailStr

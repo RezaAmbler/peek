@@ -162,6 +162,7 @@ Launch an ad-hoc scan from any profile…
    cp backend/.env.example backend/.env
    # Edit backend/.env and set SECRET_KEY
    openssl rand -hex 32  # Use this output as SECRET_KEY
+   # Recommended: also set INITIAL_ADMIN_PASSWORD (password of the first admin account)
    ```
 
 3. **Start all services**
@@ -174,10 +175,12 @@ Launch an ad-hoc scan from any profile…
    - **API Documentation**: http://localhost:8000/docs
    - **Backend Health**: http://localhost:8000/api/health
 
-5. **Login with default credentials**
+5. **Log in as `admin`**
    - Username: `admin`
-   - Password: `admin`
-   - **⚠️ Change immediately in production!**
+   - Password: the value of `INITIAL_ADMIN_PASSWORD` in `backend/.env`. If you did not
+     set it, a random password was generated and printed **once** in the backend log
+     on first start: `docker compose logs backend | grep -i "admin user created"`
+   - There is no built-in default password (PEEK ≤ 2.2.1 seeded `admin`/`admin`).
 
 ### First Scan
 
@@ -401,12 +404,40 @@ cd frontend && npm run test:coverage
 
 ## 🔐 Security Considerations
 
-### Default Credentials
-The default `admin/admin` credentials are **ONLY** for development. For production:
+### Initial Admin Account
+PEEK creates one `admin` account on first start, when no user named `admin` exists yet:
 
-1. Change admin password immediately after first login
+- If `INITIAL_ADMIN_PASSWORD` is set, that password is used. It must pass the normal
+  password policy (8+ characters, upper- and lower-case letters, a digit, not a common
+  password); a weak value stops the backend at startup instead of seeding a weak account.
+- If it is not set, a random password is generated and printed once to the backend log.
+- The variable is only read when the account is created. Changing it later does nothing,
+  and you can remove it from `.env` after the first start.
+
+**Upgrading from PEEK ≤ 2.2.1:** existing accounts are never modified. Deployments that
+were seeded with the old `admin`/`admin` default keep that password until you change it;
+the backend prints a `SECURITY` warning on every start while it is still in use.
+
+For production:
+
+1. Change the admin password after first login (Users → Reset password)
 2. Create individual user accounts for each team member
-3. Disable the default admin account after creating alternatives
+3. Disable the bootstrap admin account after creating alternatives
+
+### Password Storage
+- Passwords are hashed with bcrypt at cost `BCRYPT_ROUNDS` (default 12). After changing
+  the setting, each account is re-hashed at the new cost on its next successful login.
+- bcrypt only reads the first 72 bytes of a password. New and reset passwords longer
+  than 72 bytes (UTF-8) or containing NUL characters are rejected, so nothing is
+  silently ignored. Hashes created by older versions keep verifying.
+- A corrupt or truncated stored hash is treated as a failed login (HTTP 401), not an error.
+
+### Scan Worker Privileges
+The Celery worker image runs the scanners as the unprivileged `peek` user. The
+entrypoint starts as root only to fix ownership of the shared `./data` volume, then
+drops privileges; `nmap` and `masscan` get raw sockets from file capabilities
+(`cap_net_raw`), not from root or `sudo`. If you start the container with `cap_drop`,
+add `NET_RAW` back. `PEEK_WORKER_RUN_AS_ROOT=1` restores the old run-as-root behaviour.
 
 ### JWT Token Security
 - Tokens expire after 7 days
@@ -574,7 +605,7 @@ Example: log in, pick a config, create a scan, queue it.
 # 1) Authenticate (form-encoded body) and capture the JWT
 TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=admin&password=admin" \
+  -d "username=admin&password=$INITIAL_ADMIN_PASSWORD" \
   | jq -r '.access_token')
 
 # 2) Grab a config id (UUID string)

@@ -40,7 +40,7 @@ SSH_KEY_PATH=""
 
 # PEEK admin creds (passed through to hellbox-qa.prompt)
 PEEK_USERNAME="admin"
-PEEK_PASSWORD="admin"
+PEEK_PASSWORD="<INITIAL_ADMIN_PASSWORD from backend/.env, or the generated password from the backend log>"
 
 # Skip flags — set to "skip" if you already have a deployed PEEK
 SKIP_PEEK_DEPLOY=""    # set to "skip" to bypass peek-deploy.prompt

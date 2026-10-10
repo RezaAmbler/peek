@@ -4,17 +4,20 @@ from fastapi.openapi.utils import get_openapi
 from contextlib import asynccontextmanager
 from datetime import datetime
 import os
+import secrets
 import subprocess
 from .core.config import settings
 from .database import init_db, AsyncSessionLocal
 from .routers import auth, users, configs, scans, comparisons, scheduled_scans, reports, stats, findings
-from .core.security import get_password_hash
+from .core.security import get_password_hash, verify_password
+from .schemas.user import validate_password_strength
 from .models.user import User
 from .models.organization import Organization
 from .models.scan_config import ScanConfig
 from .models.scan import Scan, ScanStatus
 from sqlalchemy import select, or_
 from .services.config_service import ensure_user_has_default_config, seed_system_presets
+from .core.timeutil import utcnow
 
 # OpenAPI tag descriptions for Swagger UI grouping
 OPENAPI_TAGS = [
@@ -67,7 +70,7 @@ Most endpoints require JWT authentication.
 3. Click the **Authorize** button above and enter: `Bearer <your_token>`
 
 ### Quick Start
-1. **Login** to get token (default: admin/admin)
+1. **Login** to get token (the `admin` password comes from `INITIAL_ADMIN_PASSWORD`, or is printed once to the backend log on first start)
 2. **Create a scan configuration** (or use default)
 3. **Create and start a scan** with target IPs
 4. **Monitor progress** and view results
@@ -143,21 +146,43 @@ async def cleanup_orphaned_scans():
         if orphaned_scans:
             for scan in orphaned_scans:
                 scan.status = ScanStatus.CANCELLED.value
-                scan.finished_at = datetime.utcnow()
+                scan.finished_at = utcnow()
             await session.commit()
             print(f"⚠️  Marked {len(orphaned_scans)} orphaned scan(s) as cancelled")
 
+def resolve_initial_admin_password() -> tuple[str, bool]:
+    """Password for a newly created admin account: (password, was_generated).
+
+    Uses INITIAL_ADMIN_PASSWORD when set, otherwise generates a random one.
+    There is no built-in default: PEEK never seeds admin/admin.
+    """
+    configured = settings.INITIAL_ADMIN_PASSWORD
+    if configured:
+        try:
+            validate_password_strength(configured)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"INITIAL_ADMIN_PASSWORD is not acceptable: {exc}. "
+                "Use at least 8 characters with upper- and lower-case letters and a digit."
+            ) from exc
+        if len(configured) < 8:
+            raise RuntimeError("INITIAL_ADMIN_PASSWORD must be at least 8 characters long.")
+        return configured, False
+    return secrets.token_urlsafe(18), True
+
+
 async def create_default_admin():
-    """Create default admin user if it doesn't exist"""
+    """Create the admin user on first start. An existing admin is never modified."""
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(User).where(User.username == "admin"))
         admin = result.scalar_one_or_none()
 
         if not admin:
+            password, generated = resolve_initial_admin_password()
             admin = User(
                 email="admin@example.com",
                 username="admin",
-                hashed_password=get_password_hash("admin"),
+                hashed_password=get_password_hash(password),
                 is_admin=True,
                 is_active=True,
                 organization_id=None  # Always NULL in Phase 1-4
@@ -165,7 +190,22 @@ async def create_default_admin():
             session.add(admin)
             await session.commit()
             await session.refresh(admin)
-            print("✅ Default admin user created (username: admin, password: admin)")
+            if generated:
+                # Shown exactly once; it is not stored anywhere in clear text.
+                print(
+                    "✅ Admin user created (username: admin). INITIAL_ADMIN_PASSWORD was not set, "
+                    f"so a random password was generated: {password}\n"
+                    "   Log in and change it now (Users -> Reset password); it will not be shown again."
+                )
+            else:
+                print("✅ Admin user created (username: admin, password from INITIAL_ADMIN_PASSWORD)")
+        elif verify_password("admin", admin.hashed_password):
+            # Deployments created before 2.2.2 were seeded with admin/admin.
+            # The account is left untouched, but say so on every start.
+            print(
+                "⚠️  SECURITY: the 'admin' account still uses the old default password 'admin'. "
+                "Change it now (Users -> Reset password)."
+            )
 
         # Ensure admin has a default config
         await ensure_user_has_default_config(session, admin.id)
