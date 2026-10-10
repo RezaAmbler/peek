@@ -1,6 +1,9 @@
+import fcntl
 import logging
 import os
 import re
+import socket
+import struct
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import List, Optional, Dict
@@ -45,20 +48,27 @@ def _privilege_args(nmap_args: List[str]) -> List[str]:
 
 _SERVICE_DETECTION_FLAGS = ('-sV', '-sC', '-A')
 
+# nmap 7.991 (the pinned build) and version detection in a raw-socket run
+# ---------------------------------------------------------------------
+# As soon as a run uses raw sockets (-sS, -sU, -O, -A ...), nmap 7.991 binds
+# every service-probe connection to the same local address *and port*. The
+# first probe connects; the next one to the same service fails with "Cannot
+# assign requested address" and nmap gives up on that service. Anything that
+# does not announce itself on connect (Tomcat, Elasticsearch, TLS-wrapped
+# IMAP/POP3, ...) is then reported as "unknown" or as a port-table guess, and
+# the service-aware phases after it scan with the wrong profile. nmap 7.95 does
+# not do this. Verified against hellbox; two things avoid it:
+#   * a connect scan (-sT) with no other raw-socket feature in the run
+#   * naming the outgoing interface (-e), which works for every combination
+# Both are applied below. Re-check when the nmap pin in Dockerfile.celery moves.
+
 
 def _connect_scan_for_service_detection(nmap_args: List[str]) -> List[str]:
     """Swap ``-sS`` for ``-sT`` when the run also does version/script detection.
 
-    nmap 7.991 (the pinned build) binds every service-probe connection of a SYN
-    scan to the same local address *and port*. The first probe connects; the
-    next one to the same service fails with "Cannot assign requested address"
-    and nmap gives up on that service, so anything that does not announce
-    itself on connect (Tomcat, Elasticsearch, TLS-wrapped IMAP/POP3, ...) is
-    left as "unknown" or a port-table guess. nmap 7.95 did not do this.
-
     This phase only looks at ports the discovery scan already found open, so a
-    connect scan loses nothing. ``-sS`` on its own, UDP (``-sU``) and OS
-    detection (``-O``) are left alone.
+    connect scan loses nothing, and it needs neither raw sockets nor an
+    interface lookup. ``-sS`` on its own is left alone.
     """
     if '-sS' not in nmap_args or not any(arg in _SERVICE_DETECTION_FLAGS for arg in nmap_args):
         return nmap_args
@@ -70,6 +80,42 @@ def _connect_scan_for_service_detection(nmap_args: List[str]) -> List[str]:
             continue
         swapped.append(arg)
     return swapped
+
+
+def route_interface(target: str) -> Optional[str]:
+    """Name of the interface the kernel routes ``target`` through (IPv4), or None."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.connect((target, 9))  # UDP connect: picks the route, sends nothing
+            source = probe.getsockname()[0]
+            for _, name in socket.if_nameindex():
+                try:
+                    packed = fcntl.ioctl(probe.fileno(), 0x8915,  # SIOCGIFADDR
+                                         struct.pack('256s', name.encode()[:15]))
+                except OSError:
+                    continue  # interface without an IPv4 address
+                if socket.inet_ntoa(packed[20:24]) == source:
+                    return name
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def interface_args(nmap_args: List[str], target: str) -> List[str]:
+    """``['-e', iface]`` for a raw-socket run that also does version detection.
+
+    See the note above: without it nmap 7.991 leaves most services unidentified.
+    Returns ``[]`` when the run is not affected or the interface is unknown.
+    """
+    uses_raw_sockets = any(arg in _RAW_SOCKET_FLAGS for arg in nmap_args)
+    detects_services = any(arg in _SERVICE_DETECTION_FLAGS for arg in nmap_args)
+    if not (uses_raw_sockets and detects_services):
+        return []
+    interface = route_interface(target)
+    if not interface:
+        logger.warning(f"nmap: no interface found for {target}; service detection may be incomplete")
+        return []
+    return ['-e', interface]
 
 
 def _execute_nmap(cmd: List[str], output_path: Path, timeout: int, label: str) -> ToolResult:
@@ -145,6 +191,7 @@ def run_nmap(
             settings.NMAP_PATH or 'nmap',
             *_privilege_args(filtered_args),
             *filtered_args,
+            *interface_args(filtered_args, ip),
             '-p', port_string,
             '-oX', str(output_path),
             ip

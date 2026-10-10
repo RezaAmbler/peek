@@ -369,8 +369,32 @@ class TestNmap:
         run_nmap("10.0.0.5", [22], ["-sS", "-sV"])
         assert "--privileged" not in proc.cmd and "-sT" in proc.cmd
 
+        monkeypatch.setattr("app.tools.nmap.route_interface", lambda target: None)
         run_nmap("10.0.0.5", [22], ["-sS", "-sV", "-O"])
         assert proc.cmd[1:5] == ["--privileged", "-sT", "-sV", "-O"]
+
+    @pytest.mark.parametrize("args, expects_interface", [
+        (["-sS", "-sV", "-O"], True),      # -O keeps the run on raw sockets
+        (["-sU", "-sV"], True),
+        (["-sS", "-A"], True),
+        (["-sS", "-sV"], False),           # becomes a plain connect scan
+        (["-sS", "-O"], False),            # no version detection to break
+        (["-sT", "-sV"], False),
+    ])
+    def test_interface_is_named_for_raw_socket_runs_with_version_detection(
+            self, fake, monkeypatch, args, expects_interface):
+        monkeypatch.setattr("app.tools.nmap.route_interface", lambda target: "eth7")
+        proc = fake(returncode=0, output=NMAP_XML, output_flag="-oX")
+
+        run_nmap("10.0.0.5", [22], args)
+
+        assert (flag_value(proc.cmd, "-e") == "eth7") is expects_interface
+        assert proc.cmd[-1] == "10.0.0.5" and flag_value(proc.cmd, "-p") == "22"
+
+    def test_route_interface_finds_loopback_and_survives_bad_targets(self):
+        from app.tools.nmap import route_interface
+        assert route_interface("127.0.0.1") == "lo"
+        assert route_interface("not a host name") is None
 
     def test_no_privileged_flag_for_connect_scan_or_root(self, fake, monkeypatch):
         monkeypatch.setattr("app.tools.nmap.os.geteuid", lambda: 1000)

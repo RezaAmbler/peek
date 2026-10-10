@@ -11,6 +11,7 @@ empty (an empty file is *not* proof that nothing was found).
 """
 import logging
 import os
+import re
 import shlex
 import shutil
 import signal
@@ -149,11 +150,14 @@ def format_command(cmd: List[str]) -> str:
     return " ".join(shlex.quote(str(part)) for part in cmd)
 
 
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
+
 def snippet(text: Optional[str], limit: int = ERROR_SNIPPET_CHARS) -> str:
     """Trimmed tail of tool output (the last lines are where tools report errors)."""
     if not text:
         return ""
-    text = text.strip()
+    text = _ANSI_ESCAPE.sub("", text).strip()  # testssl.sh colours its fatal errors
     if len(text) <= limit:
         return text
     return "..." + text[-limit:]

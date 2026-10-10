@@ -12,6 +12,7 @@ from typing import List, Dict
 from ..core.config import settings
 from ..core.validators import validate_target, validate_port, ValidationError
 from .base import ToolResult, failure_reason, read_output, run_command, temp_workdir
+from .nmap import interface_args
 
 
 # NSE script names / categories / globs only. No "/" or "." so a value can
@@ -89,6 +90,7 @@ def run_nmap_nse(
             settings.NMAP_PATH or 'nmap',
             *privilege,
             scan_type,
+            *interface_args([scan_type, '-sV'], ip),  # raw-socket run + -sV: see tools/nmap.py
             '-Pn',                    # Skip host discovery
             '-sV',                    # Service version detection (helps scripts)
             f'-p{port}',              # Single port
@@ -292,6 +294,8 @@ def run_nmap_nse_batch(
         # Handle mixed TCP/UDP scanning
         tcp_spec = ','.join(str(p) for p in sorted(tcp_ports))
         udp_spec = ','.join(str(p) for p in sorted(udp_ports))
+        if udp_ports:
+            cmd.extend(interface_args(['-sU', '-sV'], ip))  # see tools/nmap.py
         if tcp_ports and udp_ports:
             cmd.extend(['-sT', '-sU', '-p', f'T:{tcp_spec},U:{udp_spec}'])
         elif udp_ports:

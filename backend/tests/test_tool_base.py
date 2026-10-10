@@ -222,3 +222,7 @@ def test_each_run_gets_a_private_tmpdir_that_is_removed():
     tmpdir, leftover = run.stdout.split()
     assert leftover.startswith(tmpdir + os.sep)
     assert not os.path.exists(tmpdir)
+
+
+def test_error_snippets_drop_terminal_colour_codes():
+    assert base.snippet("\x1b[0;35mFatal error: no TLS\x1b[m\n") == "Fatal error: no TLS"

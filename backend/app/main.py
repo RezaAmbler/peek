@@ -140,7 +140,7 @@ def resolve_initial_admin_password() -> tuple[str, bool]:
             validate_password_strength(configured)
         except ValueError as exc:
             raise RuntimeError(
-                f"INITIAL_ADMIN_PASSWORD is not acceptable: {exc}. "
+                f"INITIAL_ADMIN_PASSWORD is not acceptable: {str(exc).rstrip('.')}. "
                 "Use at least 8 characters with upper- and lower-case letters and a digit."
             ) from exc
         if len(configured) < 8:
