@@ -45,7 +45,7 @@ export function ComparisonView() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="min-h-page bg-gray-50 dark:bg-gray-900">
         <Navigation />
         <div className="max-w-7xl mx-auto py-6 px-4">
           <p className="text-gray-500 dark:text-gray-400">Loading comparison...</p>
@@ -56,7 +56,7 @@ export function ComparisonView() {
 
   if (!comparison) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="min-h-page bg-gray-50 dark:bg-gray-900">
         <Navigation />
         <div className="max-w-7xl mx-auto py-6 px-4">
           <p className="text-gray-500 dark:text-gray-400">Comparison not found</p>
@@ -80,7 +80,7 @@ export function ComparisonView() {
     : allVulnChanges.filter(c => !(c.type === 'NEW_VULNERABILITY' && c.classification === 'SUPPRESSED'));
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900" data-component="ComparisonPage">
+    <div className="min-h-page bg-gray-50 dark:bg-gray-900" data-component="ComparisonPage">
       <Navigation />
       <main className="max-w-7xl mx-auto py-6 px-4">
         {/* Header */}

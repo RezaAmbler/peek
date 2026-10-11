@@ -3,7 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { Navigation } from '../components/Navigation';
 import { statsApi, DashboardStats } from '../api/stats';
 import { formatDistanceToNow } from 'date-fns';
-import { parseUTC } from '../utils/date';
+import { formatDateTime, parseUTC } from '../utils/date';
 
 const statusColors: Record<string, { bg: string; text: string }> = {
   pending: { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-800 dark:text-gray-200' },
@@ -22,6 +22,9 @@ const severityColors: Record<string, { bg: string; text: string; border: string 
   info: { bg: 'bg-gray-500', text: 'text-white', border: 'border-gray-500' },
   unknown: { bg: 'bg-gray-400', text: 'text-white', border: 'border-gray-400' },
 };
+
+// The backend counts findings/ports from the latest completed run of each config
+const LATEST_RUNS_NOTE = 'Latest completed run of each config';
 
 function StatCard({ title, value, subtitle, icon, color }: {
   title: string;
@@ -54,17 +57,20 @@ function VulnerabilitySummary({ stats }: { stats: DashboardStats }) {
     (a, b) => severityOrder.indexOf(a.severity.toLowerCase()) - severityOrder.indexOf(b.severity.toLowerCase())
   );
 
+  const totalFindings = sortedVulns.reduce((sum, item) => sum + item.count, 0);
+
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-      <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Vulnerabilities by Severity</h3>
+      <h3 className="text-lg font-medium text-gray-900 dark:text-white">Findings by Severity</h3>
+      <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">{LATEST_RUNS_NOTE}</p>
       {sortedVulns.length === 0 ? (
-        <p className="text-gray-500 dark:text-gray-400 text-sm">No vulnerabilities found</p>
+        <p className="text-gray-500 dark:text-gray-400 text-sm">No findings yet</p>
       ) : (
         <div className="space-y-3">
           {sortedVulns.map(({ severity, count }) => {
             const colors = severityColors[severity.toLowerCase()] || severityColors.unknown;
-            const percentage = stats.total_vulnerabilities > 0
-              ? Math.round((count / stats.total_vulnerabilities) * 100)
+            const percentage = totalFindings > 0
+              ? Math.round((count / totalFindings) * 100)
               : 0;
             return (
               <div key={severity}>
@@ -88,14 +94,17 @@ function VulnerabilitySummary({ stats }: { stats: DashboardStats }) {
 }
 
 function ScanStatusSummary({ stats }: { stats: DashboardStats }) {
-  const running = stats.scans_by_status.find(s => s.status === 'running')?.count || 0;
-  const completed = stats.scans_by_status.find(s => s.status === 'completed')?.count || 0;
-  const failed = stats.scans_by_status.find(s => s.status === 'failed')?.count || 0;
+  const count = (status: string) => stats.scans_by_status.find(s => s.status === status)?.count || 0;
+  const running = count('running') + count('queued');
+  const completed = count('completed');
+  const failed = count('failed');
+  const cancelled = count('cancelled');
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-      <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Scan Status</h3>
-      <div className="grid grid-cols-3 gap-4 text-center">
+      <h3 className="text-lg font-medium text-gray-900 dark:text-white">Scan Status</h3>
+      <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">All {stats.total_scans} scans</p>
+      <div className="grid grid-cols-4 gap-2 text-center">
         <div>
           <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{running}</div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Running</div>
@@ -105,8 +114,12 @@ function ScanStatusSummary({ stats }: { stats: DashboardStats }) {
           <div className="text-xs text-gray-500 dark:text-gray-400">Completed</div>
         </div>
         <div>
-          <div className="text-2xl font-bold text-red-600 dark:text-red-400">{failed}</div>
+          <div className="text-2xl font-bold text-red-600 dark:text-red-400" data-testid="dashboard-failed-scans">{failed}</div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Failed</div>
+        </div>
+        <div>
+          <div className="text-2xl font-bold text-gray-600 dark:text-gray-300">{cancelled}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Cancelled</div>
         </div>
       </div>
     </div>
@@ -142,7 +155,7 @@ function RecentScansTable({ scans }: { scans: DashboardStats['recent_scans'] }) 
                 Ports
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                Vulns
+                Findings
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                 Created
@@ -178,7 +191,9 @@ function RecentScansTable({ scans }: { scans: DashboardStats['recent_scans'] }) 
                     {scan.total_vulnerabilities}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                    {formatDistanceToNow(parseUTC(scan.created_at), { addSuffix: true })}
+                    <span title={formatDateTime(scan.created_at)}>
+                      {formatDistanceToNow(parseUTC(scan.created_at), { addSuffix: true })}
+                    </span>
                   </td>
                 </tr>
               );
@@ -267,7 +282,7 @@ function TopVulnerableHosts({ hosts }: { hosts: DashboardStats['top_vulnerable_h
                 </span>
               )}
               <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200">
-                {host.vulnerability_count} total
+                {host.vulnerability_count} findings
               </span>
             </div>
           </div>
@@ -337,6 +352,7 @@ function ActivitySparkline({ data }: { data: DashboardStats['scans_by_day'] }) {
   for (let i = 6; i >= 0; i--) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
+    // The backend buckets scans by UTC day
     const dateStr = d.toISOString().split('T')[0];
     const dayData = data.find(item => item.date === dateStr);
     days.push({
@@ -353,7 +369,7 @@ function ActivitySparkline({ data }: { data: DashboardStats['scans_by_day'] }) {
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-medium text-gray-900 dark:text-white">7-Day Activity</h3>
-        <span className="text-sm text-gray-500 dark:text-gray-400">{totalScans} scans</span>
+        <span className="text-sm text-gray-500 dark:text-gray-400">{totalScans} scans · UTC days</span>
       </div>
       <div className="flex items-end justify-between h-24 gap-1">
         {days.map(({ date, count, label }) => {
@@ -386,7 +402,7 @@ export function Dashboard() {
   });
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900" data-component="DashboardPage">
+    <div className="min-h-page bg-gray-50 dark:bg-gray-900" data-component="DashboardPage">
       <Navigation />
 
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
@@ -414,6 +430,7 @@ export function Dashboard() {
                 <StatCard
                   title="Total Scans"
                   value={stats.total_scans}
+                  subtitle="Every run, any status"
                   icon={
                     <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
@@ -422,8 +439,9 @@ export function Dashboard() {
                   color="bg-indigo-500"
                 />
                 <StatCard
-                  title="Total Vulnerabilities"
+                  title="Vulnerabilities"
                   value={stats.total_vulnerabilities}
+                  subtitle={`${stats.total_findings ?? stats.total_vulnerabilities} findings incl. info · ${LATEST_RUNS_NOTE.toLowerCase()}`}
                   icon={
                     <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -432,8 +450,9 @@ export function Dashboard() {
                   color="bg-red-500"
                 />
                 <StatCard
-                  title="Critical Vulns"
+                  title="Critical Vulnerabilities"
                   value={stats.vulnerabilities_by_severity.find(v => v.severity.toLowerCase() === 'critical')?.count || 0}
+                  subtitle={LATEST_RUNS_NOTE}
                   icon={
                     <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.618 5.984A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
@@ -446,8 +465,9 @@ export function Dashboard() {
               {/* Stats Cards - Row 2 */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 <StatCard
-                  title="Total Ports"
+                  title="Open Ports"
                   value={stats.total_ports}
+                  subtitle={LATEST_RUNS_NOTE}
                   icon={
                     <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />

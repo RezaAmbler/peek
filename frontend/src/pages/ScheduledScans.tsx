@@ -4,7 +4,7 @@ import { Navigation } from '../components/Navigation';
 import { useNavigate } from '@tanstack/react-router';
 import toast from 'react-hot-toast';
 import { formatDistanceToNow } from 'date-fns';
-import { parseUTC } from '../utils/date';
+import { formatDateTime, parseUTC } from '../utils/date';
 
 export function ScheduledScans() {
   const navigate = useNavigate();
@@ -48,7 +48,7 @@ export function ScheduledScans() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="min-h-page bg-gray-50 dark:bg-gray-900">
         <Navigation />
         <div className="max-w-7xl mx-auto py-6 px-4">
           <p className="text-gray-500 dark:text-gray-400">Loading scheduled scans...</p>
@@ -58,7 +58,7 @@ export function ScheduledScans() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900" data-component="ScheduledScansPage">
+    <div className="min-h-page bg-gray-50 dark:bg-gray-900" data-component="ScheduledScansPage">
       <Navigation />
 
       <main className="max-w-7xl mx-auto py-6 px-4">
@@ -114,7 +114,7 @@ export function ScheduledScans() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100" data-testid="scheduled-scan-next-run">
                     {schedule.next_run_at ? (
-                      <span title={parseUTC(schedule.next_run_at).toLocaleString()}>
+                      <span title={formatDateTime(schedule.next_run_at)}>
                         {formatDistanceToNow(parseUTC(schedule.next_run_at), { addSuffix: true })}
                       </span>
                     ) : (
@@ -123,7 +123,7 @@ export function ScheduledScans() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                     {schedule.last_run_at ? (
-                      <span title={parseUTC(schedule.last_run_at).toLocaleString()}>
+                      <span title={formatDateTime(schedule.last_run_at)}>
                         {formatDistanceToNow(parseUTC(schedule.last_run_at), { addSuffix: true })}
                       </span>
                     ) : (

@@ -4,7 +4,7 @@ import axios from 'axios';
 import { scansApi, SSHAudit, Vulnerability } from '../api/scans';
 import { comparisonsApi } from '../api/comparisons';
 import { API_BASE_URL } from '../api/client';
-import { formatDistanceToNow, format } from 'date-fns';
+import { formatDistanceToNow } from 'date-fns';
 import { SSHAuditCard } from '../components/SSHAuditCard';
 import { VulnerabilityCard } from '../components/VulnerabilityCard';
 import { RiskLegend } from '../components/RiskInfo';
@@ -17,7 +17,9 @@ import { TestsslResultsSection } from '../components/TestsslResultsSection';
 import { useState, Fragment, useMemo } from 'react';
 import { Menu, Transition } from '@headlessui/react';
 import { Navigation } from '../components/Navigation';
-import { parseUTC } from '../utils/date';
+import { ConfirmDialog } from '../components/ConfirmDialog';
+import { formatDateTime, parseUTC } from '../utils/date';
+import { phaseLabel, phaseStep, progressPercent } from '../utils/scanProgress';
 import { sortByRiskScoreDesc } from '../utils/risk';
 
 // Port type for sorting
@@ -60,6 +62,8 @@ export function ScanDetail() {
   const [showPorts, setShowPorts] = useState(true);
   const [showSSHAudits, setShowSSHAudits] = useState(true);
   const [showVulnerabilities, setShowVulnerabilities] = useState(true);
+  // Action waiting for the user to confirm it
+  const [pendingAction, setPendingAction] = useState<'cancel' | 'delete' | 'restart' | null>(null);
   const [showInfoFindings, setShowInfoFindings] = useState(true);
 
   // State for sorting ports table
@@ -125,16 +129,8 @@ export function ScanDetail() {
     return allRuns.sort((a, b) => b.run_number - a.run_number);
   }, [scan, comparableData]);
 
-  // Format date for run history dropdown
-  const formatRunDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
+  // Format date for run history dropdown (local time, with timezone)
+  const formatRunDate = (dateStr: string) => formatDateTime(dateStr, { year: false });
 
   const { data: ports } = useQuery({
     queryKey: ['scan-ports', scanId],
@@ -377,8 +373,7 @@ export function ScanDetail() {
 
   const handleDelete = () => {
     if (!scan) return;
-    if (!confirm(`Delete scan "${scan.name}"?`)) return;
-    deleteMutation.mutate(scanId);
+    setPendingAction('delete');
   };
 
   const handleStart = () => {
@@ -386,13 +381,18 @@ export function ScanDetail() {
   };
 
   const handleCancel = () => {
-    if (!confirm('Cancel this scan?')) return;
-    cancelMutation.mutate(scanId);
+    setPendingAction('cancel');
   };
 
   const handleRestart = () => {
-    if (!confirm('Restart this scan? A new scan will be created with the same targets and configuration.')) return;
-    restartMutation.mutate(scanId);
+    setPendingAction('restart');
+  };
+
+  const confirmPendingAction = () => {
+    if (pendingAction === 'delete') deleteMutation.mutate(scanId);
+    if (pendingAction === 'cancel') cancelMutation.mutate(scanId);
+    if (pendingAction === 'restart') restartMutation.mutate(scanId);
+    setPendingAction(null);
   };
 
   // Reflect a successful triage PATCH (from a VulnerabilityCard) back into the cached
@@ -450,7 +450,7 @@ export function ScanDetail() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="min-h-page bg-gray-50 dark:bg-gray-900">
         <Navigation />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center text-gray-500 dark:text-gray-400">Loading scan details...</div>
@@ -461,7 +461,7 @@ export function ScanDetail() {
 
   if (!scan) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="min-h-page bg-gray-50 dark:bg-gray-900">
         <Navigation />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center text-gray-500 dark:text-gray-400">Scan not found</div>
@@ -471,7 +471,7 @@ export function ScanDetail() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900" data-component="ScanDetailPage">
+    <div className="min-h-page bg-gray-50 dark:bg-gray-900" data-component="ScanDetailPage">
       <Navigation />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
@@ -677,10 +677,13 @@ export function ScanDetail() {
             {/* Simplified 3-Phase Stepper */}
             <div className="flex items-center justify-between mb-4">
               {(() => {
+                const analysisPhases = [
+                  'httpx', 'katana', 'ssh_audit', 'nuclei', 'nuclei_endpoints', 'nse', 'sslscan', 'testssl', 'nikto', 'zap',
+                ];
                 const uiPhases = [
                   { id: 1, label: 'Discovery', backendPhases: ['nmap_discovery'] },
                   { id: 2, label: 'Enumeration', backendPhases: ['nmap'] },
-                  { id: 3, label: 'Security Analysis', backendPhases: ['ssh_audit', 'nuclei', 'nse', 'sslscan', 'nikto', 'zap'] },
+                  { id: 3, label: 'Security Analysis', backendPhases: analysisPhases },
                 ];
 
                 // Map backend phase to UI phase number
@@ -688,7 +691,7 @@ export function ScanDetail() {
                   if (['pending'].includes(backendPhase)) return 0;
                   if (['nmap_discovery'].includes(backendPhase)) return 1;
                   if (['nmap'].includes(backendPhase)) return 2;
-                  if (['ssh_audit', 'nuclei', 'nse', 'sslscan', 'nikto', 'zap'].includes(backendPhase)) return 3;
+                  if (analysisPhases.includes(backendPhase)) return 3;
                   if (['completed'].includes(backendPhase)) return 4;
                   return 1;
                 };
@@ -749,21 +752,16 @@ export function ScanDetail() {
                 </svg>
                 <span>
                   Running: <strong className="text-gray-800 dark:text-gray-200">
-                    {(() => {
-                      const toolNames: Record<string, string> = {
-                        pending: 'Initializing...',
-                        nmap_discovery: 'Port Discovery',
-                        nmap: 'Service Enumeration',
-                        ssh_audit: 'SSH Audit',
-                        nuclei: 'Nuclei Vulnerability Scan',
-                        nse: 'NSE Scripts',
-                        sslscan: 'SSL/TLS Analysis',
-                        nikto: 'Nikto Web Scan',
-                        zap: 'OWASP ZAP',
-                      };
-                      return toolNames[scan.current_phase] || scan.current_phase;
-                    })()}
+                    {phaseLabel(scan.current_phase)}
                   </strong>
+                  {(() => {
+                    const step = phaseStep(scan.current_phase, scan.phase_stats);
+                    return step ? (
+                      <span className="ml-1" data-testid="scan-phase-step">
+                        (step {step.current} of {step.total})
+                      </span>
+                    ) : null;
+                  })()}
                 </span>
               </div>
             )}
@@ -774,18 +772,35 @@ export function ScanDetail() {
                 {scan.completed_targets} of {scan.total_targets} targets completed
               </span>
               <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                {Math.round(scan.progress_percent * 100)}%
+                {progressPercent(scan.progress_percent)}%
               </span>
             </div>
             <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3">
               <div
                 className="bg-blue-600 h-3 rounded-full transition-all duration-500"
-                style={{ width: `${scan.progress_percent * 100}%` }}
+                style={{ width: `${progressPercent(scan.progress_percent)}%` }}
               />
             </div>
           </div>
         )}
       </div>
+
+      {/* Why the scan failed */}
+      {scan.status === 'failed' && (
+        <div
+          className="mb-6 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/30 p-4"
+          role="alert"
+          data-testid="scan-error-banner"
+        >
+          <h2 className="text-sm font-semibold text-red-800 dark:text-red-200">Scan failed</h2>
+          <p className="mt-1 text-sm text-red-700 dark:text-red-300 whitespace-pre-wrap break-words">
+            {scan.error_message || 'No failure reason was recorded for this scan.'}
+          </p>
+          <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+            Results collected before the failure are shown below. Use Restart Scan to run it again.
+          </p>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5 mb-6" data-component="ScanSummaryCards">
@@ -797,13 +812,13 @@ export function ScanDetail() {
         </div>
         <div className="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
           <div className="px-4 py-5 sm:p-6">
-            <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Completed</dt>
+            <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Targets Completed</dt>
             <dd className="mt-1 text-3xl font-semibold text-green-600 dark:text-green-400">{scan.completed_targets}</dd>
           </div>
         </div>
         <div className="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
           <div className="px-4 py-5 sm:p-6">
-            <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Failed</dt>
+            <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Targets Failed</dt>
             <dd className="mt-1 text-3xl font-semibold text-red-600 dark:text-red-400">{scan.failed_targets}</dd>
           </div>
         </div>
@@ -815,10 +830,15 @@ export function ScanDetail() {
         </div>
         <div className="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
           <div className="px-4 py-5 sm:p-6">
-            <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Vulnerabilities</dt>
-            <dd className="mt-1 text-3xl font-semibold text-orange-600 dark:text-orange-400">
-              {scan.total_vulnerabilities}
+            <dt className="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Total Findings</dt>
+            <dd className="mt-1 text-3xl font-semibold text-orange-600 dark:text-orange-400" data-testid="scan-total-findings">
+              {vulnerabilities ? actualVulnerabilities.length + infoFindings.length : scan.total_vulnerabilities}
             </dd>
+            {vulnerabilities && (
+              <dd className="mt-1 text-xs text-gray-500 dark:text-gray-400" data-testid="scan-findings-breakdown">
+                {actualVulnerabilities.length} vulnerabilities · {infoFindings.length} informational
+              </dd>
+            )}
           </div>
         </div>
       </div>
@@ -830,7 +850,7 @@ export function ScanDetail() {
           <div>
             <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Created</dt>
             <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
-              {format(parseUTC(scan.created_at), 'PPpp')} (
+              {formatDateTime(scan.created_at, { seconds: true })} (
               {formatDistanceToNow(parseUTC(scan.created_at), { addSuffix: true })})
             </dd>
           </div>
@@ -838,7 +858,7 @@ export function ScanDetail() {
             <div>
               <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Started</dt>
               <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
-                {format(parseUTC(scan.started_at), 'PPpp')}
+                {formatDateTime(scan.started_at, { seconds: true })}
               </dd>
             </div>
           )}
@@ -846,7 +866,7 @@ export function ScanDetail() {
             <div>
               <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">Finished</dt>
               <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
-                {format(parseUTC(scan.finished_at), 'PPpp')}
+                {formatDateTime(scan.finished_at, { seconds: true })}
               </dd>
             </div>
           )}
@@ -1482,6 +1502,35 @@ export function ScanDetail() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingAction !== null}
+        title={
+          pendingAction === 'delete' ? 'Delete this scan?'
+            : pendingAction === 'cancel' ? 'Cancel this scan?'
+            : 'Restart this scan?'
+        }
+        message={
+          pendingAction === 'delete'
+            ? 'This scan and all of its results (ports, findings, reports) will be permanently deleted. This cannot be undone.'
+            : pendingAction === 'cancel'
+            ? 'The scan will stop. Results collected so far are kept, but the scan cannot be resumed.'
+            : 'A new run is created with the same targets and configuration and starts immediately. This scan and its results are kept.'
+        }
+        confirmLabel={
+          pendingAction === 'delete' ? 'Delete scan'
+            : pendingAction === 'cancel' ? 'Cancel scan'
+            : 'Start new run'
+        }
+        cancelLabel={
+          pendingAction === 'delete' ? 'Keep scan'
+            : pendingAction === 'cancel' ? 'Keep running'
+            : 'Not now'
+        }
+        tone={pendingAction === 'delete' ? 'danger' : pendingAction === 'cancel' ? 'warning' : 'primary'}
+        onConfirm={confirmPendingAction}
+        onCancel={() => setPendingAction(null)}
+      />
     </div>
   </div>
   );

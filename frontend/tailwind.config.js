@@ -6,7 +6,12 @@ export default {
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
-    extend: {},
+    extend: {
+      minHeight: {
+        // Full viewport minus the in-flow app footer (h-10 in Footer.tsx)
+        page: 'calc(100vh - 2.5rem)',
+      },
+    },
   },
   plugins: [],
 }

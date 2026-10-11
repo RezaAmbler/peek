@@ -132,7 +132,7 @@ export function ScheduledScanForm() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900" data-component="ScheduledScanFormPage">
+    <div className="min-h-page bg-gray-50 dark:bg-gray-900" data-component="ScheduledScanFormPage">
       <Navigation />
 
       <main className="max-w-4xl mx-auto py-6 px-4">

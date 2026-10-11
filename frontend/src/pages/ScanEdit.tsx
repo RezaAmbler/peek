@@ -72,7 +72,7 @@ export function ScanEdit() {
 
   if (scanLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="min-h-page bg-gray-50 dark:bg-gray-900">
         <Navigation />
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center text-gray-500 dark:text-gray-400">Loading scan...</div>
@@ -83,7 +83,7 @@ export function ScanEdit() {
 
   if (!scan) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="min-h-page bg-gray-50 dark:bg-gray-900">
         <Navigation />
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center text-red-500 dark:text-red-400">Scan not found</div>
@@ -94,7 +94,7 @@ export function ScanEdit() {
 
   if (scan.status !== 'pending') {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="min-h-page bg-gray-50 dark:bg-gray-900">
         <Navigation />
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-700 rounded-md p-4">
@@ -114,7 +114,7 @@ export function ScanEdit() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900" data-component="ScanEditPage">
+    <div className="min-h-page bg-gray-50 dark:bg-gray-900" data-component="ScanEditPage">
       <Navigation />
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-6">

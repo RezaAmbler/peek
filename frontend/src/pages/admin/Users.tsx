@@ -1,3 +1,4 @@
+import { formatDateTime, parseUTC } from '../../utils/date';
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
@@ -131,7 +132,7 @@ export function Users() {
   };
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
+    const date = parseUTC(dateString);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
@@ -145,7 +146,7 @@ export function Users() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900" data-component="UsersPage">
+    <div className="min-h-page bg-gray-50 dark:bg-gray-900" data-component="UsersPage">
       <Navigation />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
@@ -237,7 +238,7 @@ export function Users() {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                    {formatDate(user.created_at)}
+                    <span title={formatDateTime(user.created_at)}>{formatDate(user.created_at)}</span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex justify-end space-x-2">

@@ -28,7 +28,8 @@ export interface Scan {
   created_at: string;
   started_at?: string;
   finished_at?: string;
-  progress_percent: number;
+  progress_percent: number; // fraction 0..1
+  error_message?: string | null; // why the scan failed
   total_targets: number;
   completed_targets: number;
   failed_targets: number;

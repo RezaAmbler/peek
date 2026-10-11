@@ -40,7 +40,13 @@ export interface DailyScanCount {
 export interface DashboardStats {
   total_scans: number;
   scans_by_status: ScanStatusCount[];
-  total_vulnerabilities: number;
+  // Finding, port, host and service figures cover the latest completed run of
+  // each scan config only (re-runs of the same targets are not summed).
+  findings_scope?: string;
+  scans_counted?: number;
+  total_findings?: number; // every severity, info included
+  total_vulnerabilities: number; // severity above info
+  total_findings_all_runs?: number;
   vulnerabilities_by_severity: VulnerabilitySeverityCount[];
   total_configs: number;
   recent_scans: RecentScan[];

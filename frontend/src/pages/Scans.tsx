@@ -4,7 +4,9 @@ import { Link } from '@tanstack/react-router';
 import { scansApi } from '../api/scans';
 import { formatDistanceToNow } from 'date-fns';
 import { Navigation } from '../components/Navigation';
-import { parseUTC } from '../utils/date';
+import { ConfirmDialog } from '../components/ConfirmDialog';
+import { formatDateTime, parseUTC } from '../utils/date';
+import { phaseLabel, progressPercent } from '../utils/scanProgress';
 
 const statusColors: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200',
@@ -19,6 +21,8 @@ export function Scans() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string>('');
+  // Scan waiting for the user to confirm a cancel/delete
+  const [pendingAction, setPendingAction] = useState<{ type: 'cancel' | 'delete'; id: string; name: string } | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['scans', page, statusFilter],
@@ -53,22 +57,30 @@ export function Scans() {
     },
   });
 
-  const handleDelete = async (scanId: string, scanName: string) => {
-    if (!confirm(`Delete scan "${scanName}"?`)) return;
-    deleteMutation.mutate(scanId);
+  const handleDelete = (scanId: string, scanName: string) => {
+    setPendingAction({ type: 'delete', id: scanId, name: scanName });
   };
 
   const handleStart = (scanId: string) => {
     startMutation.mutate(scanId);
   };
 
-  const handleCancel = (scanId: string) => {
-    if (!confirm('Cancel this scan?')) return;
-    cancelMutation.mutate(scanId);
+  const handleCancel = (scanId: string, scanName: string) => {
+    setPendingAction({ type: 'cancel', id: scanId, name: scanName });
+  };
+
+  const confirmPendingAction = () => {
+    if (!pendingAction) return;
+    if (pendingAction.type === 'delete') {
+      deleteMutation.mutate(pendingAction.id);
+    } else {
+      cancelMutation.mutate(pendingAction.id);
+    }
+    setPendingAction(null);
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900" data-component="ScansPage">
+    <div className="min-h-page bg-gray-50 dark:bg-gray-900" data-component="ScansPage">
       <Navigation />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
@@ -162,7 +174,7 @@ export function Scans() {
                         {scan.config_name || scan.name || 'Unnamed Config'}
                       </Link>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                        Run #{scan.run_number} • {parseUTC(scan.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        Run #{scan.run_number} • {formatDateTime(scan.created_at)}
                       </p>
                       {scan.description && (
                         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{scan.description}</p>
@@ -183,10 +195,16 @@ export function Scans() {
                         </span>
                         {(scan.status === 'running' || scan.status === 'queued') && scan.current_phase && (
                           <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            {scan.current_phase === 'nmap_discovery' && 'Discovering ports...'}
-                            {scan.current_phase === 'nmap' && 'Detecting services...'}
-                            {scan.current_phase === 'ssh_audit' && 'Auditing SSH...'}
-                            {scan.current_phase === 'nuclei' && 'Scanning vulnerabilities...'}
+                            {scan.status === 'queued' ? 'Waiting for a worker...' : `${phaseLabel(scan.current_phase)}...`}
+                          </span>
+                        )}
+                        {scan.status === 'failed' && (
+                          <span
+                            className="text-xs text-red-600 dark:text-red-400 mt-1 max-w-xs whitespace-normal break-words line-clamp-2"
+                            title={scan.error_message || undefined}
+                            data-testid="scan-error-message"
+                          >
+                            {scan.error_message || 'No failure reason was recorded'}
                           </span>
                         )}
                       </div>
@@ -223,17 +241,19 @@ export function Scans() {
                           <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
                             <div
                               className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                              style={{ width: `${scan.progress_percent}%` }}
+                              style={{ width: `${progressPercent(scan.progress_percent)}%` }}
                             />
                           </div>
                           <span className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            {Math.round(scan.progress_percent)}%
+                            {progressPercent(scan.progress_percent)}%
                           </span>
                         </div>
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                      {formatDistanceToNow(parseUTC(scan.created_at), { addSuffix: true })}
+                      <span title={formatDateTime(scan.created_at, { seconds: true })}>
+                        {formatDistanceToNow(parseUTC(scan.created_at), { addSuffix: true })}
+                      </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
                       <Link
@@ -254,7 +274,7 @@ export function Scans() {
                       )}
                       {(scan.status === 'running' || scan.status === 'queued') && (
                         <button
-                          onClick={() => handleCancel(scan.id)}
+                          onClick={() => handleCancel(scan.id, scan.config_name || scan.name || `Run #${scan.run_number}`)}
                           className="text-yellow-600 dark:text-yellow-400 hover:text-yellow-900 dark:hover:text-yellow-300"
                           data-testid="scan-cancel-button"
                         >
@@ -327,6 +347,29 @@ export function Scans() {
         )}
       </div>
     </div>
+
+    <ConfirmDialog
+      open={pendingAction !== null}
+      title={pendingAction?.type === 'delete' ? 'Delete this scan?' : 'Cancel this scan?'}
+      message={
+        pendingAction?.type === 'delete' ? (
+          <>
+            <strong>{pendingAction.name}</strong> and all of its results (ports, findings, reports) will be
+            permanently deleted. This cannot be undone.
+          </>
+        ) : (
+          <>
+            <strong>{pendingAction?.name}</strong> will stop. Results collected so far are kept, but the scan
+            cannot be resumed.
+          </>
+        )
+      }
+      confirmLabel={pendingAction?.type === 'delete' ? 'Delete scan' : 'Cancel scan'}
+      cancelLabel={pendingAction?.type === 'delete' ? 'Keep scan' : 'Keep running'}
+      tone={pendingAction?.type === 'delete' ? 'danger' : 'warning'}
+      onConfirm={confirmPendingAction}
+      onCancel={() => setPendingAction(null)}
+    />
   </div>
 );
 }

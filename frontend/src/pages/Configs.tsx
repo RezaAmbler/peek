@@ -1,3 +1,4 @@
+import { parseUTC } from '../utils/date';
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -174,8 +175,7 @@ export function Configs() {
   };
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString();
+    return parseUTC(dateString).toLocaleDateString();
   };
 
   // Count enabled tools
@@ -195,7 +195,7 @@ export function Configs() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="min-h-page bg-gray-50 dark:bg-gray-900">
         <Navigation />
         <div className="flex items-center justify-center min-h-[calc(100vh-4rem)]">
           <div className="text-center">
@@ -208,7 +208,7 @@ export function Configs() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900" data-component="ConfigsPage">
+    <div className="min-h-page bg-gray-50 dark:bg-gray-900" data-component="ConfigsPage">
       <Navigation />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
