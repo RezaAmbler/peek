@@ -27,6 +27,371 @@ REPORT_TIMEZONE_LABEL = "UTC"
 # and the longest title printed in a row.
 COMPARISON_MAX_ROWS_PER_SECTION = 200
 COMPARISON_TITLE_MAX_CHARS = 160
+# The executive PDF keeps only the most severe rows of each section; the HTML
+# report is a single scrolling page, so it can afford far more than the PDF.
+COMPARISON_EXECUTIVE_MAX_ROWS_PER_SECTION = 10
+COMPARISON_HTML_MAX_ROWS_PER_SECTION = 2000
+
+# Columns of the comparison changes CSV, in order (keys of a stored change).
+COMPARISON_CSV_COLUMNS = [
+    'type', 'category', 'severity', 'classification', 'ip_address', 'device_name',
+    'port', 'protocol', 'service_name', 'product', 'version', 'old_version',
+    'new_version', 'name', 'template_id', 'vuln_severity', 'matched_at', 'description',
+]
+COMPARISON_CSV_CATEGORIES = ('port', 'service', 'vulnerability', 'ssh')
+# A cell starting with one of these is run as a formula by spreadsheet apps.
+CSV_FORMULA_PREFIXES = ('=', '+', '-', '@', '\t', '\r')
+
+# Stylesheet shared by every HTML report (scan report, comparison report).
+REPORT_HTML_STYLES = """
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f7fafc;
+            color: #1a202c;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+        .header h1 { margin: 0 0 10px 0; font-size: 28px; }
+        .header p { margin: 5px 0; opacity: 0.9; }
+        .section {
+            background: white;
+            padding: 24px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .section h2 {
+            color: #2d3748;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+            margin-top: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .section h3 { color: #4a5568; margin-top: 20px; }
+        .section-count {
+            font-size: 14px;
+            font-weight: normal;
+            color: #718096;
+        }
+
+        /* Severity Summary */
+        .severity-summary {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin: 20px 0;
+        }
+        .severity-badge {
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .severity-critical { background: #fed7d7; color: #c53030; }
+        .severity-high { background: #feebc8; color: #c05621; }
+        .severity-medium { background: #fefcbf; color: #b7791f; }
+        .severity-low { background: #bee3f8; color: #2b6cb0; }
+        .severity-info { background: #e2e8f0; color: #4a5568; }
+        .severity-positive { background: #c6f6d5; color: #276749; }
+
+        /* Metrics Grid */
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin: 20px 0;
+        }
+        .metric-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .metric-card .value { font-size: 32px; font-weight: bold; margin: 8px 0; }
+        .metric-card .label { font-size: 13px; opacity: 0.9; }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+            font-size: 14px;
+        }
+        th {
+            background: #4a5568;
+            color: white;
+            padding: 12px 10px;
+            text-align: left;
+            font-weight: 600;
+        }
+        td {
+            padding: 10px;
+            border-bottom: 1px solid #e2e8f0;
+            vertical-align: top;
+        }
+        tr:hover { background: #f7fafc; }
+        code {
+            background: #edf2f7;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+
+        /* Badges */
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .badge-critical { background: #c53030; color: white; }
+        .badge-high { background: #dd6b20; color: white; }
+        .badge-medium { background: #d69e2e; color: white; }
+        .badge-low { background: #3182ce; color: white; }
+        .badge-info { background: #718096; color: white; }
+        .badge-positive { background: #38a169; color: white; }
+
+        /* Tool badges */
+        .tool-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: bold;
+        }
+        .tool-nuclei { background: #9f7aea; color: white; }
+        .tool-zap { background: #ed8936; color: white; }
+        .tool-nikto { background: #4299e1; color: white; }
+        .tool-nse { background: #48bb78; color: white; }
+        .tool-sslscan { background: #38b2ac; color: white; }
+        .tool-unknown { background: #a0aec0; color: white; }
+
+        /* Grade badges */
+        .grade {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        .grade-a { background: #c6f6d5; color: #276749; }
+        .grade-b { background: #c6f6d5; color: #276749; }
+        .grade-c { background: #fefcbf; color: #b7791f; }
+        .grade-d { background: #fed7d7; color: #c53030; }
+        .grade-f { background: #fed7d7; color: #c53030; }
+
+        /* SSH Audit card */
+        .ssh-audit-card {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+        .ssh-audit-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .ssh-issues { color: #c53030; }
+        .ssh-recs { color: #2b6cb0; }
+
+        /* SSL card */
+        .ssl-card {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+        .ssl-protocols {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin: 10px 0;
+        }
+        .protocol-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .protocol-good { background: #c6f6d5; color: #276749; }
+        .protocol-bad { background: #fed7d7; color: #c53030; }
+        .protocol-disabled { background: #e2e8f0; color: #a0aec0; }
+
+        /* Info finding */
+        .info-finding {
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 8px;
+            background: #f7fafc;
+        }
+
+        /* Scan info grid */
+        .scan-info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+        .scan-info-item label {
+            font-size: 12px;
+            color: #718096;
+            display: block;
+        }
+        .scan-info-item span {
+            font-weight: 500;
+        }
+
+        /* Vulnerability card */
+        .vuln-card {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 16px;
+            background: white;
+        }
+        .vuln-card-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .vuln-card-title {
+            font-weight: 600;
+            color: #2d3748;
+            flex: 1;
+        }
+        .vuln-card-meta {
+            font-size: 12px;
+            color: #718096;
+            margin-bottom: 8px;
+        }
+        .vuln-description {
+            color: #4a5568;
+            margin: 8px 0;
+            font-size: 14px;
+        }
+        .vuln-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 8px;
+        }
+        .vuln-tag {
+            background: #edf2f7;
+            color: #4a5568;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+        }
+        .vuln-refs {
+            font-size: 12px;
+            color: #667eea;
+            margin-top: 8px;
+        }
+        .vuln-refs a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        .vuln-refs a:hover {
+            text-decoration: underline;
+        }
+        .extracted-data {
+            background: #f7fafc;
+            border-radius: 4px;
+            padding: 10px;
+            margin-top: 10px;
+            font-size: 12px;
+        }
+        .extracted-data dt {
+            font-weight: 600;
+            color: #4a5568;
+        }
+        .extracted-data dd {
+            margin: 0 0 6px 0;
+            color: #718096;
+        }
+
+        /* NSE card */
+        .nse-card {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+        .nse-script {
+            border-left: 3px solid #48bb78;
+            padding-left: 12px;
+            margin: 10px 0;
+        }
+        .nse-output {
+            background: #1a202c;
+            color: #e2e8f0;
+            padding: 12px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 8px;
+        }
+
+        /* Algorithm list */
+        .algo-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin: 6px 0;
+        }
+        .algo-item {
+            background: #edf2f7;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-family: monospace;
+        }
+        .algo-item.weak { background: #fed7d7; color: #c53030; }
+
+        /* Recommendations list */
+        .rec-list {
+            list-style: none;
+            padding: 0;
+            margin: 10px 0;
+        }
+        .rec-list li {
+            padding: 6px 0 6px 20px;
+            position: relative;
+            font-size: 13px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .rec-list li:before {
+            content: "→";
+            position: absolute;
+            left: 0;
+            color: #667eea;
+        }
+
+        @media print {
+            body { background: white; }
+            .section { box-shadow: none; border: 1px solid #e2e8f0; }
+        }
+"""
 
 logger = logging.getLogger(__name__)
 
@@ -573,21 +938,27 @@ class ReportService:
         buffer.seek(0)
         return buffer
 
-    def generate_comparison_report_pdf(self, comparison_id: str) -> BytesIO:
-        """Generate comparison report PDF"""
-        comparison = self.db.query(ScanComparison).filter(
-            ScanComparison.id == comparison_id
-        ).first()
+    def generate_comparison_report_pdf(self, comparison_id: str, executive: bool = False) -> BytesIO:
+        """
+        Generate comparison report PDF.
 
-        if not comparison:
-            raise ValueError("Comparison not found")
+        The detailed report lists the changes of every section (capped at
+        COMPARISON_MAX_ROWS_PER_SECTION); the executive summary keeps the same
+        layout but only the few most severe changes of each section.
+        """
+        comparison = self._load_comparison(comparison_id)
+        max_rows = (COMPARISON_EXECUTIVE_MAX_ROWS_PER_SECTION if executive
+                    else COMPARISON_MAX_ROWS_PER_SECTION)
 
         buffer = BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=letter)
         story = []
 
         # Title
-        story.append(Paragraph("Scan Comparison Report", self.styles['CustomTitle']))
+        story.append(Paragraph(
+            "Scan Comparison Executive Summary" if executive else "Scan Comparison Report",
+            self.styles['CustomTitle']
+        ))
         story.append(Paragraph(
             f"Compared {self._format_timestamp(comparison.created_at)}",
             self.styles['Subtitle']
@@ -596,8 +967,7 @@ class ReportService:
         # Scans compared
         story.append(Paragraph("Scans Compared", self.styles['SectionHeader']))
         scan_data = [['', 'Scan', f'Started ({REPORT_TIMEZONE_LABEL})', f'Finished ({REPORT_TIMEZONE_LABEL})']]
-        for label, scan_id in (('Baseline', comparison.baseline_scan_id), ('Current', comparison.current_scan_id)):
-            scan = self.db.query(Scan).filter(Scan.id == scan_id).first()
+        for label, scan in self._comparison_scans(comparison):
             scan_data.append([
                 label,
                 self._comparison_cell(self._comparison_scan_label(scan)),
@@ -636,8 +1006,8 @@ class ReportService:
         ]))
         story.append(summary_table)
 
-        # Detailed changes, one table per kind of change
-        for section in self._comparison_sections(comparison.changes or []):
+        # Changes, one table per kind of change
+        for section in self._comparison_sections(comparison.changes or [], max_rows=max_rows):
             story.append(Paragraph(
                 f"{section['title']} ({section['total']})", self.styles['SectionHeader']
             ))
@@ -674,6 +1044,22 @@ class ReportService:
         doc.build(story)
         buffer.seek(0)
         return buffer
+
+    def _load_comparison(self, comparison_id: str) -> ScanComparison:
+        comparison = self.db.query(ScanComparison).filter(
+            ScanComparison.id == comparison_id
+        ).first()
+        if not comparison:
+            raise ValueError("Comparison not found")
+        return comparison
+
+    def _comparison_scans(self, comparison: ScanComparison) -> List[tuple]:
+        """``(label, scan)`` for both sides; the scan is None once it has been deleted."""
+        return [
+            (label, self.db.query(Scan).filter(Scan.id == scan_id).first())
+            for label, scan_id in (('Baseline', comparison.baseline_scan_id),
+                                   ('Current', comparison.current_scan_id))
+        ]
 
     def _comparison_cell(self, text_value: str) -> Paragraph:
         """Wrapping table cell; scan data is escaped because Paragraph parses markup."""
@@ -849,352 +1235,7 @@ class ReportService:
     <meta charset="UTF-8">
     <title>Security Scan Report - {{ title }}</title>
     <style>
-        * { box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-            background: #f7fafc;
-            color: #1a202c;
-        }
-        .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 30px;
-            border-radius: 8px;
-            margin-bottom: 30px;
-        }
-        .header h1 { margin: 0 0 10px 0; font-size: 28px; }
-        .header p { margin: 5px 0; opacity: 0.9; }
-        .section {
-            background: white;
-            padding: 24px;
-            border-radius: 8px;
-            margin-bottom: 24px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-        .section h2 {
-            color: #2d3748;
-            border-bottom: 2px solid #667eea;
-            padding-bottom: 10px;
-            margin-top: 0;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .section h3 { color: #4a5568; margin-top: 20px; }
-        .section-count {
-            font-size: 14px;
-            font-weight: normal;
-            color: #718096;
-        }
-
-        /* Severity Summary */
-        .severity-summary {
-            display: flex;
-            gap: 12px;
-            flex-wrap: wrap;
-            margin: 20px 0;
-        }
-        .severity-badge {
-            padding: 8px 16px;
-            border-radius: 6px;
-            font-weight: bold;
-            font-size: 14px;
-        }
-        .severity-critical { background: #fed7d7; color: #c53030; }
-        .severity-high { background: #feebc8; color: #c05621; }
-        .severity-medium { background: #fefcbf; color: #b7791f; }
-        .severity-low { background: #bee3f8; color: #2b6cb0; }
-        .severity-info { background: #e2e8f0; color: #4a5568; }
-
-        /* Metrics Grid */
-        .metrics {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 16px;
-            margin: 20px 0;
-        }
-        .metric-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 20px;
-            border-radius: 8px;
-            text-align: center;
-        }
-        .metric-card .value { font-size: 32px; font-weight: bold; margin: 8px 0; }
-        .metric-card .label { font-size: 13px; opacity: 0.9; }
-
-        /* Tables */
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 15px 0;
-            font-size: 14px;
-        }
-        th {
-            background: #4a5568;
-            color: white;
-            padding: 12px 10px;
-            text-align: left;
-            font-weight: 600;
-        }
-        td {
-            padding: 10px;
-            border-bottom: 1px solid #e2e8f0;
-            vertical-align: top;
-        }
-        tr:hover { background: #f7fafc; }
-        code {
-            background: #edf2f7;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-size: 12px;
-        }
-
-        /* Badges */
-        .badge {
-            display: inline-block;
-            padding: 4px 10px;
-            border-radius: 4px;
-            font-size: 11px;
-            font-weight: bold;
-            text-transform: uppercase;
-        }
-        .badge-critical { background: #c53030; color: white; }
-        .badge-high { background: #dd6b20; color: white; }
-        .badge-medium { background: #d69e2e; color: white; }
-        .badge-low { background: #3182ce; color: white; }
-        .badge-info { background: #718096; color: white; }
-
-        /* Tool badges */
-        .tool-badge {
-            display: inline-block;
-            padding: 3px 8px;
-            border-radius: 3px;
-            font-size: 10px;
-            font-weight: bold;
-        }
-        .tool-nuclei { background: #9f7aea; color: white; }
-        .tool-zap { background: #ed8936; color: white; }
-        .tool-nikto { background: #4299e1; color: white; }
-        .tool-nse { background: #48bb78; color: white; }
-        .tool-sslscan { background: #38b2ac; color: white; }
-        .tool-unknown { background: #a0aec0; color: white; }
-
-        /* Grade badges */
-        .grade {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 4px;
-            font-size: 16px;
-            font-weight: bold;
-        }
-        .grade-a { background: #c6f6d5; color: #276749; }
-        .grade-b { background: #c6f6d5; color: #276749; }
-        .grade-c { background: #fefcbf; color: #b7791f; }
-        .grade-d { background: #fed7d7; color: #c53030; }
-        .grade-f { background: #fed7d7; color: #c53030; }
-
-        /* SSH Audit card */
-        .ssh-audit-card {
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 16px;
-            margin-bottom: 16px;
-        }
-        .ssh-audit-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 12px;
-        }
-        .ssh-issues { color: #c53030; }
-        .ssh-recs { color: #2b6cb0; }
-
-        /* SSL card */
-        .ssl-card {
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 16px;
-            margin-bottom: 16px;
-        }
-        .ssl-protocols {
-            display: flex;
-            gap: 8px;
-            flex-wrap: wrap;
-            margin: 10px 0;
-        }
-        .protocol-badge {
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 500;
-        }
-        .protocol-good { background: #c6f6d5; color: #276749; }
-        .protocol-bad { background: #fed7d7; color: #c53030; }
-        .protocol-disabled { background: #e2e8f0; color: #a0aec0; }
-
-        /* Info finding */
-        .info-finding {
-            border: 1px solid #e2e8f0;
-            border-radius: 6px;
-            padding: 12px;
-            margin-bottom: 8px;
-            background: #f7fafc;
-        }
-
-        /* Scan info grid */
-        .scan-info-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
-        }
-        .scan-info-item label {
-            font-size: 12px;
-            color: #718096;
-            display: block;
-        }
-        .scan-info-item span {
-            font-weight: 500;
-        }
-
-        /* Vulnerability card */
-        .vuln-card {
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 16px;
-            margin-bottom: 16px;
-            background: white;
-        }
-        .vuln-card-header {
-            display: flex;
-            align-items: flex-start;
-            gap: 12px;
-            margin-bottom: 12px;
-        }
-        .vuln-card-title {
-            font-weight: 600;
-            color: #2d3748;
-            flex: 1;
-        }
-        .vuln-card-meta {
-            font-size: 12px;
-            color: #718096;
-            margin-bottom: 8px;
-        }
-        .vuln-description {
-            color: #4a5568;
-            margin: 8px 0;
-            font-size: 14px;
-        }
-        .vuln-tags {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-            margin-top: 8px;
-        }
-        .vuln-tag {
-            background: #edf2f7;
-            color: #4a5568;
-            padding: 2px 8px;
-            border-radius: 3px;
-            font-size: 11px;
-        }
-        .vuln-refs {
-            font-size: 12px;
-            color: #667eea;
-            margin-top: 8px;
-        }
-        .vuln-refs a {
-            color: #667eea;
-            text-decoration: none;
-        }
-        .vuln-refs a:hover {
-            text-decoration: underline;
-        }
-        .extracted-data {
-            background: #f7fafc;
-            border-radius: 4px;
-            padding: 10px;
-            margin-top: 10px;
-            font-size: 12px;
-        }
-        .extracted-data dt {
-            font-weight: 600;
-            color: #4a5568;
-        }
-        .extracted-data dd {
-            margin: 0 0 6px 0;
-            color: #718096;
-        }
-
-        /* NSE card */
-        .nse-card {
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 16px;
-            margin-bottom: 16px;
-        }
-        .nse-script {
-            border-left: 3px solid #48bb78;
-            padding-left: 12px;
-            margin: 10px 0;
-        }
-        .nse-output {
-            background: #1a202c;
-            color: #e2e8f0;
-            padding: 12px;
-            border-radius: 4px;
-            font-family: monospace;
-            font-size: 12px;
-            white-space: pre-wrap;
-            max-height: 200px;
-            overflow-y: auto;
-            margin-top: 8px;
-        }
-
-        /* Algorithm list */
-        .algo-list {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-            margin: 6px 0;
-        }
-        .algo-item {
-            background: #edf2f7;
-            padding: 2px 8px;
-            border-radius: 3px;
-            font-size: 11px;
-            font-family: monospace;
-        }
-        .algo-item.weak { background: #fed7d7; color: #c53030; }
-
-        /* Recommendations list */
-        .rec-list {
-            list-style: none;
-            padding: 0;
-            margin: 10px 0;
-        }
-        .rec-list li {
-            padding: 6px 0 6px 20px;
-            position: relative;
-            font-size: 13px;
-            border-bottom: 1px solid #f0f0f0;
-        }
-        .rec-list li:before {
-            content: "→";
-            position: absolute;
-            left: 0;
-            color: #667eea;
-        }
-
-        @media print {
-            body { background: white; }
-            .section { box-shadow: none; border: 1px solid #e2e8f0; }
-        }
-    </style>
+{{ report_styles|safe }}    </style>
 </head>
 <body>
     <div class="header">
@@ -1572,6 +1613,7 @@ class ReportService:
             total_ports += len(target.ports)
 
         return tmpl.render(
+            report_styles=REPORT_HTML_STYLES,
             scan=scan,
             title=title,
             subtitle=subtitle,
@@ -1585,6 +1627,131 @@ class ReportService:
             severity_counts=severity_counts,
             total_ports=total_ports,
             duration=self._format_duration(scan),
+            now=utcnow(),
+            format_ts=self._format_timestamp,
+        )
+
+    def generate_comparison_html_report(self, comparison_id: str) -> str:
+        """Generate the comparison report as a standalone HTML page"""
+        comparison = self._load_comparison(comparison_id)
+        sections = self._comparison_sections(
+            comparison.changes or [], max_rows=COMPARISON_HTML_MAX_ROWS_PER_SECTION
+        )
+
+        template = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Scan Comparison Report</title>
+    <style>
+{{ report_styles|safe }}    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Scan Comparison Report</h1>
+        <p style="font-size: 16px; margin: 5px 0;">{{ scans[0].name }} → {{ scans[1].name }}</p>
+        <p><strong>Compared:</strong> {{ format_ts(comparison.created_at) }}</p>
+        <p><strong>Generated:</strong> {{ format_ts(now) }}</p>
+    </div>
+
+    <div class="section">
+        <h2>Scans Compared</h2>
+        <table>
+            <tr><th></th><th>Scan</th><th>Started ({{ tz }})</th><th>Finished ({{ tz }})</th></tr>
+            {% for scan in scans %}
+            <tr>
+                <td><strong>{{ scan.label }}</strong></td>
+                <td>{{ scan.name }}</td>
+                <td>{{ scan.started }}</td>
+                <td>{{ scan.finished }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>Change Summary</h2>
+        <div class="metrics">
+            {% for label, value in metrics %}
+            <div class="metric-card">
+                <div class="label">{{ label }}</div>
+                <div class="value">{{ value }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="severity-summary">
+            {% if comparison.critical_changes %}
+            <span class="severity-badge severity-critical">CRITICAL: {{ comparison.critical_changes }}</span>
+            {% endif %}
+            {% if comparison.high_changes %}
+            <span class="severity-badge severity-high">HIGH: {{ comparison.high_changes }}</span>
+            {% endif %}
+            {% if comparison.medium_changes %}
+            <span class="severity-badge severity-medium">MEDIUM: {{ comparison.medium_changes }}</span>
+            {% endif %}
+            {% if comparison.positive_changes %}
+            <span class="severity-badge severity-positive">IMPROVEMENTS: {{ comparison.positive_changes }}</span>
+            {% endif %}
+        </div>
+    </div>
+
+    {% for section in sections %}
+    <div class="section">
+        <h2>{{ section.title }} <span class="section-count">({{ section.total }})</span></h2>
+        {% for note in section.notes %}
+        <p style="color: #718096; font-size: 13px;">{{ note }}</p>
+        {% endfor %}
+        {% if section.rows %}
+        <table>
+            <tr><th style="width: 110px;">Severity</th><th style="width: 30%;">Host:Port</th><th>{{ section.detail_header }}</th></tr>
+            {% for row in section.rows %}
+            <tr>
+                <td><span class="badge badge-{{ row.severity if row.severity in badge_severities else 'info' }}">{{ row.severity }}</span></td>
+                <td><code>{{ row.location }}</code></td>
+                <td>{{ row.title }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        {% else %}
+        <p style="color: #718096;">None.</p>
+        {% endif %}
+    </div>
+    {% endfor %}
+
+    <div style="text-align: center; color: #a0aec0; margin-top: 40px; font-size: 12px;">
+        <p>Generated by PEEK Security Scanner</p>
+    </div>
+</body>
+</html>
+        """
+
+        # Change data (banners, finding names, versions) is attacker-influenced
+        tmpl = Template(template, autoescape=True)
+
+        return tmpl.render(
+            report_styles=REPORT_HTML_STYLES,
+            comparison=comparison,
+            scans=[
+                {
+                    'label': label,
+                    'name': self._comparison_scan_label(scan),
+                    'started': self._format_timestamp(scan.started_at if scan else None),
+                    'finished': self._format_timestamp(scan.finished_at if scan else None),
+                }
+                for label, scan in self._comparison_scans(comparison)
+            ],
+            metrics=[
+                ('Total Changes', comparison.total_changes),
+                ('New Ports', comparison.new_ports),
+                ('Closed Ports', comparison.closed_ports),
+                ('Version Changes', comparison.version_changes),
+                ('New Vulnerabilities', comparison.new_vulnerabilities),
+                ('Fixed Vulnerabilities', comparison.fixed_vulnerabilities),
+            ],
+            sections=sections,
+            badge_severities=('critical', 'high', 'medium', 'low', 'info', 'positive'),
+            tz=REPORT_TIMEZONE_LABEL,
             now=utcnow(),
             format_ts=self._format_timestamp,
         )
@@ -1658,7 +1825,68 @@ class ReportService:
         buffer.seek(0)
         return buffer
 
+    def export_comparison_changes_csv(self, comparison_id: str, category: Optional[str] = None) -> BytesIO:
+        """Export every change of a comparison (optionally one category) to CSV"""
+        comparison = self._load_comparison(comparison_id)
+        changes = [
+            c for c in (comparison.changes or [])
+            if category is None or c.get('category') == category
+        ]
+
+        df = pd.DataFrame(
+            [[self._csv_cell(c.get(col)) for col in COMPARISON_CSV_COLUMNS] for c in changes],
+            columns=COMPARISON_CSV_COLUMNS,
+        )
+
+        buffer = BytesIO()
+        df.to_csv(buffer, index=False, encoding='utf-8')
+        buffer.seek(0)
+        return buffer
+
+    def export_comparison_summary_csv(self, comparison_id: str) -> BytesIO:
+        """Export comparison summary to CSV"""
+        comparison = self._load_comparison(comparison_id)
+
+        data = {'Compared At (UTC)': [self._format_timestamp(comparison.created_at, seconds=True)]}
+        for label, scan in self._comparison_scans(comparison):
+            data[f'{label} Scan'] = [self._csv_cell(self._comparison_scan_label(scan))]
+            data[f'{label} Start Time (UTC)'] = [
+                self._format_timestamp(scan.started_at if scan else None, seconds=True)]
+            data[f'{label} End Time (UTC)'] = [
+                self._format_timestamp(scan.finished_at if scan else None, seconds=True)]
+        data.update({
+            'Total Changes': [comparison.total_changes],
+            'New Ports': [comparison.new_ports],
+            'Closed Ports': [comparison.closed_ports],
+            'Version Changes': [comparison.version_changes],
+            'New Vulnerabilities': [comparison.new_vulnerabilities],
+            'Fixed Vulnerabilities': [comparison.fixed_vulnerabilities],
+            'Critical Changes': [comparison.critical_changes],
+            'High Severity Changes': [comparison.high_changes],
+            'Medium Severity Changes': [comparison.medium_changes],
+            'Positive Changes': [comparison.positive_changes],
+        })
+
+        df = pd.DataFrame(data)
+
+        buffer = BytesIO()
+        df.to_csv(buffer, index=False, encoding='utf-8')
+        buffer.seek(0)
+        return buffer
+
     # ==================== HELPER METHODS ====================
+
+    @staticmethod
+    def _csv_cell(value: Any) -> Any:
+        """
+        CSV value for attacker-influenced scan data: text that a spreadsheet
+        would evaluate as a formula is prefixed with a quote so it stays text.
+        """
+        if value is None:
+            return ''
+        if isinstance(value, str) and value.startswith(CSV_FORMULA_PREFIXES):
+            return "'" + value
+        return value
 
     @staticmethod
     def _format_timestamp(value: Optional[datetime], seconds: bool = False) -> str:

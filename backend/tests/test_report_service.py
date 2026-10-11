@@ -1,9 +1,12 @@
 """
 Report exports: every format renders for a scan whose findings carry the data
 shapes the scanners really store (nuclei: list of extracted values, others: a
-mapping), and every timestamp names its timezone. The comparison PDF lists the
-actual changes, capped per section.
+mapping), and every timestamp names its timezone. The comparison reports (PDF
+executive/detailed, HTML, CSV) list the actual changes, capped per section where
+the format needs it.
 """
+import csv
+import io
 import re
 import uuid
 from datetime import datetime
@@ -280,3 +283,150 @@ def test_comparison_pdf_paginates_large_change_lists(db, comparison):
 def test_comparison_pdf_unknown_comparison(db):
     with pytest.raises(ValueError):
         ReportService(db).generate_comparison_report_pdf("missing")
+
+
+def test_comparison_executive_pdf_keeps_only_the_most_severe_changes(db, comparison, monkeypatch):
+    monkeypatch.setattr(rl_config, "pageCompression", 0)
+    comparison.changes = [
+        _change("NEW_VULNERABILITY", category="vulnerability", port=1000 + i, name=f"Finding {i}",
+                template_id=f"t-{i}", vuln_severity="critical" if i == 39 else "low")
+        for i in range(40)
+    ]
+    db.commit()
+    service = ReportService(db)
+
+    executive = _pdf_text(service.generate_comparison_report_pdf(comparison.id, executive=True).read())
+    detailed = _pdf_text(service.generate_comparison_report_pdf(comparison.id).read())
+
+    assert "Scan Comparison Executive Summary" in executive
+    assert "Scan Comparison Report" in detailed
+    assert "Compared 2026-10-10 20:15 UTC" in executive and "2026-10-03 08:42 UTC" in executive
+    assert "New Vulnerabilities \\(40\\)" in executive  # the real count, not the listed rows
+    assert "Finding 39 [t-39]" in executive and "Showing the 10 most severe of 40" in executive
+    assert executive.count("10.0.0.5:10") == 10 and detailed.count("10.0.0.5:10") == 40
+
+
+# ---------------------------------------------------------------- comparison HTML
+
+def test_comparison_html_lists_changes_with_report_styling(db, comparison):
+    html = ReportService(db).generate_comparison_html_report(comparison.id)
+
+    for heading in ("New Ports", "Closed Ports", "Version Changes", "New Vulnerabilities",
+                    "Fixed Vulnerabilities", "Other Changes"):
+        assert f"<h2>{heading} <span" in html
+    assert "10.0.0.5:8443/tcp" in html and "https nginx 1.25.3" in html
+    assert "ssh: 8.2p1 → 9.6p1" in html
+    assert "Accepted risk [accepted] (suppressed)" in html
+    assert '<span class="badge badge-critical">critical</span>' in html
+    assert '<span class="badge badge-positive">positive</span>' in html
+    assert "CRITICAL: " not in html  # severity counts of zero are left out
+    # same stylesheet as the scan HTML report
+    assert ".metric-card {" in html and ".badge-critical {" in html
+    assert "{{" not in html and "{%" not in html
+
+
+def test_scan_and_comparison_html_share_one_stylesheet(db, scan, comparison):
+    from app.services.report_service import REPORT_HTML_STYLES
+
+    service = ReportService(db)
+
+    assert REPORT_HTML_STYLES in service.generate_html_report(scan.id)
+    assert REPORT_HTML_STYLES in service.generate_comparison_html_report(comparison.id)
+
+
+def test_comparison_html_escapes_change_data_and_labels_timestamps(db, comparison):
+    html = ReportService(db).generate_comparison_html_report(comparison.id)
+
+    assert "<b>RCE</b>" not in html
+    assert "&lt;b&gt;RCE&lt;/b&gt; &amp; more [CVE-2026-0001]" in html
+    assert "run (Run #2)" in html and "run (Run #3)" in html
+    assert "2026-10-03 08:42 UTC" in html and "2026-10-10 19:55 UTC" in html
+    assert "<strong>Compared:</strong> 2026-10-10 20:15 UTC" in html
+    assert "Started (UTC)" in html and "Finished (UTC)" in html
+
+
+def test_comparison_html_without_changes_or_scans(db, comparison):
+    comparison.changes = []
+    comparison.baseline_scan_id = "deleted-scan"
+    db.commit()
+
+    html = ReportService(db).generate_comparison_html_report(comparison.id)
+
+    assert "Scan no longer available" in html and "N/A" in html
+    assert html.count("None.") == 5
+
+
+# ---------------------------------------------------------------- comparison CSV
+
+def _csv_rows(buffer):
+    return list(csv.DictReader(io.StringIO(buffer.read().decode())))
+
+
+def test_comparison_changes_csv_has_one_row_per_change(db, comparison):
+    rows = _csv_rows(ReportService(db).export_comparison_changes_csv(comparison.id))
+
+    assert len(rows) == len(COMPARISON_CHANGES)  # every change, suppressed ones included
+    assert list(rows[0]) == ["type", "category", "severity", "classification", "ip_address",
+                             "device_name", "port", "protocol", "service_name", "product",
+                             "version", "old_version", "new_version", "name", "template_id",
+                             "vuln_severity", "matched_at", "description"]
+    assert rows[0]["type"] == "NEW_PORT" and rows[0]["port"] == "8443"
+    assert rows[0]["product"] == "nginx" and rows[0]["name"] == ""
+    assert (rows[2]["old_version"], rows[2]["new_version"]) == ("8.2p1", "9.6p1")
+    assert rows[4]["name"] == "<b>RCE</b> & more" and rows[4]["vuln_severity"] == "critical"
+    assert rows[5]["classification"] == "SUPPRESSED"
+
+
+def test_comparison_changes_csv_filters_by_category(db, comparison):
+    service = ReportService(db)
+
+    vulns = _csv_rows(service.export_comparison_changes_csv(comparison.id, "vulnerability"))
+    ports = _csv_rows(service.export_comparison_changes_csv(comparison.id, "port"))
+
+    assert [r["type"] for r in vulns] == ["NEW_VULNERABILITY"] * 3 + ["FIXED_VULNERABILITY"]
+    assert [r["type"] for r in ports] == ["NEW_PORT", "CLOSED_PORT"]
+
+
+def test_comparison_changes_csv_without_changes_still_has_the_header(db, comparison):
+    comparison.changes = []
+    db.commit()
+
+    text = ReportService(db).export_comparison_changes_csv(comparison.id).read().decode()
+
+    assert text.splitlines() == [",".join([
+        "type", "category", "severity", "classification", "ip_address", "device_name", "port",
+        "protocol", "service_name", "product", "version", "old_version", "new_version", "name",
+        "template_id", "vuln_severity", "matched_at", "description"])]
+
+
+def test_comparison_changes_csv_neutralizes_spreadsheet_formulas(db, comparison):
+    comparison.changes = [
+        _change("NEW_VULNERABILITY", category="vulnerability", port=80,
+                name='=HYPERLINK("http://evil.example","click")', template_id="@SUM(1+1)",
+                vuln_severity="high", description="-2+3"),
+    ]
+    db.commit()
+
+    row = _csv_rows(ReportService(db).export_comparison_changes_csv(comparison.id))[0]
+
+    assert row["name"] == "'=HYPERLINK(\"http://evil.example\",\"click\")"
+    assert row["template_id"] == "'@SUM(1+1)" and row["description"] == "'-2+3"
+    assert row["port"] == "80"  # numbers are left alone
+
+
+def test_comparison_summary_csv_labels_timestamps_as_utc(db, comparison):
+    rows = _csv_rows(ReportService(db).export_comparison_summary_csv(comparison.id))
+
+    assert len(rows) == 1
+    assert rows[0]["Compared At (UTC)"] == "2026-10-10 20:15:00 UTC"
+    assert rows[0]["Baseline Scan"] == "run (Run #2)" and rows[0]["Current Scan"] == "run (Run #3)"
+    assert rows[0]["Baseline Start Time (UTC)"] == "2026-10-03 08:00:05 UTC"
+    assert rows[0]["Current End Time (UTC)"] == "2026-10-10 19:55:38 UTC"
+    assert rows[0]["Total Changes"] == "7" and rows[0]["New Vulnerabilities"] == "2"
+
+
+@pytest.mark.parametrize("method", [
+    "generate_comparison_html_report", "export_comparison_changes_csv", "export_comparison_summary_csv"])
+def test_comparison_exports_unknown_comparison(db, method):
+    with pytest.raises(ValueError):
+        getattr(ReportService(db), method)("missing")
