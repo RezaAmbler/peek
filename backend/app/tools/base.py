@@ -57,6 +57,25 @@ def set_cancel_check(check: Optional[Callable[[], bool]]) -> None:
     _cancel_check = check
 
 
+_progress_hook: Optional[Callable[[float, float], None]] = None
+
+
+def set_progress_hook(hook: Optional[Callable[[float, float], None]]) -> None:
+    """Install (or clear) the callback told how long the running tool has been going."""
+    global _progress_hook
+    _progress_hook = hook
+
+
+def report_progress(elapsed: float, timeout: float) -> None:
+    """Tell the scan a tool is still running. Never raises: progress is cosmetic."""
+    if _progress_hook is None:
+        return
+    try:
+        _progress_hook(elapsed, timeout)
+    except Exception:
+        pass
+
+
 def cancel_requested() -> bool:
     """True if the installed cancel check says the current scan was cancelled."""
     if _cancel_check is None:
@@ -215,7 +234,8 @@ def _run_process(cmd: List[str], *, timeout: float, env: dict, **_ignored) -> "s
         env=env,
         start_new_session=True,
     )
-    deadline = time.monotonic() + timeout
+    started = time.monotonic()
+    deadline = started + timeout
     try:
         while True:
             remaining = deadline - time.monotonic()
@@ -225,6 +245,7 @@ def _run_process(cmd: List[str], *, timeout: float, env: dict, **_ignored) -> "s
             except subprocess.TimeoutExpired:
                 timed_out = time.monotonic() >= deadline
                 if not timed_out and not cancel_requested():
+                    report_progress(time.monotonic() - started, timeout)
                     continue
                 _kill_process_group(proc)
                 try:

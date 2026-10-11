@@ -2,7 +2,7 @@ from celery import Task
 from datetime import datetime
 from typing import List, Optional
 from ..celery_app import celery_app
-from ..db.sync_session import get_sync_db, read_scan_status
+from ..db.sync_session import get_sync_db, read_scan_status, write_scan_progress
 from ..models import Scan, ScanTarget, ToolExecution, ScanStatus, ScanPhase, TargetStatus, Port
 from ..tools.nmap import run_nmap, run_nmap_discovery
 from ..tools.ssh_audit import run_ssh_audit
@@ -34,13 +34,14 @@ from ..parsers.testssl_parser import parse_testssl_output, analyze_testssl_secur
 from ..parsers.nikto_parser import create_vulnerabilities_from_nikto
 from ..parsers.zap_parser import create_vulnerabilities_from_zap
 from ..parsers.httpx_parser import create_httpx_result_from_output
+import math
 import os
 import time
 import uuid
 from urllib.parse import urlsplit
 import logging
 import tempfile
-from ..tools.base import ScanCancelled, set_cancel_check
+from ..tools.base import ScanCancelled, set_cancel_check, set_progress_hook
 from ..core.timeutil import utcnow
 
 logger = logging.getLogger(__name__)
@@ -74,14 +75,71 @@ def phase_progress(phase: str, fraction: float = 0.0) -> float:
     return round(start + (end - start) * fraction, 4)
 
 
+# The step of the current phase that is running right now. The heartbeat uses
+# it to move the bar inside that step's slice while a long tool run is going.
+_progress_step = {"phase": None, "done": 0, "total": 1}
+
+# Heartbeat: progress approaches (never reaches) the end of the running step.
+HEARTBEAT_INTERVAL_SECONDS = 10.0
+HEARTBEAT_MAX_FRACTION = 0.95
+HEARTBEAT_MIN_TAU_SECONDS = 60.0
+
+
+def _record_phase_step(scan: Scan, phase: str, done: int, total: int) -> None:
+    _progress_step.update(phase=phase, done=done, total=max(total, 1))
+    # New dict: JSON columns only detect reassignment
+    scan.phase_stats = {**(scan.phase_stats or {}), phase: {"completed": done, "total": max(total, 1)}}
+
+
+def begin_phase_steps(db, scan: Scan, phase: str, total: int = 1) -> None:
+    """Announce that `phase` is about to run `total` steps (tool runs)."""
+    _record_phase_step(scan, phase, 0, total)
+    scan.progress_updated_at = utcnow()
+    db.commit()
+
+
 def set_phase_progress(db, scan: Scan, phase: str, done: int = 1, total: int = 1) -> None:
     """Record progress within a phase. Monotonic: never lowers scan.progress_percent."""
     fraction = (done / total) if total else 1.0
     value = phase_progress(phase, fraction)
-    if value > (scan.progress_percent or 0.0):
-        scan.progress_percent = value
+    # The heartbeat writes progress outside this session: compare with the stored value
+    stored = db.query(Scan.progress_percent).filter(Scan.id == scan.id).scalar() or 0.0
+    scan.progress_percent = max(value, stored, scan.progress_percent or 0.0)
     scan.progress_updated_at = utcnow()
+    _record_phase_step(scan, phase, done if total else 1, total or 1)
     db.commit()
+
+
+def heartbeat_progress(elapsed: float, timeout: float) -> Optional[float]:
+    """Overall progress for a tool that has been running `elapsed` seconds.
+
+    Stays inside the slice of the step that is running, so the next
+    set_phase_progress() call can only move the bar forward.
+    """
+    phase, done, total = _progress_step["phase"], _progress_step["done"], _progress_step["total"]
+    if phase is None or done >= total:
+        return None
+    low = phase_progress(phase, done / total)
+    high = phase_progress(phase, (done + 1) / total)
+    tau = max(HEARTBEAT_MIN_TAU_SECONDS, (timeout or 0) / 4)
+    fraction = HEARTBEAT_MAX_FRACTION * (1 - math.exp(-max(elapsed, 0.0) / tau))
+    return round(low + (high - low) * fraction, 4)
+
+
+def make_progress_heartbeat(scan_id: str, min_interval: float = HEARTBEAT_INTERVAL_SECONDS):
+    """Callable for tools.base.set_progress_hook: keeps the bar moving during a long tool run."""
+    state = {"at": 0.0}
+
+    def beat(elapsed: float, timeout: float) -> None:
+        now = time.monotonic()
+        if now - state["at"] < min_interval:
+            return
+        state["at"] = now
+        value = heartbeat_progress(elapsed, timeout)
+        if value is not None:
+            write_scan_progress(scan_id, value)
+
+    return beat
 
 
 def _truncate(raw: Optional[str]) -> Optional[str]:
@@ -215,6 +273,35 @@ def make_cancel_check(scan_id: str, min_interval: float = CANCEL_CHECK_INTERVAL_
     return check
 
 
+def mark_scan_failed(db, scan: Scan, reason: str, now=None) -> None:
+    """Set a scan to failed and record why. The caller commits.
+
+    Target counters are normally written when a scan completes; a failed scan
+    gets them too, so the UI does not show "0 failed" for a scan that died.
+    Targets that never finished count as failed.
+    """
+    now = now or utcnow()
+    scan.status = ScanStatus.FAILED.value
+    scan.current_phase = ScanPhase.FAILED.value
+    scan.finished_at = now
+    scan.error_message = (reason or "Scan failed")[:2000]
+
+    for target in db.query(ScanTarget).filter(ScanTarget.scan_id == scan.id).all():
+        if target.status in (TargetStatus.PENDING.value, TargetStatus.SCANNING.value):
+            target.status = TargetStatus.FAILED.value
+            target.error_message = target.error_message or scan.error_message
+            target.finished_at = target.finished_at or now
+    db.flush()
+    scan.completed_targets = db.query(ScanTarget).filter(
+        ScanTarget.scan_id == scan.id,
+        ScanTarget.status == TargetStatus.COMPLETED.value
+    ).count()
+    scan.failed_targets = db.query(ScanTarget).filter(
+        ScanTarget.scan_id == scan.id,
+        ScanTarget.status.in_([TargetStatus.FAILED.value, TargetStatus.TIMEOUT.value])
+    ).count()
+
+
 def finish_cancelled_scan(db, scan_id: str) -> None:
     """Close out a scan that was cancelled: no tool run stays open, status stays cancelled."""
     db.rollback()
@@ -241,9 +328,7 @@ def fail_interrupted_scans(db, reason: str) -> int:
     now = utcnow()
     for scan in interrupted:
         fail_unfinished_tool_execs(db, scan.id, reason)
-        scan.status = ScanStatus.FAILED.value
-        scan.current_phase = ScanPhase.FAILED.value
-        scan.finished_at = now
+        mark_scan_failed(db, scan, reason, now)
     # Cancelled scans whose worker died before it could close them out
     for scan in db.query(Scan).filter(Scan.status == ScanStatus.CANCELLED.value).all():
         closed = fail_unfinished_tool_execs(db, scan.id, "Scan cancelled")
@@ -313,6 +398,8 @@ def run_scan(self, scan_id: str):
         # Running tools poll this (tools.base.run_command); phases check it too
         cancel_check = make_cancel_check(scan_id)
         set_cancel_check(cancel_check)
+        set_progress_hook(make_progress_heartbeat(scan_id))
+        _progress_step.update(phase=None, done=0, total=1)
 
         def stop_if_cancelled():
             if cancel_check(force=True):
@@ -494,10 +581,9 @@ def run_scan(self, scan_id: str):
             # and the scan stays RUNNING forever.
             db.rollback()
             try:
-                fail_unfinished_tool_execs(db, scan_id, f"Scan aborted: {type(e).__name__}: {e}")
-                scan.status = ScanStatus.FAILED.value
-                scan.current_phase = ScanPhase.FAILED.value
-                scan.finished_at = utcnow()
+                reason = f"Scan aborted: {type(e).__name__}: {e}"
+                fail_unfinished_tool_execs(db, scan_id, reason)
+                mark_scan_failed(db, scan, reason)
                 db.commit()
             except Exception as finalize_err:
                 logger.error(f"Could not mark scan {scan_id} as failed: {finalize_err}")
@@ -506,6 +592,7 @@ def run_scan(self, scan_id: str):
 
         finally:
             set_cancel_check(None)
+            set_progress_hook(None)
 
 def run_masscan_phase(db, scan: Scan, targets: List[ScanTarget], config):
     """
@@ -518,6 +605,7 @@ def run_masscan_phase(db, scan: Scan, targets: List[ScanTarget], config):
     For SQLite backends, we process targets sequentially.
     """
     total = len(targets)
+    begin_phase_steps(db, scan, 'nmap_discovery', total)
     completed = 0
 
     for target in targets:
@@ -631,6 +719,7 @@ def run_nmap_phase(db, scan: Scan, targets: List[ScanTarget], config):
         return
 
     total = len(targets_with_ports)
+    begin_phase_steps(db, scan, 'nmap', total)
     completed = 0
 
     for target in targets_with_ports:
@@ -734,6 +823,7 @@ def run_httpx_phase(db, scan: Scan, targets: List[ScanTarget], config):
         logger.info("httpx: Virtual host discovery enabled")
 
     total = len(http_ports)
+    begin_phase_steps(db, scan, 'httpx', total)
     completed = 0
 
     for port_rec in http_ports:
@@ -866,6 +956,7 @@ def run_katana_phase(db, scan: Scan, targets: List[ScanTarget], config):
     max_endpoints = getattr(config, 'katana_max_endpoints', 500) or 500
 
     total = len(http_ports)
+    begin_phase_steps(db, scan, 'katana', total)
     completed = 0
     total_endpoints = 0
 
@@ -988,6 +1079,7 @@ def run_ssh_audit_phase(db, scan: Scan, targets: List[ScanTarget], config):
         return
 
     total = len(ssh_port_records)
+    begin_phase_steps(db, scan, 'ssh-audit', total)
     completed = 0
 
     # SSH-audit is fast, so we can run serially or in small batches
@@ -1106,6 +1198,7 @@ def run_nuclei_phase(db, scan: Scan, targets: List[ScanTarget], config):
         return
 
     total = len(scannable_ports)
+    begin_phase_steps(db, scan, 'nuclei', total)
     scanned = 0
     skipped = 0
     failed = 0
@@ -1302,6 +1395,7 @@ def run_nuclei_endpoints_phase(db, scan: Scan, targets: List[ScanTarget], config
         set_phase_progress(db, scan, 'nuclei_endpoints')
         return
 
+    begin_phase_steps(db, scan, 'nuclei_endpoints', total_targets)
     scanned = 0
     vulns_found = 0
 
@@ -1439,6 +1533,7 @@ def run_nse_phase(db, scan: Scan, targets: List[ScanTarget], config):
     logger.info(f"NSE: {len(ports_with_nse)} ports matched profiles from {len(all_ports)} total")
 
     total = len(ports_with_nse)
+    begin_phase_steps(db, scan, 'nse', total)
     completed = 0
     findings_total = 0
 
@@ -1555,6 +1650,7 @@ def run_sslscan_phase(db, scan: Scan, targets: List[ScanTarget], config):
     logger.info(f"sslscan: {len(ssl_port_records)} potential SSL/TLS ports")
 
     total = len(ssl_port_records)
+    begin_phase_steps(db, scan, 'sslscan', total)
     completed = 0
     results_total = 0
 
@@ -1699,6 +1795,7 @@ def run_testssl_phase(db, scan: Scan, targets: List[ScanTarget], config):
     timeout = getattr(config, 'testssl_timeout', 300) or 300
 
     total = len(tls_ports)
+    begin_phase_steps(db, scan, 'testssl', total)
     completed = 0
     results_total = 0
 
@@ -1832,6 +1929,7 @@ def run_nikto_phase(db, scan: Scan, targets: List[ScanTarget], config):
     - Server-specific problems
     """
     logger.info(f"Starting Nikto phase for scan {scan.id}")
+    begin_phase_steps(db, scan, 'nikto')
 
     # HTTP services to scan
     http_services = ['http', 'https', 'ssl/http', 'http-proxy', 'http-alt']
@@ -1939,6 +2037,7 @@ def run_zap_phase(db, scan: Scan, targets: List[ScanTarget], config):
     - Active scanning (optional) for deeper analysis
     """
     logger.info(f"Starting ZAP phase for scan {scan.id}")
+    begin_phase_steps(db, scan, 'zap')
 
     # Check if ZAP is available
     if not check_zap_available():

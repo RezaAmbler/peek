@@ -46,6 +46,7 @@ class ScanResponse(BaseModel):
     description: Optional[str]
     status: str
     current_phase: str
+    error_message: Optional[str] = None  # Why the scan failed (status == failed)
     created_at: datetime
     started_at: Optional[datetime]
     finished_at: Optional[datetime]

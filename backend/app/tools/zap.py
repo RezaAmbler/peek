@@ -6,7 +6,7 @@ import logging
 from typing import List, Dict, Any
 from urllib.parse import urlsplit
 
-from .base import EXIT_NOT_RUN, EXIT_TIMEOUT, ToolResult
+from .base import EXIT_NOT_RUN, EXIT_TIMEOUT, ToolResult, report_progress
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +160,7 @@ def run_zap_baseline(
                 if status_check_failures >= max_status_failures:
                     logger.error(f"ZAP spider status check failed {max_status_failures} times, aborting spider wait")
                     return result(False, None, f"ZAP spider status could not be read: {e}")
+            report_progress(time.time() - spider_start, spider_budget)
             time.sleep(2)
 
         if not spider_done:

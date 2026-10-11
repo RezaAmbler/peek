@@ -226,3 +226,34 @@ def test_each_run_gets_a_private_tmpdir_that_is_removed():
 
 def test_error_snippets_drop_terminal_colour_codes():
     assert base.snippet("\x1b[0;35mFatal error: no TLS\x1b[m\n") == "Fatal error: no TLS"
+
+
+def test_run_command_reports_progress_while_the_tool_runs(monkeypatch):
+    from app.tools import base
+
+    calls = []
+    monkeypatch.setattr(base, "CANCEL_POLL_SECONDS", 0.05)
+    base.set_progress_hook(lambda elapsed, timeout: calls.append((elapsed, timeout)))
+    try:
+        run = base.run_command(["sleep", "0.4"], timeout=30)
+    finally:
+        base.set_progress_hook(None)
+
+    assert run.exit_code == 0
+    assert calls and all(timeout == 30 and elapsed >= 0 for elapsed, timeout in calls)
+
+
+def test_a_failing_progress_hook_does_not_fail_the_tool(monkeypatch):
+    from app.tools import base
+
+    def broken(elapsed, timeout):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(base, "CANCEL_POLL_SECONDS", 0.05)
+    base.set_progress_hook(broken)
+    try:
+        run = base.run_command(["sleep", "0.2"], timeout=30)
+    finally:
+        base.set_progress_hook(None)
+
+    assert run.exit_code == 0

@@ -7,7 +7,7 @@ from ..celery_app import celery_app
 from ..db.sync_session import get_sync_db
 from ..models import ScheduledScan, Scan, ScanTarget, Vulnerability
 from ..models.scan import ScanStatus, ScanPhase
-from ..tasks.scan_tasks import run_scan, fail_unfinished_tool_execs
+from ..tasks.scan_tasks import run_scan, fail_unfinished_tool_execs, mark_scan_failed
 from ..services.comparison_service import ComparisonService
 import uuid
 from sqlalchemy import desc
@@ -348,10 +348,12 @@ def check_stuck_scans():
                 f"Scan {scan.id} ({scan.name}) stuck in 'running' state for {hours_running:.1f} hours. "
                 f"Last phase: {scan.current_phase}. Marking as failed."
             )
-            fail_unfinished_tool_execs(db, scan.id, "Scan stuck in 'running' state; marked as failed")
-            scan.status = ScanStatus.FAILED.value
-            scan.current_phase = ScanPhase.FAILED.value
-            scan.finished_at = now
+            reason = (
+                f"Scan stuck in 'running' state for {hours_running:.1f} hours "
+                f"(last phase: {scan.current_phase}); marked as failed"
+            )
+            fail_unfinished_tool_execs(db, scan.id, reason)
+            mark_scan_failed(db, scan, reason, now)
 
         # Find scans stuck in 'queued' state
         queued_threshold = now - timedelta(minutes=QUEUED_STUCK_THRESHOLD_MINUTES)
@@ -366,9 +368,11 @@ def check_stuck_scans():
                 f"Scan {scan.id} ({scan.name}) stuck in 'queued' state for {minutes_queued:.0f} minutes. "
                 f"Marking as failed."
             )
-            scan.status = ScanStatus.FAILED.value
-            scan.current_phase = ScanPhase.FAILED.value
-            scan.finished_at = now
+            mark_scan_failed(
+                db, scan,
+                f"Scan was never picked up by a worker (queued for {minutes_queued:.0f} minutes); marked as failed",
+                now,
+            )
 
         if stuck_running or stuck_queued:
             db.commit()

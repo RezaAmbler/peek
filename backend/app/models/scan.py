@@ -61,6 +61,8 @@ class Scan(Base):
     status = Column(String, default=ScanStatus.PENDING.value, nullable=False, index=True)
     current_phase = Column(String, default=ScanPhase.PENDING.value, nullable=False)
     celery_task_id = Column(String, nullable=True)
+    # Why the scan failed (set together with status=failed); shown in the UI
+    error_message = Column(String, nullable=True)
 
     # Timing
     created_at = Column(DateTime, default=utcnow, nullable=False)

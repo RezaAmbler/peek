@@ -11,6 +11,7 @@ from sqlalchemy.pool import NullPool
 from sqlalchemy.orm import sessionmaker, Session
 from contextlib import contextmanager
 from ..core.config import settings
+from ..core.timeutil import utcnow
 
 # Convert async URL to sync URL for Celery
 sync_database_url = settings.DATABASE_URL.replace("sqlite+aiosqlite://", "sqlite://")
@@ -79,3 +80,15 @@ def read_scan_status(scan_id: str) -> Optional[str]:
         return connection.execute(
             text("SELECT status FROM scans WHERE id = :scan_id"), {"scan_id": str(scan_id)}
         ).scalar()
+
+
+def write_scan_progress(scan_id: str, progress: float) -> None:
+    """Raise a running scan's progress (never lowers it) and touch its heartbeat."""
+    with _status_engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE scans SET progress_percent = MAX(COALESCE(progress_percent, 0), :progress), "
+                "progress_updated_at = :now WHERE id = :scan_id AND status = 'running'"
+            ),
+            {"progress": progress, "now": utcnow(), "scan_id": str(scan_id)},
+        )

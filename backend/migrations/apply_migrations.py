@@ -53,7 +53,14 @@ def add_column_if_not_exists(cursor, table: str, column: str, column_type: str, 
 
     sql = f"ALTER TABLE {table} ADD COLUMN {column} {column_type}{default_clause}"
     print(f"  Adding column: {table}.{column}")
-    cursor.execute(sql)
+    try:
+        cursor.execute(sql)
+    except sqlite3.OperationalError as exc:
+        # Another process (API and worker start together) added it meanwhile
+        if "duplicate column name" not in str(exc).lower():
+            raise
+        print(f"  Column '{table}.{column}' already exists, skipping")
+        return False
     return True
 
 
@@ -195,6 +202,42 @@ def apply_003_soc_findings(cursor):
     print("  Migration 003 complete" + ("" if added else " (fingerprint already present)"))
 
 
+def apply_004_scan_error_message(cursor):
+    """Migration 004: scans.error_message (why a scan failed).
+
+    Failed scans from before this column existed get the reason backfilled from
+    their last failed tool run, which is where it was recorded until now.
+    """
+    print("\nApplying migration 004: scan error message")
+
+    add_column_if_not_exists(cursor, "scans", "error_message", "VARCHAR", default=None)
+    if not table_exists(cursor, "scans"):
+        return
+
+    if table_exists(cursor, "tool_executions") and table_exists(cursor, "scan_targets"):
+        cursor.execute(
+            """
+            UPDATE scans
+            SET error_message = (
+                SELECT te.error_message
+                FROM tool_executions te
+                JOIN scan_targets st ON te.scan_target_id = st.id
+                WHERE st.scan_id = scans.id
+                  AND te.error_message IS NOT NULL
+                  AND te.error_message != ''
+                ORDER BY te.finished_at DESC
+                LIMIT 1
+            )
+            WHERE status = 'failed' AND error_message IS NULL
+            """
+        )
+    cursor.execute(
+        "UPDATE scans SET error_message = 'Scan failed (no reason was recorded)' "
+        "WHERE status = 'failed' AND error_message IS NULL"
+    )
+    print("  Migration 004 complete")
+
+
 def apply_all(db_path: str) -> None:
     db_path_obj = Path(db_path)
     if not db_path_obj.exists():
@@ -211,6 +254,7 @@ def apply_all(db_path: str) -> None:
         apply_001_httpx_screenshots_vhost(cursor)
         apply_002_compare_series(cursor, db_path_obj)
         apply_003_soc_findings(cursor)
+        apply_004_scan_error_message(cursor)
 
         conn.commit()
         print("\nAll migrations applied successfully!")

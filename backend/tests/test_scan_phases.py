@@ -482,3 +482,93 @@ def test_fail_interrupted_scans_closes_out_cancelled_scans(db, scan_env):
     db.refresh(tool_exec)
     assert scan.status == "cancelled" and scan.finished_at is not None
     assert tool_exec.finished_at is not None and tool_exec.error_message == "Scan cancelled"
+
+
+# ---------------------------------------------------------------------------
+# Failure reason + progress during long tool runs
+# ---------------------------------------------------------------------------
+
+def test_fail_interrupted_scans_records_the_reason_and_target_counts(db, scan_env):
+    scan, target = scan_env.scan, scan_env.target
+    target.status = "scanning"
+    db.commit()
+
+    scan_tasks.fail_interrupted_scans(db, "worker restarted")
+
+    db.refresh(scan)
+    db.refresh(target)
+    assert scan.status == "failed" and scan.error_message == "worker restarted"
+    # A target that never finished counts as failed and says why
+    assert target.status == "failed" and target.error_message == "worker restarted"
+    assert scan.failed_targets == 1 and scan.completed_targets == 0
+
+
+def test_mark_scan_failed_keeps_finished_targets(db, scan_env):
+    scan, target = scan_env.scan, scan_env.target
+    target.status = "completed"
+    db.commit()
+
+    scan_tasks.mark_scan_failed(db, scan, "x" * 5000)
+    db.commit()
+
+    db.refresh(target)
+    assert target.status == "completed" and target.error_message is None
+    assert scan.completed_targets == 1 and scan.failed_targets == 0
+    assert len(scan.error_message) == 2000
+
+
+class TestProgressHeartbeat:
+    def test_heartbeat_moves_inside_the_running_step_only(self, db, scan_env):
+        scan_tasks.begin_phase_steps(db, scan_env.scan, "nmap", 4)
+        low, high = phase_progress("nmap", 0), phase_progress("nmap", 0.25)
+
+        values = [scan_tasks.heartbeat_progress(elapsed, 600) for elapsed in (0, 30, 300, 6000, 10 ** 6)]
+
+        assert values[0] == low
+        assert values == sorted(values) and len(set(values)) > 3
+        assert all(low <= value < high for value in values)
+
+    def test_heartbeat_follows_the_step_counter(self, db, scan_env):
+        scan_tasks.begin_phase_steps(db, scan_env.scan, "nuclei", 2)
+        set_phase_progress(db, scan_env.scan, "nuclei", 1, 2)
+
+        value = scan_tasks.heartbeat_progress(120, 300)
+
+        assert phase_progress("nuclei", 0.5) < value < phase_progress("nuclei", 1)
+
+    def test_no_heartbeat_once_the_phase_is_done(self, db, scan_env):
+        set_phase_progress(db, scan_env.scan, "nmap")
+        assert scan_tasks.heartbeat_progress(100, 600) is None
+
+    def test_phase_stats_report_the_step(self, db, scan_env):
+        scan = scan_env.scan
+        scan_tasks.begin_phase_steps(db, scan, "nuclei", 37)
+        db.refresh(scan)
+        assert scan.phase_stats["nuclei"] == {"completed": 0, "total": 37}
+
+        set_phase_progress(db, scan, "nuclei", 5, 37)
+        db.refresh(scan)
+        assert scan.phase_stats["nuclei"] == {"completed": 5, "total": 37}
+
+    def test_set_phase_progress_never_undoes_a_heartbeat_write(self, db, scan_env):
+        scan = scan_env.scan
+        # The heartbeat writes through its own connection, behind the ORM's back
+        db.execute(Scan.__table__.update().where(Scan.id == scan.id).values(progress_percent=0.5))
+        db.commit()
+
+        set_phase_progress(db, scan, "nmap", 1, 4)
+
+        db.refresh(scan)
+        assert scan.progress_percent == 0.5
+
+    def test_heartbeat_callback_is_throttled_and_writes_progress(self, db, scan_env, monkeypatch):
+        written = []
+        monkeypatch.setattr(scan_tasks, "write_scan_progress", lambda scan_id, value: written.append((scan_id, value)))
+        scan_tasks.begin_phase_steps(db, scan_env.scan, "nmap", 1)
+        beat = scan_tasks.make_progress_heartbeat("scan-1", min_interval=3600)
+
+        beat(60, 600)
+        beat(120, 600)
+
+        assert len(written) == 1 and written[0][0] == "scan-1"
+        assert phase_progress("nmap", 0) < written[0][1] < phase_progress("nmap", 1)

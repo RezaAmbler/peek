@@ -92,6 +92,7 @@ async def list_scans(
             description=scan.description,
             status=scan.status,
             current_phase=scan.current_phase,
+            error_message=scan.error_message,
             created_at=scan.created_at,
             started_at=scan.started_at,
             finished_at=scan.finished_at,

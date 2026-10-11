@@ -35,6 +35,11 @@ celery_app.conf.update(
 )
 
 
+# How long the worker waits at startup for the API to finish migrating the schema
+SCHEMA_WAIT_ATTEMPTS = 10
+SCHEMA_WAIT_SECONDS = 3.0
+
+
 @worker_ready.connect
 def fail_scans_interrupted_by_restart(**_kwargs):
     """A worker that is just starting cannot have a scan in flight.
@@ -52,11 +57,22 @@ def fail_scans_interrupted_by_restart(**_kwargs):
         return
     import logging
     logger = logging.getLogger(__name__)
+    import time
+    from sqlalchemy.exc import OperationalError
     try:
         from .db.sync_session import get_sync_db
         from .tasks.scan_tasks import fail_interrupted_scans
-        with get_sync_db() as db:
-            count = fail_interrupted_scans(db, "Scan interrupted: the worker was restarted while it was running")
+        # The API container applies schema migrations when it starts, and after
+        # a deploy both start together: give it a moment to add new columns.
+        for attempt in range(SCHEMA_WAIT_ATTEMPTS):
+            try:
+                with get_sync_db() as db:
+                    count = fail_interrupted_scans(db, "Scan interrupted: the worker was restarted while it was running")
+                break
+            except OperationalError:
+                if attempt == SCHEMA_WAIT_ATTEMPTS - 1:
+                    raise
+                time.sleep(SCHEMA_WAIT_SECONDS)
         if count:
             logger.warning(f"Marked {count} scan(s) interrupted by a worker restart as failed")
     except Exception as exc:  # never keep the worker from starting
