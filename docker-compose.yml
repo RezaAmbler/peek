@@ -1,5 +1,8 @@
+# Used as-is by deploy/deploy.sh (plain `docker compose up -d`), so every
+# long-running service restarts with the Docker daemon after a host reboot.
 services:
   backend:
+    restart: unless-stopped
     build: ./backend
     ports:
       - "8000:8000"
@@ -21,6 +24,7 @@ services:
       - redis
 
   celery:
+    restart: unless-stopped
     build:
       context: ./backend
       dockerfile: Dockerfile.celery
@@ -45,6 +49,7 @@ services:
     # Set PEEK_WORKER_RUN_AS_ROOT=1 in the environment to run the worker as root.
 
   celery-beat:
+    restart: unless-stopped
     build:
       context: ./backend
       dockerfile: Dockerfile.celery
@@ -64,6 +69,7 @@ services:
       - backend
 
   frontend:
+    restart: unless-stopped
     build: ./frontend
     ports:
       - "3000:80"
@@ -71,11 +77,13 @@ services:
       - backend
 
   redis:
+    restart: unless-stopped
     image: redis:7-alpine
     ports:
       - "6379:6379"
 
   zap:
+    restart: unless-stopped
     image: ghcr.io/zaproxy/zaproxy:2.17.0
     container_name: peek-zap
     command: zap.sh -daemon -host 0.0.0.0 -port 8080 -config api.disablekey=true -config api.addrs.addr.name=.* -config api.addrs.addr.regex=true
