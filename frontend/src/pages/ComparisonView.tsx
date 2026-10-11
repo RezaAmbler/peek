@@ -18,15 +18,7 @@ export function ComparisonView() {
   });
 
   const handleExport = () => {
-    const token = localStorage.getItem('access_token');
-    const url = `http://localhost:8000/api/reports/comparison/${comparisonId}/pdf`;
-
-    fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
-    })
-    .then(response => response.blob())
+    comparisonsApi.downloadPdf(comparisonId!)
     .then(blob => {
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');

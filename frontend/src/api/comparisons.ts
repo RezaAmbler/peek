@@ -76,4 +76,12 @@ export const comparisonsApi = {
     const { data } = await apiClient.get(`/api/comparisons/scan/${scanId}`);
     return data;
   },
+
+  // Goes through apiClient so the request uses the configured base URL and auth token
+  async downloadPdf(comparisonId: string): Promise<Blob> {
+    const { data } = await apiClient.get<Blob>(`/api/reports/comparison/${comparisonId}/pdf`, {
+      responseType: 'blob',
+    });
+    return data;
+  },
 };
