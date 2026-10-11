@@ -52,7 +52,14 @@ class DailyScanCount(BaseModel):
 class DashboardStats(BaseModel):
     total_scans: int
     scans_by_status: List[ScanStatusCount]
-    total_vulnerabilities: int
+    # Finding/port/host/service figures describe the current state: they count
+    # only the latest completed run of each scan config, so re-running the same
+    # targets does not inflate them. total_findings_all_runs is the old sum.
+    findings_scope: str = "latest_completed_run_per_config"
+    scans_counted: int = 0
+    total_findings: int = 0  # every severity, info included
+    total_vulnerabilities: int  # findings with a severity above info
+    total_findings_all_runs: int = 0
     vulnerabilities_by_severity: List[VulnerabilitySeverityCount]
     total_configs: int
     recent_scans: List[RecentScan]
@@ -89,26 +96,39 @@ async def get_dashboard_stats(
         for row in status_result
     ]
 
-    # Get all scan IDs for this user to filter vulnerabilities
-    scan_ids_result = await db.execute(
+    # Every scan of this user (only used for the all-runs total)
+    all_scan_ids_result = await db.execute(
         select(Scan.id).where(Scan.user_id == current_user.id)
     )
-    scan_ids = [str(row[0]) for row in scan_ids_result]
+    all_scan_ids = [str(row[0]) for row in all_scan_ids_result]
 
-    # Total vulnerabilities across all user's scans
-    total_vulns = 0
+    # Latest completed run of each config: the scans that describe "now".
+    # Re-runs of the same targets would otherwise be summed up again and again.
+    completed_result = await db.execute(
+        select(Scan.id, Scan.config_id, Scan.total_open_ports)
+        .where(Scan.user_id == current_user.id)
+        .where(Scan.status == ScanStatus.COMPLETED.value)
+        .order_by(Scan.created_at.desc(), Scan.run_number.desc())
+    )
+    latest_by_config = {}
+    for scan_id, config_id, open_ports in completed_result:
+        latest_by_config.setdefault(str(config_id), (str(scan_id), open_ports or 0))
+    scan_ids = [scan_id for scan_id, _ in latest_by_config.values()]
+
+    total_findings = 0
+    total_findings_all_runs = 0
     vulns_by_severity = []
 
-    if scan_ids:
-        # Join through ScanTarget to get vulnerabilities
-        total_vulns_result = await db.execute(
+    if all_scan_ids:
+        all_runs_result = await db.execute(
             select(func.count(Vulnerability.id))
             .join(ScanTarget, Vulnerability.scan_target_id == ScanTarget.id)
-            .where(ScanTarget.scan_id.in_(scan_ids))
+            .where(ScanTarget.scan_id.in_(all_scan_ids))
         )
-        total_vulns = total_vulns_result.scalar() or 0
+        total_findings_all_runs = all_runs_result.scalar() or 0
 
-        # Vulnerabilities by severity
+    if scan_ids:
+        # Findings by severity (join through ScanTarget)
         severity_result = await db.execute(
             select(Vulnerability.severity, func.count(Vulnerability.id))
             .join(ScanTarget, Vulnerability.scan_target_id == ScanTarget.id)
@@ -119,6 +139,11 @@ async def get_dashboard_stats(
             VulnerabilitySeverityCount(severity=row[0] or 'unknown', count=row[1])
             for row in severity_result
         ]
+        total_findings = sum(item.count for item in vulns_by_severity)
+
+    total_vulns = sum(
+        item.count for item in vulns_by_severity if item.severity.lower() != 'info'
+    )
 
     # Total configs
     configs_result = await db.execute(
@@ -157,12 +182,8 @@ async def get_dashboard_stats(
         for scan in recent_scans_raw
     ]
 
-    # Total ports across all scans
-    total_ports_result = await db.execute(
-        select(func.coalesce(func.sum(Scan.total_open_ports), 0))
-        .where(Scan.user_id == current_user.id)
-    )
-    total_ports = total_ports_result.scalar() or 0
+    # Open ports of the latest completed run of each config
+    total_ports = sum(open_ports for _, open_ports in latest_by_config.values())
 
     # Active scheduled scans count
     active_schedules_result = await db.execute(
@@ -245,7 +266,10 @@ async def get_dashboard_stats(
     return DashboardStats(
         total_scans=total_scans,
         scans_by_status=scans_by_status,
+        scans_counted=len(scan_ids),
+        total_findings=total_findings,
         total_vulnerabilities=total_vulns,
+        total_findings_all_runs=total_findings_all_runs,
         vulnerabilities_by_severity=vulns_by_severity,
         total_configs=total_configs,
         recent_scans=recent_scans,

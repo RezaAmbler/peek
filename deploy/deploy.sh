@@ -99,6 +99,19 @@ GENERATED_SECRET=$(openssl rand -hex 32)
 if [ -z "$GENERATED_SECRET" ] || [ ${#GENERATED_SECRET} -lt 32 ]; then
     error "openssl rand returned empty or short value; aborting"
 fi
+# The checkout is rsynced without .git, so the running app cannot ask git what
+# it was built from: record branch/commit here (shown by /api/version and the
+# UI footer). Empty values are fine - the UI then shows the version only.
+GIT_BRANCH=$(git -C "$LOCAL_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+GIT_COMMIT=$(git -C "$LOCAL_DIR" rev-parse --short HEAD 2>/dev/null || true)
+if [ -n "$GIT_COMMIT" ] && [ -n "$(git -C "$LOCAL_DIR" status --porcelain 2>/dev/null)" ]; then
+    GIT_COMMIT="$GIT_COMMIT-dirty"
+fi
+# Only characters that are safe in an env file and a remote heredoc
+GIT_BRANCH=$(printf '%s' "$GIT_BRANCH" | tr -cd 'A-Za-z0-9._/-')
+GIT_COMMIT=$(printf '%s' "$GIT_COMMIT" | tr -cd 'A-Za-z0-9._-')
+BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+log "Build info: branch=${GIT_BRANCH:-n/a} commit=${GIT_COMMIT:-n/a}"
 $SSH_CMD "cat > $REMOTE_DIR/backend/.env << 'ENV_EOF'
 DATABASE_URL=sqlite+aiosqlite:///./data/peek.db
 SECRET_KEY=$GENERATED_SECRET
@@ -106,6 +119,9 @@ ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=1440
 ALLOWED_ORIGINS=[\"http://$TARGET_IP\",\"http://localhost:3000\"]
 VERSION=2.2.1
+GIT_BRANCH=$GIT_BRANCH
+GIT_COMMIT=$GIT_COMMIT
+BUILD_TIME=$BUILD_TIME
 CELERY_BROKER_URL=redis://redis:6379/0
 CELERY_RESULT_BACKEND=redis://redis:6379/0
 ENV_EOF"

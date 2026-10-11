@@ -4,6 +4,7 @@ from fastapi.openapi.utils import get_openapi
 from contextlib import asynccontextmanager
 from datetime import datetime
 import os
+from functools import lru_cache
 import secrets
 import subprocess
 from .core.config import settings
@@ -247,16 +248,10 @@ app.include_router(scheduled_scans.router, prefix="/api/scheduled-scans", tags=[
 app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
 app.include_router(stats.router, prefix="/api/stats", tags=["stats"])
 
-def get_git_branch() -> str:
-    """Get the current git branch name from env var or git command."""
-    # First check environment variable (set by docker-compose)
-    branch = os.environ.get("GIT_BRANCH")
-    if branch:
-        return branch
-    # Fall back to git command (works in local development)
+def _git_output(*args: str) -> str:
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            ["git", *args],
             capture_output=True,
             text=True,
             timeout=5
@@ -265,12 +260,38 @@ def get_git_branch() -> str:
             return result.stdout.strip()
     except Exception:
         pass
-    return "unknown"
+    return ""
+
+
+def _known(value: str):
+    """None for the placeholders a missing git checkout produces."""
+    value = (value or "").strip()
+    return value if value and value.lower() not in ("unknown", "head") else None
+
+
+@lru_cache(maxsize=1)
+def get_build_info() -> dict:
+    """Git branch/commit of the running build (None when not available).
+
+    Deployments have no .git directory (deploy/deploy.sh rsyncs the checkout
+    without it), so the deploy script writes GIT_BRANCH / GIT_COMMIT into
+    backend/.env. Local development falls back to asking git.
+    """
+    branch = os.environ.get("GIT_BRANCH") or _git_output("rev-parse", "--abbrev-ref", "HEAD")
+    commit = os.environ.get("GIT_COMMIT") or _git_output("rev-parse", "--short", "HEAD")
+    return {
+        "version": settings.VERSION,
+        "git_branch": _known(branch),
+        "git_commit": _known(commit),
+        "build_time": os.environ.get("BUILD_TIME") or None,
+    }
+
 
 @app.get("/api/health")
 async def health_check():
-    return {
-        "status": "ok",
-        "version": settings.VERSION,
-        "git_branch": get_git_branch()
-    }
+    return {"status": "ok", **get_build_info()}
+
+
+@app.get("/api/version", summary="Version and build information")
+async def version_info():
+    return get_build_info()
