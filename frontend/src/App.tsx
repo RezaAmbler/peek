@@ -17,7 +17,13 @@ import { useAuth } from './hooks/useAuth';
 
 const queryClient = new QueryClient();
 
-const rootRoute = createRootRoute();
+const rootRoute = createRootRoute({
+  // After a full page reload only the token is left (localStorage): load the
+  // user before any child route's guard runs, so role checks see the real role.
+  beforeLoad: async () => {
+    await useAuth.getState().ensureUser();
+  },
+});
 
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
