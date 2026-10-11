@@ -3,7 +3,10 @@ Report exports: every format renders for a scan whose findings carry the data
 shapes the scanners really store (nuclei: list of extracted values, others: a
 mapping), and every timestamp names its timezone.
 """
+import base64
+import re
 import uuid
+import zlib
 from datetime import datetime
 
 import pytest
@@ -112,6 +115,32 @@ def test_pdf_reports_render(db, scan, method):
     data = getattr(ReportService(db), method)(scan.id).read()
 
     assert data.startswith(b"%PDF") and len(data) > 1000
+
+
+def _pdf_page_text(data: bytes) -> bytes:
+    """Concatenated, decoded page content streams of a reportlab PDF."""
+    pages = []
+    for stream in re.findall(rb"stream\r?\n(.*?)endstream", data, re.DOTALL):
+        try:
+            pages.append(zlib.decompress(base64.a85decode(stream.strip(), adobe=True)))
+        except (ValueError, zlib.error):
+            continue
+    return b"\n".join(pages)
+
+
+def test_html_report_credits_nmap_with_link(db, scan):
+    html = ReportService(db).generate_html_report(scan.id)
+
+    assert '<a href="https://nmap.org/"' in html
+    assert re.search(r'<a href="https://nmap\.org/"[^>]*>This system uses the Nmap Security Scanner</a>', html)
+
+
+@pytest.mark.parametrize("method", ["generate_executive_summary_pdf", "generate_technical_report_pdf"])
+def test_pdf_reports_credit_nmap_with_link(db, scan, method):
+    data = getattr(ReportService(db), method)(scan.id).read()
+
+    assert b"This system uses the Nmap Security Scanner" in _pdf_page_text(data)
+    assert b"/URI (https://nmap.org/)" in data
 
 
 def test_csv_exports_render_and_label_utc(db, scan):

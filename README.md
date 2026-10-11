@@ -770,6 +770,12 @@ SOFTWARE.
 
 ---
 
+## Credits
+
+**[This system uses the Nmap Security Scanner](https://nmap.org/)** to perform port discovery, service and version detection, and NSE script checks. Nmap is distributed under the [Nmap Public Source License](https://nmap.org/npsl/); PEEK runs it unmodified and shows this notice in the app footer, on the new scan form, and in generated PDF and HTML reports.
+
+---
+
 ## 🙏 Acknowledgments
 
 PEEK integrates and builds upon these excellent open-source projects:

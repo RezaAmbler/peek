@@ -5,6 +5,7 @@ import axios from 'axios';
 import { scansApi, CreateScanRequest } from '../api/scans';
 import { configsApi } from '../api/configs';
 import { Navigation } from '../components/Navigation';
+import { NmapCredit } from '../components/NmapCredit';
 
 // Helper to extract error message from various error formats
 function getErrorMessage(err: unknown): string {
@@ -341,6 +342,9 @@ export function NewScan() {
               Create and Start
             </button>
           </div>
+          <p className="mt-4 text-right text-xs text-gray-600 dark:text-gray-300">
+            <NmapCredit />
+          </p>
         </div>
       </div>
     </div>

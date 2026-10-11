@@ -33,6 +33,14 @@ describe('Footer', () => {
     expect(screen.queryByTestId('footer-build')).not.toBeInTheDocument();
   });
 
+  it('credits Nmap with a link, even before build info loads', () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+    render(<Footer />);
+
+    const link = screen.getByRole('link', { name: 'This system uses the Nmap Security Scanner' });
+    expect(link).toHaveAttribute('href', 'https://nmap.org/');
+  });
+
   it('is part of the page flow, not a fixed overlay', () => {
     mockHealth({ status: 'ok', version: '2.2.1' });
     render(<Footer />);

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { API_BASE_URL } from '../api/client';
+import { NmapCredit } from './NmapCredit';
 
 export interface BuildInfo {
   version: string;
@@ -37,12 +38,13 @@ export function Footer() {
   // content. Pages use min-h-page so page + footer fill the viewport exactly.
   return (
     <footer
-      className="h-10 flex items-center justify-end px-4 sm:px-6 lg:px-8 text-xs text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-900"
+      className="h-10 flex items-center justify-between gap-4 px-4 sm:px-6 lg:px-8 text-xs text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-900"
       data-component="Footer"
       data-testid="footer"
     >
+      <NmapCredit className="whitespace-nowrap text-gray-600 dark:text-gray-300" />
       {buildInfo && (
-        <span className="font-mono whitespace-nowrap">
+        <span className="font-mono truncate">
           v{buildInfo.version}
           {details.length > 0 && (
             <>
