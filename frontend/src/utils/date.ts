@@ -61,3 +61,13 @@ export function formatDateTime(value: string | Date | null | undefined, options:
     timeZone,
   }).format(date);
 }
+
+const BARE_UTC_TIMESTAMP = /\b\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?\b/g;
+
+/**
+ * Rewrite the bare UTC timestamps ("2026-10-10 19:01") inside backend-written
+ * text as local time with a timezone label.
+ */
+export function localizeTimestamps(text: string, options: FormatOptions = {}): string {
+  return text.replace(BARE_UTC_TIMESTAMP, (stamp) => formatDateTime(stamp, options));
+}

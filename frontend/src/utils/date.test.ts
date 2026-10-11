@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatDateTime, parseUTC, timeZoneLabel } from './date';
+import { formatDateTime, localizeTimestamps, parseUTC, timeZoneLabel } from './date';
 
 describe('parseUTC', () => {
   it('treats timestamps without a timezone as UTC', () => {
@@ -46,5 +46,16 @@ describe('timeZoneLabel', () => {
   it('names the timezone', () => {
     expect(timeZoneLabel(new Date('2026-10-10T19:01:49Z'), 'UTC')).toBe('UTC');
     expect(timeZoneLabel(new Date('2026-10-10T19:01:49Z'), 'America/Los_Angeles')).toBe('PDT');
+  });
+});
+
+describe('localizeTimestamps', () => {
+  it('rewrites bare UTC timestamps in text as local time with a timezone label', () => {
+    const text = localizeTimestamps('Baseline: 2026-10-10 19:01', { timeZone: 'America/Los_Angeles' });
+    expect(text).toMatch(/^Baseline: Oct 10, 2026, 12:01\sPM PDT$/);
+  });
+
+  it('leaves text without a timestamp alone', () => {
+    expect(localizeTimestamps('Comparison: run #2 → run #3')).toBe('Comparison: run #2 → run #3');
   });
 });

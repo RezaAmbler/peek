@@ -56,6 +56,35 @@ export interface AssociatedVulnerability {
   matched_at: string;
 }
 
+interface ComparisonExport {
+  /** Path below /api/reports/comparison/{id}/ */
+  path: string;
+  params?: Record<string, string>;
+  /** Suffix and extension of the saved file. */
+  fileSuffix: string;
+}
+
+// Mirrors the scan report exports: two PDFs, HTML, and CSVs.
+export const COMPARISON_EXPORTS = {
+  'pdf-executive': { path: 'pdf/executive', fileSuffix: 'executive_summary.pdf' },
+  'pdf-detailed': { path: 'pdf/detailed', fileSuffix: 'report.pdf' },
+  html: { path: 'html', fileSuffix: 'report.html' },
+  'csv-changes': { path: 'csv/changes', fileSuffix: 'changes.csv' },
+  'csv-vulnerabilities': {
+    path: 'csv/changes',
+    params: { category: 'vulnerability' },
+    fileSuffix: 'vulnerability_changes.csv',
+  },
+  'csv-ports': { path: 'csv/changes', params: { category: 'port' }, fileSuffix: 'port_changes.csv' },
+  'csv-summary': { path: 'csv/summary', fileSuffix: 'summary.csv' },
+} satisfies Record<string, ComparisonExport>;
+
+export type ComparisonExportFormat = keyof typeof COMPARISON_EXPORTS;
+
+export function comparisonExportFilename(comparisonId: string, format: ComparisonExportFormat): string {
+  return `comparison_${comparisonId.slice(0, 8)}_${COMPARISON_EXPORTS[format].fileSuffix}`;
+}
+
 export const comparisonsApi = {
   async compare(baselineScanId: string, currentScanId: string): Promise<ScanComparison> {
     const { data } = await apiClient.post<ScanComparison>('/api/comparisons/compare', null, {
@@ -78,8 +107,10 @@ export const comparisonsApi = {
   },
 
   // Goes through apiClient so the request uses the configured base URL and auth token
-  async downloadPdf(comparisonId: string): Promise<Blob> {
-    const { data } = await apiClient.get<Blob>(`/api/reports/comparison/${comparisonId}/pdf`, {
+  async downloadReport(comparisonId: string, format: ComparisonExportFormat): Promise<Blob> {
+    const { path, params }: ComparisonExport = COMPARISON_EXPORTS[format];
+    const { data } = await apiClient.get<Blob>(`/api/reports/comparison/${comparisonId}/${path}`, {
+      params,
       responseType: 'blob',
     });
     return data;

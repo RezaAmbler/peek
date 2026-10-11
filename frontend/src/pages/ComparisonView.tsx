@@ -3,7 +3,9 @@ import { useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { comparisonsApi } from '../api/comparisons';
 import { ChangeCard } from '../components/ChangeCard';
+import { ComparisonExportMenu } from '../components/ComparisonExportMenu';
 import { Navigation } from '../components/Navigation';
+import { formatDateTime, localizeTimestamps } from '../utils/date';
 
 export function ComparisonView() {
   const { comparisonId } = useParams({ from: '/comparisons/$comparisonId' });
@@ -16,24 +18,6 @@ export function ComparisonView() {
     queryKey: ['comparison', comparisonId],
     queryFn: () => comparisonsApi.get(comparisonId!),
   });
-
-  const handleExport = () => {
-    comparisonsApi.downloadPdf(comparisonId!)
-    .then(blob => {
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = `comparison_report_${comparisonId}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(downloadUrl);
-    })
-    .catch(error => {
-      console.error('Export failed:', error);
-      alert('Failed to export comparison report. Please try again.');
-    });
-  };
 
   if (isLoading) {
     return (
@@ -79,13 +63,7 @@ export function ComparisonView() {
         <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6 mb-6" data-component="ComparisonSummary">
           <div className="flex items-center justify-between mb-4">
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Scan Comparison</h1>
-            <button
-              onClick={handleExport}
-              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm font-medium"
-              data-testid="comparison-export-button"
-            >
-              Export PDF Report
-            </button>
+            <ComparisonExportMenu comparisonId={comparison.id} />
           </div>
 
           {/* Summary Stats */}
@@ -151,13 +129,16 @@ export function ComparisonView() {
               if (!line.trim()) return null;
               // Lines with emoji stats (duplicates of boxes above) - skip them
               if (line.match(/^[📊🟢🔴🟡]/u)) return null;
-              // Date lines
+              // Date lines: stored as bare UTC, shown in local time with the timezone named
               return (
                 <p key={idx} className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                  {line}
+                  {localizeTimestamps(line)}
                 </p>
               );
             })}
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5" data-testid="comparison-created-at">
+              Compared: {formatDateTime(comparison.created_at)}
+            </p>
           </div>
         </div>
 
