@@ -2,19 +2,19 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-# Build nmap 7.991 from source for parallel DNS and updated signatures
+# Build nmap 7.993 from source for parallel DNS and updated signatures
 RUN apt-get update && apt-get install -y \
     build-essential \
     libssl-dev \
     libssh2-1-dev \
     wget \
-    && wget -q https://nmap.org/dist/nmap-7.991.tar.bz2 \
-    && tar xjf nmap-7.991.tar.bz2 \
-    && cd nmap-7.991 \
+    && wget -q https://nmap.org/dist/nmap-7.993.tar.bz2 \
+    && tar xjf nmap-7.993.tar.bz2 \
+    && cd nmap-7.993 \
     && ./configure --without-ncat --without-ndiff --without-nping --without-zenmap \
     && make -j$(nproc) \
     && make install \
-    && cd .. && rm -rf nmap-7.991 nmap-7.991.tar.bz2 \
+    && cd .. && rm -rf nmap-7.993 nmap-7.993.tar.bz2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install system dependencies for scanning tools
